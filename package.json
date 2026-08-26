@@ -2,7 +2,7 @@
   "name": "nisti-pkm-marketing-hub",
   "private": true,
   "version": "1.0.1",
-  "description": "Nisti Print PKM Marketing Hub - Gestor de Marketing e Obsidian PKM",
+  "description": "Nisti Marketing - sistema local-first de gestão de marketing integrado ao Obsidian e IA Gemini",
   "author": "Nisti Print Solutions",
   "main": "dist/electron-main.cjs",
   "type": "module",
@@ -23,7 +23,7 @@
   },
   "build": {
     "appId": "com.nistiprint.pkm",
-    "productName": "Nisti Print PKM Marketing Hub",
+    "productName": "Nisti Marketing",
     "copyright": "Copyright © 2026 Nisti Print Solutions",
     "asar": false,
     "directories": {
@@ -45,7 +45,7 @@
         }
       ],
       "requestedExecutionLevel": "asInvoker",
-      "legalTrademarks": "Nisti Print PKM Solutions",
+      "legalTrademarks": "Nisti Print Solutions",
       "signAndEditExecutable": false,
       "forceCodeSigning": false
     },
@@ -54,13 +54,13 @@
       "allowToChangeInstallationDirectory": true,
       "createDesktopShortcut": true,
       "createStartMenuShortcut": true,
-      "shortcutName": "Nisti Print PKM Marketing Hub",
+      "shortcutName": "Nisti Marketing",
       "perMachine": false,
       "runAfterFinish": true,
       "deleteAppDataOnUninstall": false,
       "installerLanguages": ["pt_BR", "en_US"],
       "displayLanguageSelector": false,
-      "uninstallDisplayName": "Nisti Print PKM Marketing Hub"
+      "uninstallDisplayName": "Nisti Marketing"
     },
     "mac": {
       "target": ["dmg", "zip"],
