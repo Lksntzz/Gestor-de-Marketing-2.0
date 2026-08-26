@@ -23,7 +23,7 @@ import {
   Inbox,
   Eye
 } from "lucide-react";
-import { ObsidianNote, ObsidianApiConfig, KnowledgeStatus } from "../types";
+import { ObsidianNote, ObsidianApiConfig, KnowledgeStatus, EngineMode } from "../types";
 import { STANDARD_VAULT_FOLDERS } from "../data/defaultVault";
 import { buildObsidianOpenUri } from "../utils/obsidianUri";
 import confetti from "canvas-confetti";
@@ -34,7 +34,7 @@ interface AddKnowledgeViewProps {
   apiConfig: ObsidianApiConfig;
   onNavigateTab: (tab: "dashboard" | "vault" | "campaigns" | "tasks" | "automations" | "routine") => void;
   onSelectNote: (note: ObsidianNote) => void;
-  engineMode: "local" | "ai";
+  engineMode: EngineMode;
 }
 
 type KnowledgeType = "pdf" | "image" | "youtube" | "site" | "text";
@@ -73,6 +73,7 @@ export const AddKnowledgeView: React.FC<AddKnowledgeViewProps> = ({
   const [pdfFile, setPdfFile] = useState<File | null>(null);
   const [pdfFileName, setPdfFileName] = useState<string>("");
   const [pdfTextSample, setPdfTextSample] = useState<string>("");
+  const [pdfBase64, setPdfBase64] = useState<string>("");
   
   const [imageUrl, setImageUrl] = useState<string>("");
   const [imageTitle, setImageTitle] = useState<string>("");
@@ -146,7 +147,13 @@ Vincular com [[Brand Voice & Posicionamento Nisti Print]] e [[Catálogo - Planne
       const file = e.target.files[0];
       setPdfFile(file);
       setPdfFileName(file.name);
-      setPdfTextSample(`[Leitura Automatizada do arquivo PDF '${file.name}']: Este arquivo de ${Math.round(file.size / 1024)} KB contém especificações técnicas, propostas de valor e diretrizes de marketing.`);
+      setPdfTextSample(`[Arquivo PDF '${file.name}' carregado - tamanho: ${Math.round(file.size / 1024)} KB]`);
+
+      const reader = new FileReader();
+      reader.onloadend = () => {
+        setPdfBase64(reader.result as string);
+      };
+      reader.readAsDataURL(file);
     }
   };
 
@@ -212,7 +219,7 @@ Vincular com [[Brand Voice & Posicionamento Nisti Print]] e [[Catálogo - Planne
 
     let payload: any = {};
     if (selectedType === "pdf") {
-      payload = { fileName: pdfFileName, textContentSample: pdfTextSample };
+      payload = { fileName: pdfFileName, textContentSample: pdfTextSample, base64: pdfBase64 };
     } else if (selectedType === "image") {
       payload = { 
         title: imageTitle, 
@@ -242,7 +249,7 @@ Vincular com [[Brand Voice & Posicionamento Nisti Print]] e [[Catálogo - Planne
       const response = await fetch("/api/gemini/process-knowledge", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ type: selectedType, payload })
+        body: JSON.stringify({ type: selectedType, payload, engineMode })
       });
 
       if (!response.ok) {

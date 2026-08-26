@@ -69,48 +69,48 @@ export const CampaignsView: React.FC<CampaignsViewProps> = ({
   );
 
   // Wizard Form States
-  const [campaignName, setCampaignName] = useState("Lançamento Q3 - Growth Engine");
-  const [objective, setObjective] = useState("Geração de Leads Qualificados e Demonstrações");
-  const [audience, setAudience] = useState("Tech Leads, CTOs e Gestores de Marketing");
-  const [tone, setTone] = useState("Autoritário, Técnico, Empático e Direto");
+  const [campaignName, setCampaignName] = useState("Lançamento Coleção Planners & Devocionais 2026");
+  const [objective, setObjective] = useState("Captação de Papelarias Criativas e Pedidos B2B");
+  const [audience, setAudience] = useState("Empreendedoras de Papelaria, Líderes Ministeriais e Autores");
+  const [tone, setTone] = useState("Inspirador, Sofisticado, Técnico e Acolhedor");
   const [selectedChannels, setSelectedChannels] = useState<string[]>([
-    "LinkedIn",
+    "Instagram",
+    "WhatsApp VIP",
     "Email Newsletter",
-    "Blog SEO",
   ]);
   const [selectedNotePaths, setSelectedNotePaths] = useState<string[]>(
     notes.slice(0, 3).map((n) => n.path)
   );
   const [customInstructions, setCustomInstructions] = useState(
-    "Enfatizar que o produto respeita o formato Markdown local do Obsidian e não força vendor lock-in."
+    "Destacar que produzimos tiragens a partir de 10 unidades com laminação Soft Touch, miolo 90g e encadernação wire-o bronze."
   );
 
   const [copiedId, setCopiedId] = useState<string | null>(null);
   const [noteSearch, setNoteSearch] = useState("");
-  const [activeChannelTab, setActiveChannelTab] = useState<string>(selectedChannels[0] || "LinkedIn");
+  const [activeChannelTab, setActiveChannelTab] = useState<string>(selectedChannels[0] || "Instagram");
 
   const availableChannels = [
-    "LinkedIn",
-    "Email Newsletter",
     "Instagram",
-    "Blog SEO",
-    "Twitter / X",
+    "WhatsApp VIP",
+    "Email Newsletter",
     "TikTok / Reels",
+    "LinkedIn B2B",
+    "Blog Editorial",
   ];
 
   const quickObjectives = [
-    "Geração de Leads Qualificados",
-    "Lançamento de Novo Produto",
-    "Construção de Autoridade & Branding",
-    "Nutrição e Conversão de Base",
-    "Engajamento Orgânico e Retenção",
+    "Captação de Papelarias Criativas (B2B)",
+    "Lançamento de Nova Coleção de Planners",
+    "Pedidos Antecipados para Congressos",
+    "Divulgação de Brindes Corporativos",
+    "Fortalecimento de Marca & Catálogo",
   ];
 
   const quickTones = [
-    "Autoritário e Direto",
-    "Educativo e Prático",
-    "Storytelling e Inspirador",
-    "Técnico e Analítico",
+    "Inspirador e Sofisticado",
+    "Acolhedor e Especialista",
+    "Técnico e Direto",
+    "Comercial e Persuasivo",
   ];
 
   const handleToggleChannel = (channel: string) => {

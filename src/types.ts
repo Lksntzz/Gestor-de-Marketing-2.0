@@ -1,4 +1,4 @@
-export type EngineMode = "local" | "ai";
+export type EngineMode = "local" | "gemini" | "ai";
 
 export type KnowledgeStatus = "NOVO" | "EM REVISÃO" | "OFICIAL";
 
@@ -214,6 +214,11 @@ export interface EmotionalDriver {
 }
 
 export type NicheSegmentKey =
+  | "empreendedoras_papelaria"
+  | "lideres_eclesiasticos"
+  | "editoras_autores"
+  | "empresas_corporativo"
+  | "professores_educacao"
   | "tech_leads_devs"
   | "cmos_growth"
   | "creators_solopreneurs"
@@ -299,6 +304,7 @@ declare global {
       getVaultPath: () => Promise<string | null>;
       readNotes: (vaultPath: string) => Promise<any[]>;
       writeNote: (vaultPath: string, folder: string, title: string, content: string, frontmatter?: any) => Promise<{ success: boolean; path?: string; error?: string }>;
+      appendNote?: (vaultPath: string, folder: string, title: string, contentToAppend: string) => Promise<{ success: boolean; path?: string; error?: string }>;
       deleteNote: (vaultPath: string, folder: string, title: string) => Promise<{ success: boolean; error?: string }>;
       processKnowledgeLocal: (payload: any) => Promise<any>;
       generateCampaignLocal: (payload: any) => Promise<any>;

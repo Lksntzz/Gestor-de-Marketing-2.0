@@ -1,4 +1,4 @@
-import React, { useState, useMemo, useRef, useEffect } from "react";
+import React, { useState, useMemo } from "react";
 import {
   Sparkles,
   CheckSquare,
@@ -6,28 +6,13 @@ import {
   FolderOpen,
   ArrowRight,
   Zap,
-  TrendingUp,
-  AlertTriangle,
-  Lightbulb,
-  ExternalLink,
-  Plus,
-  RefreshCw,
   CheckCircle2,
   Calendar,
-  Layers,
   FileText,
-  Copy,
-  ChevronRight,
-  Send,
-  Download,
-  Play,
-  Compass,
-  Flame,
+  ExternalLink,
   Check,
   RotateCcw,
   ArrowUpRight,
-  Target,
-  ChevronDown,
 } from "lucide-react";
 import {
   ObsidianNote,
@@ -73,7 +58,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
   campaigns = [],
   tasks = [],
   ideas = [],
-  scripts = [],
+  scripts: _scripts = [],
   visuals: _visuals = [],
   apiConfig,
   engineMode,
@@ -81,8 +66,8 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
   onSelectNote: _onSelectNote,
   onToggleTaskStatus,
   onOpenNewCampaignModal,
-  onOpenNewTaskModal,
-  onOpenNewNoteModal,
+  onOpenNewTaskModal: _onOpenNewTaskModal,
+  onOpenNewNoteModal: _onOpenNewNoteModal,
   onAuditVault: _onAuditVault,
   isAuditing: _isAuditing,
   auditInsight: _auditInsight,
@@ -94,9 +79,6 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
 }) => {
   // Status of the top priority action
   const [priorityActionStatus, setPriorityActionStatus] = useState<"pending" | "done" | "postponed">("pending");
-
-  // Keyboard shortcut for Cmd+K search or Quick Create
-  const searchInputRef = useRef<HTMLInputElement>(null);
 
   const pendingTasks = useMemo(() => tasks.filter((t) => t.status !== "done"), [tasks]);
   const completedTasks = useMemo(() => tasks.filter((t) => t.status === "done"), [tasks]);
@@ -112,28 +94,29 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
         title: urgentTask.title,
         subtitle: urgentTask.description || "Tarefa de alta prioridade sincronizada com Obsidian Tasks.",
         channel: urgentTask.channel || "Geral",
-        time: urgentTask.dueTime || "08:30",
+        time: urgentTask.dueTime || "11:30",
         date: urgentTask.dueDate || "Hoje",
-        persona: "Público Alvo",
-        hook: "Avançar na execução desta pendência destrava a produção de novos conteúdos.",
-        filePath: urgentTask.obsidianFilePath,
+        persona: "Público Alvo Nisti Print",
+        hook: "Avançar na execução desta pendência destrava a produção da esteira de campanhas.",
+        filePath: urgentTask.obsidianFilePath || "04_Campanhas/Lançamento Planners 2026.md",
       };
     }
 
-    // 2. Default high-leverage marketing action from Local Engine
+    // 2. Default high-leverage marketing action from Local Engine for Nisti Print
+    const activeCamp = campaigns[0];
     return {
       id: "strategic_action_1",
       type: "campaign" as const,
-      title: "Como estruturar um segundo cérebro Markdown sem gastar 1 real em nuvens fechadas",
-      subtitle: "Estudo comparativo de latência (0.1s vs 3.8s) e soberania de dados para Tech Leads.",
-      channel: "LinkedIn",
-      time: "08:30",
+      title: activeCamp?.title || "Lançamento Linha Planners & Devocionais 2026",
+      subtitle: activeCamp?.summary || "Campanha focada em quebrar a objeção de lote mínimo e destacar acabamento Soft Touch.",
+      channel: "Instagram & WhatsApp",
+      time: "11:30",
       date: "Hoje",
-      persona: "Tech Leads & Devs",
-      hook: "Mostramos os benchmarks e a privacidade que fizeram nossos times migrarem 100% dos docs para o Obsidian.",
-      filePath: "00 - Estratégia/Brand Voice & Posicionamento.md",
+      persona: "Empreendedoras de Papelaria & Ministérios",
+      hook: "Você já desenhou a coleção de planners mais linda do ano, mas a gráfica pediu 500 peças para rodar? Na Nisti Print seu projeto ganha vida a partir de 10 unidades com laminação Soft Touch e wire-o bronze.",
+      filePath: "01_Estrategia/Brand Voice & Posicionamento Nisti Print.md",
     };
-  }, [pendingTasks]);
+  }, [pendingTasks, campaigns]);
 
   // Handle Mark Done
   const handleMarkActionDone = () => {
@@ -149,22 +132,21 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
     setPriorityActionStatus("postponed");
   };
 
-  // MAXIMUM 3 KPIS WITH TRENDS
+  // MAXIMUM 3 KPIS WITH REAL DATA
   const kpis = useMemo(() => {
-    const totalImpressions = 38500; // Calculated or estimated aggregate
     const taskCompletionRate = tasks.length > 0
       ? Math.round((completedTasks.length / tasks.length) * 100)
-      : 85;
+      : 100;
 
     return [
       {
-        id: "reach",
-        label: "Alcance & Impacto",
-        value: "38.5k",
-        sub: "+18% esta semana",
+        id: "campaigns",
+        label: "Campanhas Estruturadas",
+        value: `${campaigns.length}`,
+        sub: `${campaigns.length} ${campaigns.length === 1 ? "estratégia ativa" : "estratégias ativas"}`,
         trend: "positive",
-        badge: "↑ 18%",
-        hint: "Impressões agregadas nos canais",
+        badge: "Em Andamento",
+        hint: "Planos multicanais gerados",
       },
       {
         id: "execution",
@@ -172,8 +154,8 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
         value: `${taskCompletionRate}%`,
         sub: `${completedTasks.length} de ${tasks.length} concluídas`,
         trend: "positive",
-        badge: "No Prazo",
-        hint: "Aderência às rotinas diárias",
+        badge: pendingTasks.length === 0 ? "100% Concluído" : "No Prazo",
+        hint: "Aderência às rotinas e prazos",
       },
       {
         id: "knowledge",
@@ -185,7 +167,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
         hint: "Base pronta no cofre Obsidian",
       },
     ];
-  }, [tasks, completedTasks, notes]);
+  }, [campaigns, tasks, completedTasks, pendingTasks, notes]);
 
   // Chronological Activity Timeline (Últimas Ações do Cérebro)
   const activityTimeline = useMemo(() => {
@@ -194,31 +176,31 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
         id: "1",
         time: "Agora",
         action: "Motor Local sincronizado",
-        detail: `${notes.length} notas e ${ideas.length} pautas atômicas indexadas`,
+        detail: `${notes.length} notas no cofre e ${ideas.length} ideias indexadas`,
         icon: Zap,
         color: "text-purple-600 bg-purple-50",
       },
       {
         id: "2",
-        time: "Há 15 min",
-        action: "Daily Note Atualizada",
-        detail: "Sincronização com o cofre Obsidian via Local REST API",
+        time: "Hoje",
+        action: "Daily Note de Marketing",
+        detail: "Sincronização de tarefas com formato oficial Obsidian Tasks (- [ ])",
         icon: Calendar,
         color: "text-emerald-600 bg-emerald-50",
       },
       {
         id: "3",
-        time: "Hoje às 08:30",
-        action: "Slot de Conteúdo Recomendado",
-        detail: "Publicação sobre Arquitetura PKM para Tech Leads no LinkedIn",
+        time: "Recomendado",
+        action: "Slot de Conteúdo Prioritário",
+        detail: "Publicação sobre acabamento Soft Touch e lote a partir de 10 unidades",
         icon: Sparkles,
         color: "text-amber-600 bg-amber-50",
       },
       {
         id: "4",
-        time: "Ontem",
-        action: "Campanha Sintetizada",
-        detail: "Geração de cópias multicanal (LinkedIn, Email e Blog)",
+        time: "Base",
+        action: "Taxonomia Oficial Nisti Print",
+        detail: "10 pastas padrão estruturadas com frontmatter YAML e tags",
         icon: FileText,
         color: "text-stone-600 bg-stone-100",
       },

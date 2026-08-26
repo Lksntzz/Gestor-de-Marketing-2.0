@@ -118,26 +118,28 @@ export const RoutineIntelligenceView: React.FC<RoutineIntelligenceViewProps> = (
 
   // Dynamic Suggestion / Local Engine Recommendation
   const currentRecommendation = useMemo(() => {
-    const defaultNiche = niches[0] || { id: "tech_leads_devs", name: "Tech Leads & Devs" };
-    const defaultEmotion = emotionalDrivers[0] || { id: "curiosidade", name: "Curiosidade & Segredos" };
+    const defaultNiche = niches[0] || { id: "empreendedoras_papelaria", name: "Empreendedoras de Papelaria" };
+    const defaultEmotion = emotionalDrivers[0] || { id: "alivio_praticidade", name: "Alívio & Tiragens Acessíveis" };
 
-    const nicheLabel = defaultNiche.name || "Tech Leads & Devs";
-    const emotionLabel = defaultEmotion.name || "Curiosidade";
+    const nicheLabel = defaultNiche.name || "Empreendedoras de Papelaria";
+    const emotionLabel = defaultEmotion.name || "Alívio & Praticidade";
     const slotDay = todayRoutine?.dayOfWeek || "Hoje";
-    const slotTime = todayRoutine?.optimalTime || "08:30";
+    const slotTime = todayRoutine?.optimalTime || "11:30";
     const slotFormat = formatTypeName(todayRoutine?.recommendedFormat || "carrossel");
     const slotChannel = formatChannelLabel(todayRoutine?.recommendedFormat);
 
     return {
-      title: "Como estruturar um segundo cérebro Markdown sem gastar 1 real em nuvens fechadas",
-      hook: "Mostramos os benchmarks de latência (0.1s vs 3.8s) e a privacidade que fizeram nossos times migrarem 100% dos docs para o Obsidian.",
+      title: "O Fim dos Pedidos Mínimos Abusivos: Planners a partir de 10 unidades",
+      hook: "Você já desenhou a coleção de planners mais linda do ano, mas a gráfica tradicional pediu 500 peças para rodar? Na Nisti Print seu projeto ganha vida a partir de 10 unidades com laminação Soft Touch e wire-o bronze.",
       format: `${slotFormat} (${slotChannel})`,
       niche: nicheLabel,
+      nicheId: (todayRoutine?.primaryNiche as NicheSegmentKey) || (defaultNiche.id as NicheSegmentKey),
       emotion: emotionLabel,
+      emotionId: (todayRoutine?.suggestedDriver as EmotionalDriverKey) || (defaultEmotion.id as EmotionalDriverKey),
       bestSlot: `${slotDay}, ${slotTime}`,
       optimalTime: slotTime,
       channel: slotChannel,
-      why: "O Motor Local identificou que publicações técnicas com gancho de 'Curiosidade' no LinkedIn têm 3.4x mais taxa de salvamento na sua base histórica nas terças e quartas-feiras.",
+      why: "O Motor Local identificou que conteúdos focados na quebra da barreira de lote mínimo com demonstração visual de acabamento Soft Touch têm taxa de conversão 3.2x maior para contatos via WhatsApp e Direct.",
     };
   }, [niches, emotionalDrivers, todayRoutine]);
 
@@ -289,9 +291,9 @@ export const RoutineIntelligenceView: React.FC<RoutineIntelligenceViewProps> = (
               onClick={() => {
                 onCreateCampaignFromSuggestion({
                   title: currentRecommendation.title,
-                  niche: "tech_leads_devs",
-                  emotion: "curiosidade",
-                  format: "carrossel",
+                  niche: currentRecommendation.nicheId,
+                  emotion: currentRecommendation.emotionId,
+                  format: todayRoutine?.recommendedFormat || "carrossel",
                   hook: currentRecommendation.hook,
                 });
               }}

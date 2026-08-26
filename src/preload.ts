@@ -12,6 +12,8 @@ contextBridge.exposeInMainWorld("electronAPI", {
   readNotes: (vaultPath: string) => ipcRenderer.invoke("notes:read-all", vaultPath),
   writeNote: (vaultPath: string, folder: string, title: string, content: string, frontmatter?: any) => 
     ipcRenderer.invoke("notes:write", { vaultPath, folder, title, content, frontmatter }),
+  appendNote: (vaultPath: string, folder: string, title: string, contentToAppend: string) => 
+    ipcRenderer.invoke("notes:append", { vaultPath, folder, title, contentToAppend }),
   deleteNote: (vaultPath: string, folder: string, title: string) => 
     ipcRenderer.invoke("notes:delete", { vaultPath, folder, title }),
     

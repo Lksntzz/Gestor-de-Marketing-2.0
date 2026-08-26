@@ -137,20 +137,20 @@ export const api = {
       try {
         const vaultPath = await window.electronAPI.getVaultPath();
         if (vaultPath) {
-          // In Electron local context, append task line straight to the daily note in 05_Reunioes or 00_Inbox
+          // In Electron local context, append task line straight to the daily note preserving content
           const today = new Date().toISOString().split("T")[0];
-          const writeRes = await window.electronAPI.writeNote(
+          const appendRes = await window.electronAPI.appendNote(
             vaultPath, 
             "00_Inbox", 
             `Daily-${today}`, 
             `\n${contentToAppend}`
           );
-          if (writeRes.success) {
+          if (appendRes && appendRes.success) {
             return { success: true, message: "Task inserida no Daily Note via Electron" };
           }
         }
       } catch (err) {
-        console.warn("Direct Electron task write failed, falling back to proxy:", err);
+        console.warn("Direct Electron task append failed, falling back to proxy:", err);
       }
     }
 

@@ -89,12 +89,14 @@ function validateAndResolvePath(vaultPath: string, folder: string, filename: str
 }
 
 function createWindow() {
+  const baseDir = __dirname.endsWith("dist") ? __dirname : path.join(__dirname, "dist");
+
   mainWindow = new BrowserWindow({
     width: 1360,
     height: 860,
     title: "Nisti Print PKM Marketing Hub (Desktop Local-First)",
     webPreferences: {
-      preload: path.join(__dirname, "dist", "preload.cjs"),
+      preload: path.join(baseDir, "preload.cjs"),
       contextIsolation: true,
       nodeIntegration: false,
       sandbox: true,
@@ -104,7 +106,7 @@ function createWindow() {
   if (process.env.NODE_ENV === "development") {
     mainWindow.loadURL("http://localhost:3000");
   } else {
-    mainWindow.loadFile(path.join(__dirname, "dist", "index.html"));
+    mainWindow.loadFile(path.join(baseDir, "index.html"));
   }
 
   mainWindow.on("closed", () => {
@@ -259,6 +261,35 @@ ipcMain.handle("notes:write", async (_, payload: { vaultPath?: string; folder: s
     fileContent += payload.content;
 
     await fs.writeFile(resolvedPath, fileContent, "utf8");
+    return { success: true, path: resolvedPath };
+  } catch (err: any) {
+    return { success: false, error: err.message };
+  }
+});
+
+// IPC Handler: Append to Note safely preserving existing content
+ipcMain.handle("notes:append", async (_, payload: { vaultPath?: string; folder: string; title: string; contentToAppend: string }) => {
+  try {
+    const vault = payload.vaultPath || selectedVaultPath;
+    if (!vault) throw new Error("Vault path is missing.");
+
+    const filename = payload.title.endsWith(".md") ? payload.title : `${payload.title}.md`;
+    const resolvedPath = validateAndResolvePath(vault, payload.folder, filename);
+
+    const dirPath = path.dirname(resolvedPath);
+    if (!existsSync(dirPath)) {
+      await fs.mkdir(dirPath, { recursive: true });
+    }
+
+    let existingContent = "";
+    if (existsSync(resolvedPath)) {
+      existingContent = await fs.readFile(resolvedPath, "utf8");
+    }
+
+    const separator = existingContent.length > 0 && !existingContent.endsWith("\n") ? "\n" : "";
+    const updatedContent = existingContent ? `${existingContent}${separator}${payload.contentToAppend}` : payload.contentToAppend;
+
+    await fs.writeFile(resolvedPath, updatedContent, "utf8");
     return { success: true, path: resolvedPath };
   } catch (err: any) {
     return { success: false, error: err.message };

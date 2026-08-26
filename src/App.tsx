@@ -397,7 +397,7 @@ export default function App() {
       }
 
       const newCampaignId = `camp-${Date.now()}`;
-      const outputNotePath = `03 - Campanhas/${params.campaignName}.md`;
+      const outputNotePath = `04_Campanhas/${params.campaignName}.md`;
 
       const newCampaign: MarketingCampaign = {
         id: newCampaignId,
@@ -423,7 +423,7 @@ export default function App() {
           id: `note-${Date.now()}`,
           path: outputNotePath,
           title: params.campaignName,
-          folder: "03 - Campanhas",
+          folder: "04_Campanhas",
           content: d.obsidianMarkdownNote,
           frontmatter: {
             title: params.campaignName,
@@ -618,33 +618,60 @@ export default function App() {
   const handleSyncRoutineToDailyNotes = async () => {
     setIsSyncingDaily(true);
     try {
-      const today = new Date().toISOString().split("T")[0];
+      const todayDate = new Date();
+      const currentDayOfWeek = todayDate.getDay(); // 0 is Sun, 1 is Mon...
+      // Calculate Monday of current week
+      const mondayOffset = currentDayOfWeek === 0 ? -6 : 1 - currentDayOfWeek;
+      const mondayDate = new Date(todayDate);
+      mondayDate.setDate(todayDate.getDate() + mondayOffset);
+
+      const dayOffsetMap: Record<string, number> = {
+        "Segunda-feira": 0,
+        "Terça-feira": 1,
+        "Quarta-feira": 2,
+        "Quinta-feira": 3,
+        "Sexta-feira": 4,
+        "Sábado": 5,
+        "Domingo": 6,
+      };
+
+      const getSlotDate = (dayName: string) => {
+        const offset = dayOffsetMap[dayName] ?? 0;
+        const d = new Date(mondayDate);
+        d.setDate(mondayDate.getDate() + offset);
+        return d.toISOString().split("T")[0];
+      };
+
+      const today = todayDate.toISOString().split("T")[0];
       const dailyPath = `Daily Notes/${today}.md`;
 
       const routineTasksText = weeklyRoutine
-        .map(
-          (slot) =>
-            `- [ ] Publicar ${slot.dayOfWeek}: ${slot.focusTheme} 📅 ${today} ⏰ ${slot.optimalTime} #marketing/rotina #${slot.primaryEmotion} #${slot.primaryNiche}`
-        )
+        .map((slot) => {
+          const slotDate = getSlotDate(slot.dayOfWeek);
+          return `- [ ] Publicar ${slot.dayOfWeek}: ${slot.focusTheme} 📅 ${slotDate} ⏰ ${slot.optimalTime} #marketing/rotina #${slot.primaryEmotion} #${slot.primaryNiche}`;
+        })
         .join("\n");
 
-      // Add to tasks state
-      const newTasks: MarketingTask[] = weeklyRoutine.map((slot, index) => ({
-        id: `routine-task-${Date.now()}-${index}`,
-        title: `Publicar ${slot.dayOfWeek}: ${slot.focusTheme}`,
-        description: `Formato: ${slot.recommendedFormat.toUpperCase()} | Emoção: ${slot.primaryEmotion} | Nicho: ${slot.primaryNiche}\nHook: "${slot.suggestedHookPattern}"`,
-        channel: slot.recommendedFormat === "newsletter" ? "Email Newsletter" : slot.recommendedFormat === "carrossel" ? "LinkedIn" : "Instagram",
-        priority: "high",
-        status: "todo",
-        dueDate: today,
-        dueTime: slot.optimalTime,
-        reminderDate: today,
-        reminderTime: slot.optimalTime,
-        obsidianTaskString: `- [ ] Publicar ${slot.dayOfWeek}: ${slot.focusTheme} 📅 ${today} ⏰ ${slot.optimalTime} #marketing/rotina`,
-        obsidianFilePath: dailyPath,
-        tags: ["marketing-rotina", slot.primaryEmotion, slot.primaryNiche],
-        isReminderActive: true,
-      }));
+      // Add to tasks state with calculated per-day dates
+      const newTasks: MarketingTask[] = weeklyRoutine.map((slot, index) => {
+        const slotDate = getSlotDate(slot.dayOfWeek);
+        return {
+          id: `routine-task-${Date.now()}-${index}`,
+          title: `Publicar ${slot.dayOfWeek}: ${slot.focusTheme}`,
+          description: `Formato: ${slot.recommendedFormat.toUpperCase()} | Emoção: ${slot.primaryEmotion} | Nicho: ${slot.primaryNiche}\nHook: "${slot.suggestedHookPattern}"`,
+          channel: slot.recommendedFormat === "newsletter" ? "Email Newsletter" : slot.recommendedFormat === "carrossel" ? "LinkedIn" : "Instagram",
+          priority: "high",
+          status: "todo",
+          dueDate: slotDate,
+          dueTime: slot.optimalTime,
+          reminderDate: slotDate,
+          reminderTime: slot.optimalTime,
+          obsidianTaskString: `- [ ] Publicar ${slot.dayOfWeek}: ${slot.focusTheme} 📅 ${slotDate} ⏰ ${slot.optimalTime} #marketing/rotina`,
+          obsidianFilePath: dailyPath,
+          tags: ["marketing-rotina", slot.primaryEmotion, slot.primaryNiche],
+          isReminderActive: true,
+        };
+      });
 
       setTasks((prev) => [...newTasks, ...prev]);
 
@@ -675,7 +702,7 @@ export default function App() {
       showToast(
         "success",
         "Rotina Sincronizada!",
-        `${weeklyRoutine.length} slots de rotina com alarmes gravados na Daily Note (${today}).`
+        `${weeklyRoutine.length} slots de rotina com datas distribuídas na semana e alarmes gravados.`
       );
       confetti({ particleCount: 40, spread: 60 });
     } finally {
@@ -734,6 +761,66 @@ export default function App() {
   };
 
   const handleRunRuleNow = (ruleId: string) => {
+    // 1. Execute actual business action based on rule
+    if (ruleId === "rule-1") {
+      // Sync all campaigns to 04_Campanhas notes
+      let syncedCount = 0;
+      campaigns.forEach((camp) => {
+        const expectedPath = camp.obsidianOutputNotePath || `04_Campanhas/${camp.title}.md`;
+        const exists = notes.some((n) => n.path === expectedPath);
+        if (!exists) {
+          const newCampNote: ObsidianNote = {
+            id: `note-camp-${Date.now()}-${syncedCount}`,
+            path: expectedPath,
+            title: camp.title,
+            folder: "04_Campanhas",
+            content: `# 🚀 ${camp.title}\n\n## 🎯 Objetivo\n${camp.objective}\n\n## 📝 Estratégia\n${camp.strategy}\n\n## 📑 Resumo\n${camp.summary}`,
+            frontmatter: {
+              title: camp.title,
+              tags: ["campanha", "marketing-nisti"],
+              status: "OFICIAL",
+              channels: (camp.channels || []).join(", "),
+              publish_date: camp.startDate,
+            },
+            tags: ["campanha", "marketing-nisti"],
+            wikilinks: [],
+            lastModified: new Date().toISOString().replace("T", " ").slice(0, 16),
+            syncedWithApi: true,
+          };
+          setNotes((prev) => [newCampNote, ...prev]);
+          syncedCount++;
+        }
+      });
+      showToast("success", "Automação Executada!", `${syncedCount > 0 ? `${syncedCount} notas de campanha estruturadas em 04_Campanhas.` : "Todas as campanhas já estão sincronizadas em 04_Campanhas."}`);
+    } else if (ruleId === "rule-2") {
+      // Triage 00_Inbox: find unapproved notes and generate triage task
+      const inboxNotes = notes.filter((n) => n.folder === "00_Inbox" && n.frontmatter?.status !== "OFICIAL");
+      if (inboxNotes.length > 0) {
+        const today = new Date().toISOString().split("T")[0];
+        const triageTask: MarketingTask = {
+          id: `triage-task-${Date.now()}`,
+          title: `Triagem Obrigatória: ${inboxNotes.length} notas pendentes em 00_Inbox`,
+          description: `Notas aguardando revisão humana: ${inboxNotes.map((n) => n.title).join(", ")}`,
+          channel: "Interno",
+          priority: "high",
+          status: "todo",
+          dueDate: today,
+          dueTime: "16:00",
+          reminderDate: today,
+          reminderTime: "15:00",
+          obsidianTaskString: `- [ ] Triagem de ${inboxNotes.length} notas em 00_Inbox 📅 ${today} #curadoria #pkm`,
+          tags: ["curadoria", "inbox", "pkm"],
+          isReminderActive: true,
+        };
+        setTasks((prev) => [triageTask, ...prev]);
+        showToast("success", "Triagem de Inbox Concluída!", `Criada 1 tarefa de alta prioridade para revisar ${inboxNotes.length} notas pendentes.`);
+      } else {
+        showToast("info", "Inbox em Dia!", "Nenhuma nota pendente de triagem em 00_Inbox.");
+      }
+    } else {
+      showToast("success", "Automação Executada!", "Regra processada com sucesso no cofre.");
+    }
+
     setAutomationRules((prev) =>
       prev.map((r) =>
         r.id === ruleId
@@ -745,13 +832,15 @@ export default function App() {
           : r
       )
     );
-    showToast("success", "Automação Executada!", "Regra de automação disparada com sucesso.");
     confetti({ particleCount: 25 });
   };
 
-  // 10. Vault Export & Import
+  // 10. Vault Export & Import (Strictly Stripping Secrets)
   const handleExportVault = () => {
-    const dataStr = JSON.stringify({ notes, campaigns, tasks, apiConfig }, null, 2);
+    const sanitizedApiConfig = { ...apiConfig };
+    delete (sanitizedApiConfig as any).apiKey;
+
+    const dataStr = JSON.stringify({ notes, campaigns, tasks, apiConfig: sanitizedApiConfig }, null, 2);
     const blob = new Blob([dataStr], { type: "application/json" });
     const url = URL.createObjectURL(blob);
     const link = document.createElement("a");
@@ -759,6 +848,7 @@ export default function App() {
     link.download = `obsidian-marketing-vault-${new Date().toISOString().split("T")[0]}.json`;
     link.click();
     URL.revokeObjectURL(url);
+    showToast("success", "Backup Exportado", "Cofre exportado com sucesso (credenciais protegidas e omitidas).");
   };
 
   const handleImportVault = (file: File) => {

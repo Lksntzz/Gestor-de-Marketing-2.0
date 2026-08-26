@@ -3,16 +3,92 @@ import path from "path";
 import { createServer as createViteServer } from "vite";
 import dotenv from "dotenv";
 import { GoogleGenAI, Type } from "@google/genai";
-// @ts-ignore
-import pdfParse from "pdf-parse";
-const pdf = pdfParse;
+import { createRequire } from "module";
+
+const require = createRequire(import.meta.url);
+
+async function parsePdfBuffer(buffer: Buffer): Promise<string> {
+  try {
+    const pdfParse = require("pdf-parse");
+    const parsed = typeof pdfParse === "function" ? await pdfParse(buffer) : (pdfParse.default ? await pdfParse.default(buffer) : { text: "" });
+    return parsed.text || "";
+  } catch (err) {
+    console.warn("PDF parsing notice:", err);
+    return "";
+  }
+}
 
 dotenv.config();
 
 const app = express();
 const PORT = 3000;
 
+// Security Headers
+app.use((req, res, next) => {
+  res.setHeader("X-Content-Type-Options", "nosniff");
+  res.setHeader("X-Frame-Options", "SAMEORIGIN");
+  res.setHeader("Referrer-Policy", "strict-origin-when-cross-origin");
+  next();
+});
+
+// Basic in-memory rate limiting for API endpoints (60 req / min per IP)
+const rateLimitMap = new Map<string, { count: number; resetTime: number }>();
+app.use("/api/", (req, res, next) => {
+  const ip = req.ip || req.socket.remoteAddress || "unknown";
+  const now = Date.now();
+  const entry = rateLimitMap.get(ip);
+  if (!entry || now > entry.resetTime) {
+    rateLimitMap.set(ip, { count: 1, resetTime: now + 60000 });
+  } else {
+    entry.count++;
+    if (entry.count > 120) {
+      return res.status(429).json({ success: false, error: "Limite de requisições excedido. Tente novamente em 1 minuto." });
+    }
+  }
+  next();
+});
+
 app.use(express.json({ limit: "25mb" }));
+
+// SSRF Guard: Validate that a URL is a legitimate public web destination
+function isSafePublicUrl(urlString: string): boolean {
+  try {
+    const parsed = new URL(urlString);
+    if (parsed.protocol !== "http:" && parsed.protocol !== "https:") {
+      return false;
+    }
+    const hostname = parsed.hostname.toLowerCase();
+    // Block loopback, localhost, and common private/internal ranges
+    if (
+      hostname === "localhost" ||
+      hostname.endsWith(".localhost") ||
+      hostname.endsWith(".local") ||
+      hostname.endsWith(".internal") ||
+      hostname === "127.0.0.1" ||
+      hostname === "0.0.0.0" ||
+      hostname === "::1" ||
+      hostname.startsWith("127.") ||
+      hostname.startsWith("10.") ||
+      hostname.startsWith("192.168.") ||
+      hostname.startsWith("169.254.")
+    ) {
+      return false;
+    }
+
+    // Check 172.16.0.0 - 172.31.255.255
+    const match172 = hostname.match(/^172\.(\d+)\./);
+    if (match172) {
+      const secondOctet = parseInt(match172[1], 10);
+      if (secondOctet >= 16 && secondOctet <= 31) {
+        return false;
+      }
+    }
+
+    return true;
+  } catch {
+    return false;
+  }
+}
 
 // Lazy initialization of Gemini Client
 let geminiClient: GoogleGenAI | null = null;
@@ -453,8 +529,7 @@ app.post("/api/gemini/process-knowledge", async (req, res) => {
         try {
           const rawBase64 = payload.base64.replace(/^data:application\/pdf;base64,/, "");
           const buffer = Buffer.from(rawBase64, "base64");
-          const parsed = await pdf(buffer);
-          extractedRawText = parsed.text || "";
+          extractedRawText = await parsePdfBuffer(buffer);
         } catch (pdfErr) {
           console.warn("pdf-parse extraction warning, using provided sample:", pdfErr);
           extractedRawText = payload.textContentSample || "";
@@ -647,8 +722,15 @@ Pastas válidas: 00_Inbox, 01_Estrategia, 02_Produtos, 03_Conteudos, 04_Campanha
     // 3. Web Site / Article Processing with REAL fetch
     else if (type === "site") {
       const siteUrl = payload.url || "";
-      let pageTitle = payload.title || "Artigo da Web";
+      let pageTitle = payload.pageTitle || payload.title || "Artigo da Web";
       let pageContent = "";
+
+      if (!siteUrl || !isSafePublicUrl(siteUrl)) {
+        return res.status(400).json({
+          success: false,
+          error: "URL inválida ou bloqueada por segurança. Endereços internos, privados ou de loopback não são permitidos.",
+        });
+      }
 
       try {
         const siteRes = await fetch(siteUrl, {
@@ -993,6 +1075,84 @@ app.post("/api/obsidian/test-connection", async (req, res) => {
       success: false,
       isLocalhostNotice: true,
       message: `Obsidian Local REST API não alcançado em ${endpoint}. Utilize o modo Local Filesystem do Electron ou salve arquivos .md diretamente.`,
+    });
+  }
+});
+
+// Proxy for Obsidian Local REST API (Strict Loopback Only)
+app.post("/api/obsidian/proxy", async (req, res) => {
+  const { endpoint = "http://127.0.0.1:27124", apiKey, method = "GET", path: targetPath = "/", body, headers: customHeaders = {} } = req.body;
+
+  try {
+    const parsedUrl = new URL(endpoint);
+    const hostname = parsedUrl.hostname.toLowerCase();
+    const isLoopback = hostname === "127.0.0.1" || hostname === "localhost" || hostname === "::1" || hostname === "[::1]";
+
+    if (!isLoopback) {
+      return res.status(403).json({
+        success: false,
+        error: "Por motivos de segurança (P0), o proxy Obsidian é restrito estritamente ao loopback local (127.0.0.1 ou localhost).",
+      });
+    }
+
+    const normalizedPath = targetPath.startsWith("/") ? targetPath : `/${targetPath}`;
+    const fullUrl = `${parsedUrl.protocol}//${parsedUrl.host}${normalizedPath}`;
+
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 4000);
+
+    const forwardHeaders: Record<string, string> = {
+      Authorization: `Bearer ${apiKey || ""}`,
+      Accept: "application/json, text/plain, */*",
+      ...customHeaders,
+    };
+
+    if (body && typeof body === "string") {
+      forwardHeaders["Content-Type"] = "text/markdown; charset=utf-8";
+    } else if (body && typeof body === "object") {
+      forwardHeaders["Content-Type"] = "application/json";
+    }
+
+    const fetchOptions: any = {
+      method: method.toUpperCase(),
+      headers: forwardHeaders,
+      signal: controller.signal,
+    };
+
+    if (body && method.toUpperCase() !== "GET" && method.toUpperCase() !== "HEAD") {
+      fetchOptions.body = typeof body === "string" ? body : JSON.stringify(body);
+    }
+
+    const obsidianRes = await fetch(fullUrl, fetchOptions);
+    clearTimeout(timeoutId);
+
+    const contentType = obsidianRes.headers.get("content-type") || "";
+    let data: any;
+    if (contentType.includes("application/json")) {
+      data = await obsidianRes.json().catch(() => ({}));
+    } else {
+      data = await obsidianRes.text().catch(() => "");
+    }
+
+    if (obsidianRes.ok) {
+      return res.json({
+        success: true,
+        status: obsidianRes.status,
+        data,
+      });
+    } else {
+      return res.status(obsidianRes.status).json({
+        success: false,
+        status: obsidianRes.status,
+        error: `Obsidian REST API retornou HTTP ${obsidianRes.status}`,
+        data,
+      });
+    }
+  } catch (err: any) {
+    return res.json({
+      success: false,
+      isLocalhostNotice: true,
+      error: `Falha ao contatar Obsidian REST API em ${endpoint}: ${err.message}`,
     });
   }
 });
