@@ -1,9 +1,15 @@
 import { ObsidianApiConfig } from "../types";
 import { localDateKey, upsertManagedSection } from "../utils/reliability";
+import {
+  isObsidianRuntimeConnected,
+  markObsidianRuntimeConnected,
+  markObsidianRuntimeDisconnected,
+  publishObsidianSnapshot,
+} from "./obsidianRuntimeState";
 import { StorageManager } from "./storage/StorageManager";
 
 let cachedSessionToken: string | null = null;
-let obsidianSessionVerified = false;
+let obsidianHeartbeat: ReturnType<typeof setInterval> | null = null;
 const storage = StorageManager.getInstance();
 
 const DEFAULT_API_CONFIG: ObsidianApiConfig = {
@@ -100,15 +106,7 @@ async function inspectDesktopVault(selectVault: boolean): Promise<ObsidianConnec
   }
 
   const notes = await window.electronAPI.readNotes();
-  const folders = window.electronAPI.listVaultFolders
-    ? await window.electronAPI.listVaultFolders()
-    : Array.from(
-        new Set(
-          (Array.isArray(notes) ? notes : [])
-            .map((note: any) => String(note?.folder || "00_Inbox").replace(/\\/g, "/"))
-            .filter(Boolean)
-        )
-      );
+  const folders = await window.electronAPI.listVaultFolders();
 
   return {
     success: true,
@@ -120,13 +118,61 @@ async function inspectDesktopVault(selectVault: boolean): Promise<ObsidianConnec
   };
 }
 
+async function publishCurrentDesktopVaultSnapshot(folders?: string[]): Promise<{ notes: number; folders: number }> {
+  if (!window.electronAPI) return { notes: 0, folders: 0 };
+
+  const [desktopNotes, liveFolders] = await Promise.all([
+    storage.readDesktopNotesForApp(),
+    folders ? Promise.resolve(folders) : window.electronAPI.listVaultFolders(),
+  ]);
+  const notes = desktopNotes || [];
+  const normalizedFolders = Array.isArray(liveFolders) ? liveFolders : [];
+  publishObsidianSnapshot(notes, normalizedFolders);
+  return { notes: notes.length, folders: normalizedFolders.length };
+}
+
+function stopObsidianHeartbeat(): void {
+  if (obsidianHeartbeat) {
+    clearInterval(obsidianHeartbeat);
+    obsidianHeartbeat = null;
+  }
+}
+
+function startObsidianHeartbeat(config: { endpoint: string; apiKey: string }): void {
+  stopObsidianHeartbeat();
+  if (typeof window === "undefined") return;
+
+  const liveConfig = {
+    endpoint: config.endpoint,
+    apiKey: config.apiKey,
+  };
+
+  obsidianHeartbeat = setInterval(async () => {
+    try {
+      const { res, data } = await requestObsidianConnectionTest(liveConfig);
+      const vaultPath = window.electronAPI ? await window.electronAPI.getVaultPath() : "web";
+      if (!res.ok || !data?.success || !vaultPath) {
+        stopObsidianHeartbeat();
+        markObsidianRuntimeDisconnected(
+          data?.message || "A conexão com o Obsidian foi perdida. Reconecte para acessar o banco de conhecimento."
+        );
+      }
+    } catch (err: any) {
+      stopObsidianHeartbeat();
+      markObsidianRuntimeDisconnected(
+        err.message || "A conexão com o Obsidian foi perdida. Reconecte para acessar o banco de conhecimento."
+      );
+    }
+  }, 15_000);
+}
+
 async function verifyObsidianConnection(
   config: { endpoint: string; apiKey: string },
   selectVault: boolean
 ): Promise<ObsidianConnectionResult> {
-  obsidianSessionVerified = false;
-
   if (!config.endpoint.trim() || !config.apiKey.trim()) {
+    stopObsidianHeartbeat();
+    markObsidianRuntimeDisconnected("Endpoint ou token do Obsidian não configurado.");
     return {
       success: false,
       message: "Informe o endpoint e o token do Obsidian Local REST API.",
@@ -136,39 +182,43 @@ async function verifyObsidianConnection(
   try {
     const { res, data } = await requestObsidianConnectionTest(config);
     if (!res.ok || !data?.success) {
-      return {
-        success: false,
-        message: data?.message || data?.error || `Obsidian retornou HTTP ${res.status}.`,
-      };
+      stopObsidianHeartbeat();
+      const message = data?.message || data?.error || `Obsidian retornou HTTP ${res.status}.`;
+      markObsidianRuntimeDisconnected(message);
+      return { success: false, message };
     }
 
     const desktop = await inspectDesktopVault(selectVault);
-    if (!desktop.success) return desktop;
+    if (!desktop.success) {
+      stopObsidianHeartbeat();
+      markObsidianRuntimeDisconnected(desktop.message);
+      return desktop;
+    }
 
-    obsidianSessionVerified = true;
+    markObsidianRuntimeConnected();
+    const snapshot = await publishCurrentDesktopVaultSnapshot(desktop.localFolders);
+    startObsidianHeartbeat(config);
+
     return {
       ...desktop,
       success: true,
-      message: `${data.message || "REST API do Obsidian conectada."} ${desktop.message}`.trim(),
+      localNotesFound: snapshot.notes || desktop.localNotesFound,
+      localFoldersFound: snapshot.folders || desktop.localFoldersFound,
+      message: `${data.message || "REST API do Obsidian conectada."} ${desktop.message} Base sincronizada automaticamente.`.trim(),
     };
   } catch (err: any) {
-    obsidianSessionVerified = false;
-    return {
-      success: false,
-      message: err.message || "Não foi possível confirmar a conexão com o Obsidian.",
-    };
+    stopObsidianHeartbeat();
+    const message = err.message || "Não foi possível confirmar a conexão com o Obsidian.";
+    markObsidianRuntimeDisconnected(message);
+    return { success: false, message };
   }
 }
 
 async function requireVerifiedObsidian(config: ObsidianApiConfig): Promise<ObsidianConnectionResult> {
-  const result = await verifyObsidianConnection(
+  return await verifyObsidianConnection(
     { endpoint: config.endpoint, apiKey: config.apiKey },
     false
   );
-  if (!result.success) {
-    obsidianSessionVerified = false;
-  }
-  return result;
 }
 
 async function obsidianProxyRequest(
@@ -178,7 +228,7 @@ async function obsidianProxyRequest(
   body?: unknown,
   customHeaders?: Record<string, string>
 ): Promise<{ response: Response; data: any }> {
-  if (!obsidianSessionVerified) {
+  if (!isObsidianRuntimeConnected()) {
     throw new Error("Obsidian não está conectado. Valide a conexão antes de acessar o Vault.");
   }
 
@@ -217,12 +267,20 @@ export interface ExtractTasksPayload {
 }
 
 export const api = {
-  disconnectObsidianSession() {
-    obsidianSessionVerified = false;
+  disconnectObsidianSession(reason?: string) {
+    stopObsidianHeartbeat();
+    markObsidianRuntimeDisconnected(reason || "Obsidian desconectado.");
   },
 
   isObsidianSessionVerified() {
-    return obsidianSessionVerified;
+    return isObsidianRuntimeConnected();
+  },
+
+  async syncObsidianSnapshot() {
+    if (!isObsidianRuntimeConnected()) {
+      throw new Error("Obsidian não está conectado.");
+    }
+    return await publishCurrentDesktopVaultSnapshot();
   },
 
   async checkHealth() {
@@ -377,6 +435,7 @@ export const api = {
             contentHasFrontmatter ? undefined : frontmatter
           );
           if (writeRes.success) {
+            await publishCurrentDesktopVaultSnapshot();
             return { success: true, message: "Nota gravada diretamente no Vault do Obsidian" };
           }
           throw new Error(writeRes.error || "Erro desconhecido ao gravar nota");
@@ -388,6 +447,7 @@ export const api = {
 
     const cleanPath = filePath.startsWith("/") ? filePath : `/vault/${filePath}`;
     const { data } = await obsidianProxyRequest(config, "PUT", cleanPath, markdownContent);
+    if (data?.success) await publishCurrentDesktopVaultSnapshot();
     return data;
   },
 
@@ -416,6 +476,7 @@ export const api = {
             sectionContent
           );
           if (result.success) {
+            await publishCurrentDesktopVaultSnapshot();
             return { success: true, message: "Daily Note atualizada de forma idempotente via Electron" };
           }
           throw new Error(result.error || "Falha ao atualizar seção da Daily Note");
@@ -443,6 +504,7 @@ export const api = {
 
     const updatedContent = upsertManagedSection(existingContent, sectionId, heading, sectionContent);
     const putResult = await obsidianProxyRequest(config, "PUT", targetPath, updatedContent);
+    if (putResult.data?.success) await publishCurrentDesktopVaultSnapshot();
     return putResult.data;
   },
 
@@ -463,6 +525,7 @@ export const api = {
             `\n${contentToAppend}`
           );
           if (appendRes && appendRes.success) {
+            await publishCurrentDesktopVaultSnapshot();
             return { success: true, message: "Conteúdo inserido no Daily Note via Electron" };
           }
         }
@@ -478,6 +541,7 @@ export const api = {
       `\n${contentToAppend}`,
       { Heading: "📋 Tarefas Sincronizadas (Obsidian Tasks Plugin)" }
     );
+    if (data?.success) await publishCurrentDesktopVaultSnapshot();
     return data;
   },
 };
