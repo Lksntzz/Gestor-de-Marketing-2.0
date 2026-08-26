@@ -33,6 +33,15 @@ export interface ObsidianConnectionResult {
   localFolders?: string[];
 }
 
+async function setDesktopObsidianAuthorization(connected: boolean): Promise<void> {
+  if (!window.electronAPI) return;
+  try {
+    await window.electronAPI.setObsidianConnectionState(connected);
+  } catch (err) {
+    console.warn("Could not update Electron Obsidian connection gate:", err);
+  }
+}
+
 async function getSessionHeaders(geminiApiKeyOverride?: string): Promise<Record<string, string>> {
   if (!cachedSessionToken) {
     try {
@@ -153,12 +162,14 @@ function startObsidianHeartbeat(config: { endpoint: string; apiKey: string }): v
       const vaultPath = window.electronAPI ? await window.electronAPI.getVaultPath() : "web";
       if (!res.ok || !data?.success || !vaultPath) {
         stopObsidianHeartbeat();
+        await setDesktopObsidianAuthorization(false);
         markObsidianRuntimeDisconnected(
           data?.message || "A conexão com o Obsidian foi perdida. Reconecte para acessar o banco de conhecimento."
         );
       }
     } catch (err: any) {
       stopObsidianHeartbeat();
+      await setDesktopObsidianAuthorization(false);
       markObsidianRuntimeDisconnected(
         err.message || "A conexão com o Obsidian foi perdida. Reconecte para acessar o banco de conhecimento."
       );
@@ -172,6 +183,7 @@ async function verifyObsidianConnection(
 ): Promise<ObsidianConnectionResult> {
   if (!config.endpoint.trim() || !config.apiKey.trim()) {
     stopObsidianHeartbeat();
+    await setDesktopObsidianAuthorization(false);
     markObsidianRuntimeDisconnected("Endpoint ou token do Obsidian não configurado.");
     return {
       success: false,
@@ -183,14 +195,18 @@ async function verifyObsidianConnection(
     const { res, data } = await requestObsidianConnectionTest(config);
     if (!res.ok || !data?.success) {
       stopObsidianHeartbeat();
+      await setDesktopObsidianAuthorization(false);
       const message = data?.message || data?.error || `Obsidian retornou HTTP ${res.status}.`;
       markObsidianRuntimeDisconnected(message);
       return { success: false, message };
     }
 
+    // The REST API was validated. Only now may Electron touch the selected Vault.
+    await setDesktopObsidianAuthorization(true);
     const desktop = await inspectDesktopVault(selectVault);
     if (!desktop.success) {
       stopObsidianHeartbeat();
+      await setDesktopObsidianAuthorization(false);
       markObsidianRuntimeDisconnected(desktop.message);
       return desktop;
     }
@@ -208,6 +224,7 @@ async function verifyObsidianConnection(
     };
   } catch (err: any) {
     stopObsidianHeartbeat();
+    await setDesktopObsidianAuthorization(false);
     const message = err.message || "Não foi possível confirmar a conexão com o Obsidian.";
     markObsidianRuntimeDisconnected(message);
     return { success: false, message };
@@ -269,6 +286,7 @@ export interface ExtractTasksPayload {
 export const api = {
   disconnectObsidianSession(reason?: string) {
     stopObsidianHeartbeat();
+    void setDesktopObsidianAuthorization(false);
     markObsidianRuntimeDisconnected(reason || "Obsidian desconectado.");
   },
 
