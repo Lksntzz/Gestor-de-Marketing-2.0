@@ -21,6 +21,7 @@ import {
   Check,
   HelpCircle,
   BookOpen,
+  Laptop,
 } from "lucide-react";
 import { ObsidianApiConfig, EngineMode } from "../types";
 
@@ -30,6 +31,7 @@ interface NavbarProps {
   apiConfig: ObsidianApiConfig;
   onOpenSettings: () => void;
   onOpenGuide?: () => void;
+  onOpenSetupWizard?: () => void;
   onSyncNow: () => void;
   isSyncing: boolean;
   onQuickNewCampaign: () => void;
@@ -47,6 +49,7 @@ export const Navbar: React.FC<NavbarProps> = ({
   apiConfig,
   onOpenSettings,
   onOpenGuide,
+  onOpenSetupWizard,
   onSyncNow,
   isSyncing,
   onQuickNewCampaign,
@@ -323,6 +326,18 @@ export const Navbar: React.FC<NavbarProps> = ({
               )}
             </div>
 
+            {/* Setup Wizard Button */}
+            {onOpenSetupWizard && (
+              <button
+                onClick={onOpenSetupWizard}
+                className="hidden lg:flex items-center gap-1.5 px-2.5 py-1.5 text-xs font-bold text-purple-900 bg-purple-50 hover:bg-purple-100 rounded-xl transition-all border border-purple-200 cursor-pointer"
+                title="Assistente de Instalação e Configuração Inicial"
+              >
+                <Laptop className="w-3.5 h-3.5 text-purple-700" />
+                <span>Instalador & Setup</span>
+              </button>
+            )}
+
             {/* Guide Button */}
             {onOpenGuide && (
               <button
@@ -386,6 +401,21 @@ export const Navbar: React.FC<NavbarProps> = ({
               );
             })}
           </div>
+
+          {onOpenSetupWizard && (
+            <div className="pt-2 border-t border-stone-100">
+              <button
+                onClick={() => {
+                  setIsMobileMenuOpen(false);
+                  onOpenSetupWizard();
+                }}
+                className="w-full p-2.5 bg-purple-50 hover:bg-purple-100 border border-purple-200 rounded-xl text-xs font-bold text-purple-900 flex items-center justify-center gap-2 transition-colors cursor-pointer"
+              >
+                <Laptop className="w-4 h-4 text-purple-700" />
+                <span>Abrir Assistente de Instalação & Setup</span>
+              </button>
+            </div>
+          )}
         </div>
       )}
     </header>

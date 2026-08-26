@@ -20,7 +20,7 @@ interface LocalInstallationGuideModalProps {
   onOpenSettings?: () => void;
 }
 
-type GuideTab = "installation" | "obsidian" | "updates" | "security";
+type GuideTab = "installation" | "obsidian" | "updates" | "security" | "microsoft";
 
 const STANDARD_FOLDERS = [
   "00_Inbox",
@@ -78,17 +78,21 @@ export const LocalInstallationGuideModal: React.FC<LocalInstallationGuideModalPr
             <HardDrive className="w-3.5 h-3.5" />
             <span>1. Instalação</span>
           </button>
+          <button onClick={() => setActiveTab("microsoft")} className={tabClass("microsoft")}>
+            <ShieldCheck className="w-3.5 h-3.5 text-blue-600" />
+            <span>2. Confiabilidade Windows</span>
+          </button>
           <button onClick={() => setActiveTab("obsidian")} className={tabClass("obsidian")}>
             <FolderSync className="w-3.5 h-3.5" />
-            <span>2. Obsidian</span>
+            <span>3. Obsidian</span>
           </button>
           <button onClick={() => setActiveTab("updates")} className={tabClass("updates")}>
             <Sparkles className="w-3.5 h-3.5" />
-            <span>3. Atualizações</span>
+            <span>4. Atualizações</span>
           </button>
           <button onClick={() => setActiveTab("security")} className={tabClass("security")}>
-            <ShieldCheck className="w-3.5 h-3.5" />
-            <span>4. Segurança</span>
+            <Key className="w-3.5 h-3.5" />
+            <span>5. Segurança</span>
           </button>
         </div>
 
@@ -126,16 +130,71 @@ export const LocalInstallationGuideModal: React.FC<LocalInstallationGuideModalPr
 
               <div className="bg-stone-100 p-4 rounded-xl border border-stone-200 space-y-2">
                 <span className="font-bold text-stone-900 flex items-center gap-2">
-                  <Terminal className="w-4 h-4" /> Preparação do instalador a partir do código-fonte
+                  <Terminal className="w-4 h-4" /> Comandos de Empacotamento do Instalador Windows
                 </span>
                 <div className="text-[11px] font-mono text-stone-800 space-y-1">
-                  <div><code>bun install --frozen-lockfile</code></div>
-                  <div><code>bun run verify</code></div>
-                  <div><code>bun run dist</code></div>
+                  <div><code>bun run electron:build</code> → Gera instalador NSIS (.exe) com tela de instalação</div>
+                  <div><code>bun run electron:build:all</code> → Gera instaladores para Windows, macOS e Linux</div>
                 </div>
                 <p className="text-[11px] text-stone-600">
-                  Os instaladores são gerados em <code>dist-electron/</code>. Para recursos Gemini e Google Drive, configure o arquivo <code>.env</code> antes do build.
+                  Os instaladores finais são gerados na pasta <code>dist-electron/</code>.
                 </p>
+              </div>
+            </div>
+          )}
+
+          {activeTab === "microsoft" && (
+            <div className="space-y-4">
+              <div className="bg-blue-50/80 border border-blue-200 rounded-xl p-4 space-y-2">
+                <h3 className="text-sm font-bold text-blue-950 flex items-center gap-2">
+                  <ShieldCheck className="w-4 h-4 text-blue-700" />
+                  Confiabilidade Microsoft Windows & SmartScreen
+                </h3>
+                <p className="text-stone-600">
+                  Para que o instalador seja reconhecido como um <strong>produto confiável e autêntico no Windows 10 e 11</strong> sem disparar avisos do Microsoft Defender SmartScreen, o Nisti PKM adota a arquitetura recomendada pela Microsoft:
+                </p>
+              </div>
+
+              <div className="space-y-3">
+                <div className="p-3.5 bg-stone-50 rounded-xl border border-stone-200 space-y-1">
+                  <span className="font-bold text-stone-900 flex items-center gap-1.5">
+                    <CheckCircle2 className="w-4 h-4 text-emerald-600" />
+                    1. Princípio do Menor Privilégio (`asInvoker`)
+                  </span>
+                  <p className="text-[11px] text-stone-600">
+                    O aplicativo e o instalador rodam com nível de execução <code>asInvoker</code> no escopo do usuário (per-user). Isso elimina a necessidade de solicitar elevação de Administrador (UAC), mantendo a integridade do sistema operacional intacta.
+                  </p>
+                </div>
+
+                <div className="p-3.5 bg-stone-50 rounded-xl border border-stone-200 space-y-1">
+                  <span className="font-bold text-stone-900 flex items-center gap-1.5">
+                    <CheckCircle2 className="w-4 h-4 text-blue-600" />
+                    2. Assinatura Digital de Código (Code Signing)
+                  </span>
+                  <p className="text-[11px] text-stone-600">
+                    Para distribuição pública profissional, assine o executável com um Certificado de Assinatura de Código (EV ou Azure Trusted Signing da Microsoft). O <code>package.json</code> já está configurado com servidor de timestamp RFC 3161 (<code>http://timestamp.digicert.com</code>).
+                  </p>
+                </div>
+
+                <div className="p-3.5 bg-stone-50 rounded-xl border border-stone-200 space-y-1">
+                  <span className="font-bold text-stone-900 flex items-center gap-1.5">
+                    <CheckCircle2 className="w-4 h-4 text-purple-600" />
+                    3. Assistente de Instalação NSIS com Tela Inicial
+                  </span>
+                  <p className="text-[11px] text-stone-600">
+                    O instalador gerado inclui tela de boas-vindas com seleção de diretório, criação de atalhos na Área de Trabalho e no Menu Iniciar do Windows, e desinstalador limpo que preserva seus arquivos de notas.
+                  </p>
+                </div>
+
+                <div className="p-3.5 bg-stone-50 rounded-xl border border-stone-200 space-y-1">
+                  <span className="font-bold text-stone-900 flex items-center gap-1.5">
+                    <CheckCircle2 className="w-4 h-4 text-emerald-600" />
+                    4. Compatibilidade com Pacote MSIX / Microsoft Store
+                  </span>
+                  <p className="text-[11px] text-stone-600">
+                    A estrutura autocontida do Electron permite empacotamento em formato <code>.appx</code> / <code>.msix</code> para submissão direta ao Partner Center da Microsoft Store.
+                  </p>
+                </div>
               </div>
             </div>
           )}

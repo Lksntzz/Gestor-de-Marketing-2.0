@@ -13,6 +13,8 @@ import {
   Check,
   RotateCcw,
   ArrowUpRight,
+  Laptop,
+  ShieldCheck,
 } from "lucide-react";
 import {
   ObsidianNote,
@@ -52,6 +54,7 @@ interface DashboardViewProps {
   onConvertIdeaToCampaign?: (idea: IdeaItem) => void;
   onExportScriptToVault?: (script: CreativeScript) => void;
   onOpenGuide?: () => void;
+  onOpenSetupWizard?: () => void;
 }
 
 export const DashboardView: React.FC<DashboardViewProps> = ({
@@ -78,6 +81,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
   onConvertIdeaToCampaign: _onConvertIdeaToCampaign,
   onExportScriptToVault: _onExportScriptToVault,
   onOpenGuide,
+  onOpenSetupWizard,
 }) => {
   // Status of the top priority action
   const [priorityActionStatus, setPriorityActionStatus] = useState<"pending" | "done" | "postponed">("pending");
@@ -233,7 +237,18 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
         </div>
 
         {/* Quick Sync & Create Shortcuts */}
-        <div className="flex items-center gap-2 self-start sm:self-center">
+        <div className="flex items-center gap-2 self-start sm:self-center flex-wrap">
+          {onOpenSetupWizard && (
+            <button
+              onClick={onOpenSetupWizard}
+              className="px-3 py-2 bg-purple-50 hover:bg-purple-100 text-purple-900 text-xs font-bold rounded-xl transition-all border border-purple-200 flex items-center gap-1.5 cursor-pointer"
+              title="Assistente de Instalação e Configuração Inicial"
+            >
+              <Laptop className="w-3.5 h-3.5 text-purple-700" />
+              <span>Instalador & Setup</span>
+            </button>
+          )}
+
           <button
             onClick={onSyncDailyNote}
             className="px-3.5 py-2 bg-stone-100 hover:bg-stone-200 text-stone-800 text-xs font-semibold rounded-xl transition-all border border-stone-200/80 flex items-center gap-1.5 cursor-pointer"

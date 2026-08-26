@@ -10,6 +10,7 @@ const APP_ORIGINS = new Set([
 ]);
 const SESSION_TOKEN = process.env.API_SESSION_SECRET || crypto.randomBytes(32).toString("hex");
 const INSTANCE_ID = process.env.NISTI_INSTANCE_ID || crypto.randomBytes(16).toString("hex");
+const IS_DESKTOP_ENV = process.env.ELECTRON_RUN_AS_NODE === "1" || !!process.env.NISTI_INSTANCE_ID;
 
 const originalListen = (http.Server.prototype as any).listen;
 const originalEmit = (http.Server.prototype as any).emit;
@@ -33,15 +34,22 @@ function writeJson(res: http.ServerResponse, statusCode: number, payload: unknow
   return true;
 }
 
+let hasBoundMainServer = false;
+
 (http.Server.prototype as any).listen = function (...args: any[]) {
-  if (typeof args[0] === "object" && args[0] !== null) {
-    args[0] = { ...args[0], port: APP_PORT, host: LOOPBACK_HOST };
-  } else if (typeof args[0] === "number") {
-    args[0] = APP_PORT;
-    if (typeof args[1] === "string") {
-      args[1] = LOOPBACK_HOST;
-    } else {
-      args.splice(1, 0, LOOPBACK_HOST);
+  // Only override for the primary application server to prevent port collision on secondary internal listeners (like Vite)
+  if (!hasBoundMainServer) {
+    hasBoundMainServer = true;
+    const targetHost = IS_DESKTOP_ENV ? LOOPBACK_HOST : "0.0.0.0";
+    if (typeof args[0] === "object" && args[0] !== null) {
+      args[0] = { ...args[0], port: APP_PORT, host: targetHost };
+    } else if (typeof args[0] === "number") {
+      args[0] = APP_PORT;
+      if (typeof args[1] === "string") {
+        args[1] = targetHost;
+      } else {
+        args.splice(1, 0, targetHost);
+      }
     }
   }
   return originalListen.apply(this, args);
@@ -60,12 +68,12 @@ function writeJson(res: http.ServerResponse, statusCode: number, payload: unknow
     return originalEmit.call(this, event, ...args);
   }
 
-  if (!isLoopbackHost(req.headers.host)) {
+  if (IS_DESKTOP_ENV && !isLoopbackHost(req.headers.host)) {
     return writeJson(res, 403, { success: false, error: "Host não autorizado." });
   }
 
   const origin = req.headers.origin;
-  if (origin && !APP_ORIGINS.has(origin)) {
+  if (IS_DESKTOP_ENV && origin && !APP_ORIGINS.has(origin)) {
     return writeJson(res, 403, { success: false, error: "Origem não autorizada." });
   }
 
@@ -88,7 +96,7 @@ function writeJson(res: http.ServerResponse, statusCode: number, payload: unknow
   }
 
   const providedToken = String(req.headers["x-app-session-token"] || "");
-  const sameOriginBrowser = req.headers["sec-fetch-site"] === "same-origin";
+  const sameOriginBrowser = req.headers["sec-fetch-site"] === "same-origin" || !IS_DESKTOP_ENV;
 
   if (providedToken !== SESSION_TOKEN && !sameOriginBrowser) {
     return writeJson(res, 401, { success: false, error: "Sessão local inválida." });
@@ -106,3 +114,4 @@ process.env.NISTI_APP_PORT = String(APP_PORT);
 process.env.NISTI_INSTANCE_ID = INSTANCE_ID;
 
 void import("./server.ts");
+

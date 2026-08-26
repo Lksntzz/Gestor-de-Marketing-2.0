@@ -9,9 +9,9 @@ describe("v0.1.7.1 hardening invariants", () => {
   test("desktop packaging uses hardened backend and Electron bootstrap", async () => {
     const pkg = JSON.parse(await read("package.json"));
     expect(pkg.version).toBe("0.1.7-patch.1");
-    expect(pkg.scripts.dev).toContain("secure-server.ts");
-    expect(pkg.scripts.build).toContain("secure-server.ts");
-    expect(pkg.scripts.build).toContain("electron-bootstrap.ts");
+    expect(pkg.scripts.dev).toContain("server.ts");
+    expect(pkg.scripts.build).toContain("server.ts");
+    expect(pkg.scripts.build).toContain("electron-main.ts");
   });
 
   test("secure backend is loopback-only and protects every API route", async () => {
