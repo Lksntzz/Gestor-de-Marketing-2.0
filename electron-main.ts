@@ -5,6 +5,7 @@ import { existsSync } from "fs";
 
 let mainWindow: BrowserWindow | null = null;
 let selectedVaultPath: string | null = null;
+let obsidianConnectionAuthorized = false;
 
 const STANDARD_FOLDERS = [
   "00_Inbox",
@@ -57,6 +58,12 @@ async function saveConfig(updates: any) {
   }
 }
 
+function requireObsidianConnection(): void {
+  if (!obsidianConnectionAuthorized) {
+    throw new Error("Obsidian não está conectado. Conecte e sincronize o Vault antes de acessar o banco de conhecimento.");
+  }
+}
+
 function requireSelectedVault(): string {
   if (!selectedVaultPath) {
     throw new Error("Vault do Obsidian não selecionado.");
@@ -65,6 +72,7 @@ function requireSelectedVault(): string {
   const resolvedVault = path.resolve(selectedVaultPath);
   if (!existsSync(resolvedVault)) {
     selectedVaultPath = null;
+    obsidianConnectionAuthorized = false;
     throw new Error("Vault configurado não existe mais ou não está acessível.");
   }
 
@@ -97,6 +105,7 @@ function normalizeVaultFolder(folder: string): string {
 }
 
 function validateAndResolvePath(folder: string, filename: string): string {
+  requireObsidianConnection();
   const resolvedVault = requireSelectedVault();
 
   const cleanFilename = filename
@@ -144,6 +153,7 @@ function upsertManagedBlock(rawContent: string, sectionId: string, heading: stri
 }
 
 async function listVaultFolders(): Promise<string[]> {
+  requireObsidianConnection();
   const targetVault = requireSelectedVault();
   const folders: string[] = [];
 
@@ -249,70 +259,61 @@ ipcMain.handle("vault:select", async () => {
 
 ipcMain.handle("vault:get-path", () => selectedVaultPath);
 
+ipcMain.handle("vault:connection-state", (_event, connected: boolean) => {
+  obsidianConnectionAuthorized = connected === true;
+  return { success: true, connected: obsidianConnectionAuthorized };
+});
+
 ipcMain.handle("vault:list-folders", async () => {
-  try {
-    return await listVaultFolders();
-  } catch (err) {
-    console.warn("Could not list Obsidian Vault folders:", err);
-    return [];
-  }
+  return await listVaultFolders();
 });
 
 ipcMain.handle("notes:read-all", async () => {
-  let targetVault: string;
-  try {
-    targetVault = requireSelectedVault();
-  } catch {
-    return [];
-  }
-
+  requireObsidianConnection();
+  const targetVault = requireSelectedVault();
   const notes: any[] = [];
 
   async function scanDirectory(currentDir: string, relativeDir: string = "") {
-    try {
-      const entries = await fs.readdir(currentDir, { withFileTypes: true });
+    const entries = await fs.readdir(currentDir, { withFileTypes: true });
 
-      for (const entry of entries) {
-        const fullPath = path.join(currentDir, entry.name);
-        const relativePath = relativeDir ? path.join(relativeDir, entry.name) : entry.name;
+    for (const entry of entries) {
+      const fullPath = path.join(currentDir, entry.name);
+      const relativePath = relativeDir ? path.join(relativeDir, entry.name) : entry.name;
 
-        if (entry.isDirectory()) {
-          if (!entry.name.startsWith(".")) {
-            await scanDirectory(fullPath, relativePath);
-          }
-        } else if (entry.isFile() && entry.name.endsWith(".md")) {
-          const content = await fs.readFile(fullPath, "utf8");
-          const stats = await fs.stat(fullPath);
+      if (entry.isDirectory()) {
+        if (!entry.name.startsWith(".")) {
+          await scanDirectory(fullPath, relativePath);
+        }
+      } else if (entry.isFile() && entry.name.endsWith(".md")) {
+        const content = await fs.readFile(fullPath, "utf8");
+        const stats = await fs.stat(fullPath);
 
-          let frontmatter: any = {};
-          let body = content;
-          const fmMatch = content.match(/^---\r?\n([\s\S]*?)\r?\n---/);
+        let frontmatter: any = {};
+        let body = content;
+        const fmMatch = content.match(/^---\r?\n([\s\S]*?)\r?\n---/);
 
-          if (fmMatch) {
-            body = content.slice(fmMatch[0].length).trim();
-            const fmLines = fmMatch[1].split("\n");
-            for (const line of fmLines) {
-              const colonIndex = line.indexOf(":");
-              if (colonIndex > -1) {
-                const key = line.slice(0, colonIndex).trim();
-                const value = line.slice(colonIndex + 1).trim().replace(/^['"]|['"]$/g, "");
-                frontmatter[key] = value;
-              }
+        if (fmMatch) {
+          body = content.slice(fmMatch[0].length).trim();
+          const fmLines = fmMatch[1].split("\n");
+          for (const line of fmLines) {
+            const colonIndex = line.indexOf(":");
+            if (colonIndex > -1) {
+              const key = line.slice(0, colonIndex).trim();
+              const value = line.slice(colonIndex + 1).trim().replace(/^['"]|['"]$/g, "");
+              frontmatter[key] = value;
             }
           }
-
-          notes.push({
-            title: entry.name.replace(/\.md$/, ""),
-            folder: (relativeDir || "00_Inbox").replace(/\\/g, "/"),
-            content: body,
-            frontmatter,
-            size: stats.size,
-            mtime: stats.mtimeMs
-          });
         }
+
+        notes.push({
+          title: entry.name.replace(/\.md$/, ""),
+          folder: (relativeDir || "00_Inbox").replace(/\\/g, "/"),
+          content: body,
+          frontmatter,
+          size: stats.size,
+          mtime: stats.mtimeMs
+        });
       }
-    } catch (err) {
-      console.error("Error scanning vault directory:", err);
     }
   }
 
@@ -418,6 +419,7 @@ ipcMain.handle("system:status", () => ({
   os: process.platform,
   appName: "Nisti Marketing",
   vaultPath: selectedVaultPath,
+  obsidianConnectionAuthorized,
   runtime: "electron",
   isDesktop: true,
 }));
