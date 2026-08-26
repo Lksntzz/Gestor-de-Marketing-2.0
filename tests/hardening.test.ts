@@ -5,21 +5,44 @@ async function read(path: string): Promise<string> {
   return await readFile(new URL(`../${path}`, import.meta.url), "utf8");
 }
 
-describe("v0.1.7.1 hardening invariants", () => {
+describe("v1.0.0 hardening invariants", () => {
   test("desktop packaging uses hardened backend and Electron bootstrap", async () => {
     const pkg = JSON.parse(await read("package.json"));
-    expect(pkg.version).toBe("0.1.7-patch.1");
-    expect(pkg.scripts.dev).toContain("server.ts");
-    expect(pkg.scripts.build).toContain("server.ts");
-    expect(pkg.scripts.build).toContain("electron-main.ts");
+    expect(pkg.version).toBe("1.0.0");
+    expect(pkg.scripts.dev).toContain("secure-server.ts");
+    expect(pkg.scripts.build).toContain("secure-server.ts");
+    expect(pkg.scripts.build).toContain("electron-bootstrap.ts");
+    expect(pkg.scripts.electronBuild || pkg.scripts["electron:build"]).toContain("verify");
   });
 
-  test("secure backend is loopback-only and protects every API route", async () => {
+  test("secure backend is loopback-only on desktop and requires the session token", async () => {
     const source = await read("secure-server.ts");
     expect(source).toContain('const LOOPBACK_HOST = "127.0.0.1"');
     expect(source).toContain('url.startsWith("/api/")');
-    expect(source).toContain('x-app-session-token');
+    expect(source).toContain('providedToken !== SESSION_TOKEN');
     expect(source).toContain('runtime: "nisti-secure-local"');
+    expect(source).not.toContain("sameOriginBrowser");
+  });
+
+  test("desktop secret store protects both Obsidian and Gemini credentials", async () => {
+    const bootstrap = await read("electron-bootstrap.ts");
+    expect(bootstrap).toContain('"obsidianApiKey"');
+    expect(bootstrap).toContain('"geminiApiKey"');
+    expect(bootstrap).toContain('cwd: path.resolve(__dirname, "..")');
+
+    const storage = await read("src/services/storage/StorageManager.ts");
+    expect(storage).toContain('setSecret("obsidianApiKey"');
+    expect(storage).toContain('setSecret("geminiApiKey"');
+    expect(storage).toContain('getSecret("obsidianApiKey"');
+    expect(storage).toContain('getSecret("geminiApiKey"');
+  });
+
+  test("Gemini client reads credentials through secure config rather than legacy plaintext storage", async () => {
+    const source = await read("src/services/api.ts");
+    expect(source).toContain("storage.loadApiConfig");
+    expect(source).toContain("testGeminiConnection");
+    expect(source).toContain('headers["x-gemini-api-key"]');
+    expect(source).not.toContain('localStorage.getItem("obsidian_api_config")');
   });
 
   test("credential crypto has no deterministic key or reversible fallback", async () => {
@@ -39,8 +62,11 @@ describe("v0.1.7.1 hardening invariants", () => {
     expect(source).not.toContain("localStorage");
   });
 
-  test("user-facing application version is aligned", async () => {
-    const source = await read("src/utils/reliability.ts");
-    expect(source).toContain('APP_VERSION = "0.1.7.1"');
+  test("application identity is aligned to 1.0.0", async () => {
+    const reliability = await read("src/utils/reliability.ts");
+    const html = await read("index.html");
+    expect(reliability).toContain('APP_VERSION = "1.0.0"');
+    expect(html).toContain("Nisti Print PKM Marketing Hub");
+    expect(html).not.toContain("My Google AI Studio App");
   });
 });
