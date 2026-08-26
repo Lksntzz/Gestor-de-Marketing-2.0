@@ -51,6 +51,7 @@ interface DashboardViewProps {
   onUpdateIdeaStatus?: (ideaId: string, newStatus: IdeaItem["status"]) => void;
   onConvertIdeaToCampaign?: (idea: IdeaItem) => void;
   onExportScriptToVault?: (script: CreativeScript) => void;
+  onOpenGuide?: () => void;
 }
 
 export const DashboardView: React.FC<DashboardViewProps> = ({
@@ -76,6 +77,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
   onUpdateIdeaStatus: _onUpdateIdeaStatus,
   onConvertIdeaToCampaign: _onConvertIdeaToCampaign,
   onExportScriptToVault: _onExportScriptToVault,
+  onOpenGuide,
 }) => {
   // Status of the top priority action
   const [priorityActionStatus, setPriorityActionStatus] = useState<"pending" | "done" | "postponed">("pending");
@@ -473,6 +475,24 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
                 </div>
                 <ArrowRight className="w-4 h-4 text-stone-450 group-hover:translate-x-0.5 group-hover:text-purple-600 transition-all" />
               </button>
+
+              {onOpenGuide && (
+                <button
+                  onClick={onOpenGuide}
+                  className="p-4 rounded-2xl bg-linear-to-br from-purple-50 to-stone-50 border border-purple-200 hover:border-purple-300 text-left transition-all group shadow-3xs cursor-pointer flex items-center justify-between w-full mt-1"
+                >
+                  <div className="flex items-center gap-3">
+                    <div className="w-9 h-9 rounded-xl bg-purple-600 text-white flex items-center justify-center shadow-xs">
+                      <Sparkles className="w-4 h-4" />
+                    </div>
+                    <div>
+                      <span className="text-xs font-bold text-purple-950 block">Guia do Sistema</span>
+                      <span className="text-[10px] text-purple-700 block mt-0.5">Instalação Local, Obsidian & Hot Swap</span>
+                    </div>
+                  </div>
+                  <ArrowRight className="w-4 h-4 text-purple-600 group-hover:translate-x-0.5 transition-all" />
+                </button>
+              )}
             </div>
           </div>
         </div>

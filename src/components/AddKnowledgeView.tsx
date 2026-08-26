@@ -21,11 +21,13 @@ import {
   ShieldCheck,
   FileCode,
   Inbox,
-  Eye
+  Eye,
+  Cloud
 } from "lucide-react";
 import { ObsidianNote, ObsidianApiConfig, KnowledgeStatus, EngineMode } from "../types";
 import { STANDARD_VAULT_FOLDERS } from "../data/defaultVault";
 import { buildObsidianOpenUri } from "../utils/obsidianUri";
+import { GoogleDriveSelector } from "./GoogleDriveSelector";
 import confetti from "canvas-confetti";
 
 interface AddKnowledgeViewProps {
@@ -37,7 +39,7 @@ interface AddKnowledgeViewProps {
   engineMode: EngineMode;
 }
 
-type KnowledgeType = "pdf" | "image" | "youtube" | "site" | "text";
+type KnowledgeType = "pdf" | "image" | "youtube" | "site" | "text" | "gdrive";
 
 interface ProgressStep {
   percentage: number;
@@ -173,6 +175,34 @@ Vincular com [[Brand Voice & Posicionamento Nisti Print]] e [[Catálogo - Planne
         setImageBase64(reader.result as string);
       };
       reader.readAsDataURL(file);
+    }
+  };
+
+  const handleGoogleDriveFileSelected = (fileData: {
+    name: string;
+    contentText: string;
+    base64?: string;
+    isPdf?: boolean;
+    mimeType: string;
+  }) => {
+    if (fileData.isPdf || fileData.name.toLowerCase().endsWith(".pdf")) {
+      setSelectedType("pdf");
+      setPdfFileName(fileData.name);
+      setPdfTextSample(fileData.contentText || `[Arquivo PDF do Google Drive: ${fileData.name}]`);
+      if (fileData.base64) {
+        setPdfBase64(fileData.base64);
+      }
+    } else if (fileData.mimeType.startsWith("image/")) {
+      setSelectedType("image");
+      setImageTitle(fileData.name.replace(/\.[^/.]+$/, ""));
+      setImageDescription(`Ativo importado do Google Drive: ${fileData.name}`);
+      if (fileData.base64) {
+        setImageBase64(fileData.base64);
+      }
+    } else {
+      setSelectedType("text");
+      setRawTextTitle(fileData.name.replace(/\.[^/.]+$/, ""));
+      setRawText(fileData.contentText);
     }
   };
 
@@ -469,6 +499,13 @@ hash: ${hash}
       icon: AlignLeft,
       color: "bg-amber-50 text-amber-700 border-amber-200 hover:border-amber-400",
       description: "Ideias de campanhas, atas de reuniões rápidas e insights de novos produtos."
+    },
+    {
+      id: "gdrive" as const,
+      label: "Google Drive / Nuvem",
+      icon: Cloud,
+      color: "bg-blue-50 text-blue-700 border-blue-200 hover:border-blue-400",
+      description: "Navegue e importe briefings, docs, planilhas e relatórios da sua conta Google."
     }
   ];
 
@@ -561,24 +598,29 @@ hash: ${hash}
                     {selectedType === "youtube" && <Youtube className="w-5 h-5" />}
                     {selectedType === "site" && <Globe className="w-5 h-5" />}
                     {selectedType === "text" && <AlignLeft className="w-5 h-5" />}
+                    {selectedType === "gdrive" && <Cloud className="w-5 h-5" />}
                   </div>
                   <div>
                     <h2 className="text-base font-black text-stone-900">
                       {knowledgeOptions.find((o) => o.id === selectedType)?.label}
                     </h2>
                     <p className="text-xs text-stone-500">
-                      Insira os dados brutos ou clique em 'Usar Exemplo Nisti' para testar.
+                      {selectedType === "gdrive"
+                        ? "Selecione o arquivo da sua nuvem para importação e curadoria automática."
+                        : "Insira os dados brutos ou clique em 'Usar Exemplo Nisti' para testar."}
                     </p>
                   </div>
                 </div>
 
-                <button
-                  onClick={() => useExampleInput(selectedType)}
-                  className="px-3 py-1.5 bg-stone-100 hover:bg-stone-200 text-stone-700 text-xs font-bold rounded-xl border border-stone-200 transition-colors flex items-center gap-1 cursor-pointer"
-                >
-                  <Sparkles className="w-3.5 h-3.5 text-purple-600" />
-                  <span>Usar Exemplo Nisti Print</span>
-                </button>
+                {selectedType !== "gdrive" && (
+                  <button
+                    onClick={() => useExampleInput(selectedType)}
+                    className="px-3 py-1.5 bg-stone-100 hover:bg-stone-200 text-stone-700 text-xs font-bold rounded-xl border border-stone-200 transition-colors flex items-center gap-1 cursor-pointer"
+                  >
+                    <Sparkles className="w-3.5 h-3.5 text-purple-600" />
+                    <span>Usar Exemplo Nisti Print</span>
+                  </button>
+                )}
               </div>
 
               {/* PDF FLOW */}
@@ -739,24 +781,34 @@ hash: ${hash}
                 </div>
               )}
 
+              {/* GOOGLE DRIVE FLOW */}
+              {selectedType === "gdrive" && (
+                <GoogleDriveSelector
+                  onSelectFile={handleGoogleDriveFileSelected}
+                  onCancel={() => setSelectedType(null)}
+                />
+              )}
+
               {/* ACTIONS */}
-              <div className="pt-4 border-t border-stone-150 flex items-center justify-between">
-                <button
-                  type="button"
-                  onClick={() => setSelectedType(null)}
-                  className="px-4 py-2 text-stone-500 hover:text-stone-800 text-xs font-bold rounded-xl"
-                >
-                  Voltar
-                </button>
-                <button
-                  type="button"
-                  onClick={handleStartProcessing}
-                  className="px-5 py-2.5 bg-stone-900 hover:bg-stone-800 text-white text-xs font-bold rounded-xl shadow-xs transition-all flex items-center gap-1.5 cursor-pointer"
-                >
-                  <Sparkles className="w-4 h-4 text-purple-400" />
-                  <span>Processar e Gerar Prévia de Curadoria</span>
-                </button>
-              </div>
+              {selectedType !== "gdrive" && (
+                <div className="pt-4 border-t border-stone-150 flex items-center justify-between">
+                  <button
+                    type="button"
+                    onClick={() => setSelectedType(null)}
+                    className="px-4 py-2 text-stone-500 hover:text-stone-800 text-xs font-bold rounded-xl"
+                  >
+                    Voltar
+                  </button>
+                  <button
+                    type="button"
+                    onClick={handleStartProcessing}
+                    className="px-5 py-2.5 bg-stone-900 hover:bg-stone-800 text-white text-xs font-bold rounded-xl shadow-xs transition-all flex items-center gap-1.5 cursor-pointer"
+                  >
+                    <Sparkles className="w-4 h-4 text-purple-400" />
+                    <span>Processar e Gerar Prévia de Curadoria</span>
+                  </button>
+                </div>
+              )}
 
             </div>
           )}

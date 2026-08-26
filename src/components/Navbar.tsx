@@ -19,6 +19,8 @@ import {
   ExternalLink,
   ChevronDown,
   Check,
+  HelpCircle,
+  BookOpen,
 } from "lucide-react";
 import { ObsidianApiConfig, EngineMode } from "../types";
 
@@ -27,6 +29,7 @@ interface NavbarProps {
   setActiveTab: (tab: "dashboard" | "vault" | "campaigns" | "tasks" | "automations" | "routine" | "knowledge") => void;
   apiConfig: ObsidianApiConfig;
   onOpenSettings: () => void;
+  onOpenGuide?: () => void;
   onSyncNow: () => void;
   isSyncing: boolean;
   onQuickNewCampaign: () => void;
@@ -43,6 +46,7 @@ export const Navbar: React.FC<NavbarProps> = ({
   setActiveTab,
   apiConfig,
   onOpenSettings,
+  onOpenGuide,
   onSyncNow,
   isSyncing,
   onQuickNewCampaign,
@@ -318,6 +322,17 @@ export const Navbar: React.FC<NavbarProps> = ({
                 </div>
               )}
             </div>
+
+            {/* Guide Button */}
+            {onOpenGuide && (
+              <button
+                onClick={onOpenGuide}
+                className="p-2 text-stone-600 hover:text-purple-900 hover:bg-purple-50 rounded-xl transition-all border border-stone-200/60 cursor-pointer"
+                title="Guia de Instalação Local, Obsidian & Atualizações"
+              >
+                <HelpCircle className="w-4 h-4 text-purple-600" />
+              </button>
+            )}
 
             {/* Settings Button */}
             <button

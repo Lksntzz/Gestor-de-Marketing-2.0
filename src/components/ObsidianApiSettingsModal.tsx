@@ -12,6 +12,8 @@ import {
   Upload,
   ExternalLink,
   ShieldAlert,
+  HelpCircle,
+  Laptop,
 } from "lucide-react";
 import { ObsidianApiConfig } from "../types";
 
@@ -23,6 +25,7 @@ interface ObsidianApiSettingsModalProps {
   onTestConnection: (cfg: ObsidianApiConfig) => Promise<{ success: boolean; message: string }>;
   onExportVault: () => void;
   onImportVault: (file: File) => void;
+  onOpenGuide?: () => void;
 }
 
 export const ObsidianApiSettingsModal: React.FC<ObsidianApiSettingsModalProps> = ({
@@ -33,6 +36,7 @@ export const ObsidianApiSettingsModal: React.FC<ObsidianApiSettingsModalProps> =
   onTestConnection,
   onExportVault,
   onImportVault,
+  onOpenGuide,
 }) => {
   const [formData, setFormData] = useState<ObsidianApiConfig>({ ...config });
   const [isTesting, setIsTesting] = useState(false);
@@ -90,10 +94,25 @@ export const ObsidianApiSettingsModal: React.FC<ObsidianApiSettingsModalProps> =
         {/* Modal Body */}
         <div className="p-6 overflow-y-auto space-y-5">
           {/* Quick Setup Guide */}
-          <div className="bg-purple-50/60 border border-purple-200 rounded-xl p-3.5 text-xs text-stone-700 space-y-1.5">
-            <h4 className="font-bold text-purple-900 flex items-center gap-1.5">
-              <span>Como habilitar a API no seu aplicativo Obsidian:</span>
-            </h4>
+          <div className="bg-purple-50/60 border border-purple-200 rounded-xl p-3.5 text-xs text-stone-700 space-y-2">
+            <div className="flex items-center justify-between">
+              <h4 className="font-bold text-purple-900 flex items-center gap-1.5">
+                <span>Como habilitar a API no seu aplicativo Obsidian:</span>
+              </h4>
+              {onOpenGuide && (
+                <button
+                  type="button"
+                  onClick={() => {
+                    onClose();
+                    onOpenGuide();
+                  }}
+                  className="text-[11px] font-bold text-purple-700 hover:text-purple-950 underline flex items-center gap-1 cursor-pointer"
+                >
+                  <HelpCircle className="w-3 h-3" />
+                  <span>Ver Guia Completo</span>
+                </button>
+              )}
+            </div>
             <ol className="list-decimal list-inside space-y-1 text-[11px] text-stone-600 pl-1">
               <li>No Obsidian Desktop, vá em <strong>Settings &gt; Community Plugins</strong>.</li>
               <li>Busque e instale o plugin <strong>Local REST API</strong> (autor: coddingtonbear).</li>
