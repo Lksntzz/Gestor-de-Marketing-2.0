@@ -1,6 +1,6 @@
 import type { MarketingTask } from "../types";
 
-export const APP_VERSION = "1.0.0";
+export const APP_VERSION = "1.0.1";
 export const DAILY_TASKS_SECTION_ID = "daily-pending-tasks";
 export const AUTOMATION_HIGH_PRIORITY_SECTION_ID = "automation-high-priority";
 
