@@ -1,0 +1,52 @@
+name: Windows Installer
+
+on:
+  push:
+    branches: [ "chore/windows-installer-0171" ]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  package-windows:
+    runs-on: windows-latest
+    timeout-minutes: 30
+
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: latest
+
+      - name: Install Dependencies
+        run: bun install --frozen-lockfile
+
+      - name: Verify TypeScript, Tests and Build
+        run: bun run verify
+
+      - name: Build Windows Installer and Portable EXE
+        shell: pwsh
+        run: bunx electron-builder@26.0.12 --win nsis portable --x64 --publish never
+        env:
+          CSC_IDENTITY_AUTO_DISCOVERY: "false"
+
+      - name: Generate SHA-256 checksums
+        shell: pwsh
+        run: |
+          Get-ChildItem dist-electron -Filter *.exe | Get-FileHash -Algorithm SHA256 | ForEach-Object {
+            "$($_.Hash)  $($_.Path | Split-Path -Leaf)"
+          } | Set-Content dist-electron/SHA256SUMS.txt
+
+      - name: Upload Windows Installers
+        uses: actions/upload-artifact@v4
+        with:
+          name: nisti-marketing-hub-windows-0.1.7.1
+          path: |
+            dist-electron/*.exe
+            dist-electron/SHA256SUMS.txt
+          if-no-files-found: error
+          retention-days: 14
