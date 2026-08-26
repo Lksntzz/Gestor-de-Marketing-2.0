@@ -14,17 +14,16 @@ jobs:
       - name: Checkout Code
         uses: actions/checkout@v4
 
-      - name: Setup Node.js Environment
-        uses: actions/setup-node@v4
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@v2
         with:
-          node-version: 20
-          cache: "npm"
+          bun-version: latest
 
       - name: Install Dependencies
-        run: npm ci
+        run: bun install --frozen-lockfile
 
       - name: Run TypeScript Lint & Typecheck
-        run: npm run lint
+        run: bun run lint
 
-      - name: Build Web Client, CJS Backend & Electron Entrypoints
-        run: npm run build
+      - name: Build Web Client, Hardened Backend & Electron Entrypoints
+        run: bun run build
