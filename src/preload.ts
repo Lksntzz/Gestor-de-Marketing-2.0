@@ -16,6 +16,11 @@ contextBridge.exposeInMainWorld("electronAPI", {
     ipcRenderer.invoke("notes:append", { vaultPath, folder, title, contentToAppend }),
   deleteNote: (vaultPath: string, folder: string, title: string) => 
     ipcRenderer.invoke("notes:delete", { vaultPath, folder, title }),
+
+  // OS-backed secrets (Electron safeStorage)
+  setSecret: (name: string, value: string) => ipcRenderer.invoke("secret:set", name, value),
+  getSecret: (name: string) => ipcRenderer.invoke("secret:get", name),
+  deleteSecret: (name: string) => ipcRenderer.invoke("secret:delete", name),
     
   // AI Gateway delegation via main process
   processKnowledgeLocal: (payload: any) => ipcRenderer.invoke("ai:process-knowledge", payload),
