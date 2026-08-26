@@ -295,7 +295,6 @@ export interface DailyRoutineSlot {
   linkedPostId?: string;
 }
 
-// Global declaration for Electron Bridge
 declare global {
   interface Window {
     electronAPI?: {
@@ -305,6 +304,7 @@ declare global {
       readNotes: () => Promise<any[]>;
       writeNote: (folder: string, title: string, content: string, frontmatter?: any) => Promise<{ success: boolean; path?: string; error?: string }>;
       appendNote: (folder: string, title: string, contentToAppend: string) => Promise<{ success: boolean; path?: string; error?: string }>;
+      upsertNoteSection: (folder: string, title: string, sectionId: string, heading: string, content: string) => Promise<{ success: boolean; path?: string; error?: string }>;
       deleteNote: (folder: string, title: string) => Promise<{ success: boolean; error?: string }>;
       setSecret: (name: string, value: string) => Promise<{ success: boolean }>;
       getSecret: (name: string) => Promise<string>;
