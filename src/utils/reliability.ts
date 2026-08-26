@@ -1,6 +1,6 @@
 import type { MarketingTask } from "../types";
 
-export const APP_VERSION = "0.1.6";
+export const APP_VERSION = "0.1.7.1";
 export const DAILY_TASKS_SECTION_ID = "daily-pending-tasks";
 export const AUTOMATION_HIGH_PRIORITY_SECTION_ID = "automation-high-priority";
 
@@ -88,11 +88,6 @@ export function stableRoutineTaskId(weekAnchor: Date, slotId: string): string {
   return `routine-task-${weekKey}-${safeSlot || "slot"}`;
 }
 
-/**
- * Generic ID upsert with special protection for task execution state. When the
- * same logical task is regenerated, its latest metadata/dates are refreshed,
- * but a user's progress (status/completedAt) is not reset back to TODO.
- */
 export function upsertItemsById<T extends { id: string }>(existing: T[], incoming: T[]): T[] {
   const existingById = new Map(existing.map((item) => [item.id, item]));
   const mergedIncoming = incoming.map((item) => {

@@ -1,12 +1,12 @@
 {
   "name": "nisti-pkm-marketing-hub",
   "private": true,
-  "version": "0.1.6",
+  "version": "0.1.7-patch.1",
   "main": "dist/electron-main.cjs",
   "type": "module",
   "scripts": {
-    "dev": "tsx server.ts",
-    "build": "vite build && esbuild server.ts --bundle --platform=node --format=cjs --packages=external --sourcemap --outfile=dist/server.cjs && esbuild src/preload.ts --bundle --platform=node --format=cjs --outfile=dist/preload.cjs && esbuild electron-main.ts --bundle --platform=node --format=cjs --packages=external --outfile=dist/electron-main.cjs",
+    "dev": "tsx secure-server.ts",
+    "build": "vite build && esbuild secure-server.ts --bundle --platform=node --format=cjs --packages=external --sourcemap --outfile=dist/server.cjs && esbuild src/preload.ts --bundle --platform=node --format=cjs --outfile=dist/preload.cjs && esbuild electron-bootstrap.ts --bundle --platform=node --format=cjs --packages=external --outfile=dist/electron-main.cjs",
     "start": "node dist/server.cjs",
     "electron:start": "electron dist/electron-main.cjs",
     "electron:dev": "bun run build && electron dist/electron-main.cjs",
@@ -64,7 +64,6 @@
     "esbuild": "^0.25.0",
     "tailwindcss": "^4.1.14",
     "tsx": "^4.21.0",
-    "typescript": "~5.8.2",
-    "vite": "^6.2.3"
+    "typescript": "~5.8.2"
   }
 }
