@@ -6,7 +6,6 @@ import {
   Content,
   AuditEntry,
   AutomationRule,
-  AuditAction
 } from "../../domain/schemas";
 import { TaxonomyFolder, normalizeTaxonomyFolder, sanitizeSafePath } from "../../domain/taxonomy";
 import { generateFastHash, generateUUID, encryptSecret, decryptSecret } from "../../utils/crypto";
@@ -54,7 +53,6 @@ export class StorageManager implements IStorageService {
 
     try {
       const logs = await this.getAuditLogs();
-      // Keep last 500 logs
       const updated = [fullEntry, ...logs].slice(0, 500);
       localStorage.setItem(STORAGE_KEYS.AUDIT, JSON.stringify(updated));
     } catch (e) {
@@ -129,7 +127,6 @@ export class StorageManager implements IStorageService {
     const { safeFolder, safeFilename } = sanitizeSafePath(note.folder, note.title);
     const cleanTitle = safeFilename.replace(/\.md$/, "");
 
-    // Sanitize Note
     const sanitizedNote: KnowledgeNote = {
       ...note,
       folder: safeFolder,
@@ -155,7 +152,6 @@ export class StorageManager implements IStorageService {
       }
     }
 
-    // Always update local sandbox cache
     try {
       const existing = await this.readAllNotes();
       const filtered = existing.filter((n) => n.path !== sanitizedNote.path && n.id !== sanitizedNote.id);
@@ -279,20 +275,39 @@ export class StorageManager implements IStorageService {
   }
 
   // ==========================================
-  // SECURE API CONFIG (ENCRYPTED SECRETS)
+  // SECURE API CONFIG
   // ==========================================
   public async saveApiConfig(config: ObsidianApiConfig): Promise<void> {
+    // Never leave the legacy plaintext entry behind, even transiently.
+    localStorage.removeItem("obsidian_api_config");
+
     try {
-      const encryptedKey = await encryptSecret(config.apiKey);
-      const payloadToSave = {
-        ...config,
-        apiKey: encryptedKey,
-      };
-      localStorage.setItem(STORAGE_KEYS.API_CONFIG_SECURE, JSON.stringify(payloadToSave));
-      // Remove legacy unencrypted key
-      localStorage.removeItem("obsidian_api_config");
+      const { apiKey, ...nonSecretConfig } = config;
+
+      if (this.isDesktopRuntime() && (window.electronAPI as any)?.setSecret) {
+        await (window.electronAPI as any).setSecret("obsidianApiKey", apiKey || "");
+        localStorage.setItem(
+          STORAGE_KEYS.API_CONFIG_SECURE,
+          JSON.stringify({ ...nonSecretConfig, apiKey: "" })
+        );
+        return;
+      }
+
+      const encryptedKey = await encryptSecret(apiKey || "");
+      localStorage.setItem(
+        STORAGE_KEYS.API_CONFIG_SECURE,
+        JSON.stringify({ ...nonSecretConfig, apiKey: encryptedKey })
+      );
     } catch (e) {
-      console.warn("Could not save encrypted API config:", e);
+      // Fail closed: keep non-secret settings, never persist a plaintext token.
+      const { apiKey: _apiKey, ...nonSecretConfig } = config;
+      localStorage.setItem(
+        STORAGE_KEYS.API_CONFIG_SECURE,
+        JSON.stringify({ ...nonSecretConfig, apiKey: "" })
+      );
+      console.warn("Could not persist API credential securely; secret kept only in memory for this session.", e);
+    } finally {
+      localStorage.removeItem("obsidian_api_config");
     }
   }
 
@@ -301,25 +316,36 @@ export class StorageManager implements IStorageService {
       const rawSecure = localStorage.getItem(STORAGE_KEYS.API_CONFIG_SECURE);
       if (rawSecure) {
         const parsed = JSON.parse(rawSecure);
-        const decryptedKey = await decryptSecret(parsed.apiKey);
+
+        if (this.isDesktopRuntime() && (window.electronAPI as any)?.getSecret) {
+          const secureKey = await (window.electronAPI as any).getSecret("obsidianApiKey");
+          return {
+            ...defaultConfig,
+            ...parsed,
+            apiKey: secureKey || "",
+          };
+        }
+
+        const decryptedKey = await decryptSecret(parsed.apiKey || "");
         return {
+          ...defaultConfig,
           ...parsed,
           apiKey: decryptedKey,
         };
       }
 
-      // Check legacy and migrate automatically
       const legacyRaw = localStorage.getItem("obsidian_api_config");
       if (legacyRaw) {
         const legacyParsed = JSON.parse(legacyRaw);
+        localStorage.removeItem("obsidian_api_config");
         await this.saveApiConfig(legacyParsed);
         return legacyParsed;
       }
     } catch (e) {
-      console.warn("Could not load API config securely, using defaults:", e);
+      console.warn("Could not load API config securely, using defaults without persisted secret:", e);
     }
 
-    return defaultConfig;
+    return { ...defaultConfig, apiKey: "" };
   }
 
   // ==========================================
