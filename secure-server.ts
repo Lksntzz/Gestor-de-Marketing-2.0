@@ -37,7 +37,6 @@ function writeJson(res: http.ServerResponse, statusCode: number, payload: unknow
 let hasBoundMainServer = false;
 
 (http.Server.prototype as any).listen = function (...args: any[]) {
-  // Only override for the primary application server to prevent port collision on secondary internal listeners (like Vite)
   if (!hasBoundMainServer) {
     hasBoundMainServer = true;
     const targetHost = IS_DESKTOP_ENV ? LOOPBACK_HOST : "0.0.0.0";
@@ -96,16 +95,11 @@ let hasBoundMainServer = false;
   }
 
   const providedToken = String(req.headers["x-app-session-token"] || "");
-  const sameOriginBrowser = req.headers["sec-fetch-site"] === "same-origin" || !IS_DESKTOP_ENV;
-
-  if (providedToken !== SESSION_TOKEN && !sameOriginBrowser) {
+  if (providedToken !== SESSION_TOKEN) {
     return writeJson(res, 401, { success: false, error: "Sessão local inválida." });
   }
 
-  if (providedToken === SESSION_TOKEN) {
-    req.headers["sec-fetch-site"] = "same-origin";
-  }
-
+  req.headers["sec-fetch-site"] = "same-origin";
   return originalEmit.call(this, event, ...args);
 };
 
@@ -114,4 +108,3 @@ process.env.NISTI_APP_PORT = String(APP_PORT);
 process.env.NISTI_INSTANCE_ID = INSTANCE_ID;
 
 void import("./server.ts");
-
