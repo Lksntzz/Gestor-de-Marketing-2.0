@@ -29,12 +29,31 @@ describe("v1.0.1 hardening invariants", () => {
     expect(source).not.toContain("sameOriginBrowser");
   });
 
+  test("authenticated session also covers PDF, YouTube and other direct ingestion requests", async () => {
+    const secureServer = await read("secure-server.ts");
+    const apiSource = await read("src/services/api.ts");
+    expect(secureServer).toContain("HttpOnly; SameSite=Strict; Path=/api/");
+    expect(secureServer).toContain("cachedGeminiApiKey");
+    expect(secureServer).toContain('getCookieValue(req.headers.cookie, "nisti_session")');
+    expect(apiSource).toContain("const [headers, config] = await Promise.all");
+    expect(apiSource).toContain('fetch("/api/health", { cache: "no-store", headers })');
+    expect(apiSource).toContain("async processKnowledge(");
+  });
+
   test("Obsidian Local REST HTTPS accepts only loopback self-signed certificates", async () => {
     const source = await read("secure-server.ts");
     expect(source).toContain("rejectUnauthorized: false");
     expect(source).toContain("isLoopbackHostname(parsed.hostname)");
     expect(source).toContain('parsed.port === "27124"');
     expect(source).toContain('parsed.protocol = "https:"');
+  });
+
+  test("Obsidian setup validates REST and binds the physical desktop Vault", async () => {
+    const source = await read("src/services/api.ts");
+    expect(source).toContain("window.electronAPI.selectVault()");
+    expect(source).toContain("window.electronAPI.readNotes()");
+    expect(source).toContain("localNotesFound");
+    expect(source).toContain("Sincronizar Agora");
   });
 
   test("desktop secret store protects both Obsidian and Gemini credentials", async () => {
@@ -84,9 +103,19 @@ describe("v1.0.1 hardening invariants", () => {
     expect(source).not.toContain("localStorage");
   });
 
-  test("application identity remains on the 1.0 release line", async () => {
+  test("application identity is Nisti Marketing while preserving the existing user data profile", async () => {
     const html = await read("index.html");
-    expect(html).toContain("Nisti Print PKM Marketing Hub");
+    const pkg = JSON.parse(await read("package.json"));
+    const main = await read("electron-main.ts");
+    const bootstrap = await read("electron-bootstrap.ts");
+
+    expect(html).toContain("<title>Nisti Marketing</title>");
     expect(html).not.toContain("My Google AI Studio App");
+    expect(pkg.build.productName).toBe("Nisti Marketing");
+    expect(pkg.build.nsis.shortcutName).toBe("Nisti Marketing");
+    expect(main).toContain('title: "Nisti Marketing"');
+    expect(main).toContain("Menu.setApplicationMenu(null)");
+    expect(bootstrap).toContain('app.setName("Nisti Marketing")');
+    expect(bootstrap).toContain('STABLE_USER_DATA_NAME = "Nisti Print PKM Marketing Hub"');
   });
 });
