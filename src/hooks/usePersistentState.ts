@@ -55,8 +55,7 @@ export function usePersistentState<T>(
   const guardedSetValue = useCallback<Dispatch<SetStateAction<T>>>(
     (nextValue) => {
       if (isKnowledgeBank && !isObsidianRuntimeConnected()) {
-        console.warn("Knowledge state mutation blocked: Obsidian is not connected.");
-        return;
+        throw new Error("Banco de conhecimento indisponível: conecte o Obsidian antes de ler ou salvar notas.");
       }
       setValue(nextValue);
     },
