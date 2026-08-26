@@ -70,7 +70,7 @@ describe("v1.0.1 hardening invariants", () => {
     expect(main).toContain('ipcMain.handle("vault:list-folders"');
     expect(preload).toContain("setObsidianConnectionState");
     expect(preload).toContain("listVaultFolders");
-    expect(hook).toContain("Knowledge state mutation blocked").not;
+    expect(hook).not.toContain("Knowledge state mutation blocked");
     expect(hook).toContain("Banco de conhecimento indisponível");
     expect(hook).toContain("OBSIDIAN_DISCONNECTED_EVENT");
     expect(runtime).toContain("OBSIDIAN_SNAPSHOT_EVENT");
