@@ -18,11 +18,7 @@
   "build": {
     "appId": "com.nistiprint.pkm",
     "productName": "Nisti Print Marketing Hub PKM",
-    "asar": true,
-    "asarUnpack": [
-      "dist/server.cjs",
-      "dist/server.cjs.map"
-    ],
+    "asar": false,
     "directories": {
       "output": "dist-electron"
     },
