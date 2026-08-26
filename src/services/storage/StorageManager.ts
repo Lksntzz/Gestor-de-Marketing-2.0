@@ -22,6 +22,8 @@ const STORAGE_KEYS = {
   IS_DEMO_MODE: "nisti_is_demo_mode_v2",
 };
 
+const APP_VERSION = "0.1.4";
+
 export class StorageManager implements IStorageService {
   private static instance: StorageManager;
 
@@ -79,7 +81,7 @@ export class StorageManager implements IStorageService {
       try {
         const vaultPath = await window.electronAPI!.getVaultPath();
         if (vaultPath) {
-          const files = await window.electronAPI!.readNotes(vaultPath);
+          const files = await window.electronAPI!.readNotes();
           return files.map((f: any) => ({
             id: f.frontmatter?.id || `note_${generateFastHash("n", f.title)}`,
             path: `${f.folder}/${f.title}.md`,
@@ -140,7 +142,6 @@ export class StorageManager implements IStorageService {
         const vaultPath = await window.electronAPI!.getVaultPath();
         if (vaultPath) {
           await window.electronAPI!.writeNote(
-            vaultPath,
             safeFolder,
             cleanTitle,
             sanitizedNote.content,
@@ -181,7 +182,7 @@ export class StorageManager implements IStorageService {
       try {
         const vaultPath = await window.electronAPI!.getVaultPath();
         if (vaultPath) {
-          await window.electronAPI!.deleteNote(vaultPath, safeFolder, cleanTitle);
+          await window.electronAPI!.deleteNote(safeFolder, cleanTitle);
         }
       } catch (err) {
         console.warn("Desktop delete error:", err);
@@ -278,14 +279,14 @@ export class StorageManager implements IStorageService {
   // SECURE API CONFIG
   // ==========================================
   public async saveApiConfig(config: ObsidianApiConfig): Promise<void> {
-    // Never leave the legacy plaintext entry behind, even transiently.
+    // Migration cleanup only: v0.1.4+ never intentionally writes this legacy key.
     localStorage.removeItem("obsidian_api_config");
 
     try {
       const { apiKey, ...nonSecretConfig } = config;
 
-      if (this.isDesktopRuntime() && (window.electronAPI as any)?.setSecret) {
-        await (window.electronAPI as any).setSecret("obsidianApiKey", apiKey || "");
+      if (this.isDesktopRuntime() && window.electronAPI?.setSecret) {
+        await window.electronAPI.setSecret("obsidianApiKey", apiKey || "");
         localStorage.setItem(
           STORAGE_KEYS.API_CONFIG_SECURE,
           JSON.stringify({ ...nonSecretConfig, apiKey: "" })
@@ -299,7 +300,6 @@ export class StorageManager implements IStorageService {
         JSON.stringify({ ...nonSecretConfig, apiKey: encryptedKey })
       );
     } catch (e) {
-      // Fail closed: keep non-secret settings, never persist a plaintext token.
       const { apiKey: _apiKey, ...nonSecretConfig } = config;
       localStorage.setItem(
         STORAGE_KEYS.API_CONFIG_SECURE,
@@ -317,8 +317,8 @@ export class StorageManager implements IStorageService {
       if (rawSecure) {
         const parsed = JSON.parse(rawSecure);
 
-        if (this.isDesktopRuntime() && (window.electronAPI as any)?.getSecret) {
-          const secureKey = await (window.electronAPI as any).getSecret("obsidianApiKey");
+        if (this.isDesktopRuntime() && window.electronAPI?.getSecret) {
+          const secureKey = await window.electronAPI.getSecret("obsidianApiKey");
           return {
             ...defaultConfig,
             ...parsed,
@@ -360,7 +360,7 @@ export class StorageManager implements IStorageService {
     const auditLogs = await this.getAuditLogs();
 
     const exportPayload = {
-      version: "2.0.0",
+      version: APP_VERSION,
       system: "Nisti Print PKM Marketing Hub",
       runtime: this.getRuntimeName(),
       exportedAt: new Date().toISOString(),
