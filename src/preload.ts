@@ -7,8 +7,13 @@ contextBridge.exposeInMainWorld("electronAPI", {
   getVaultPath: () => ipcRenderer.invoke("vault:get-path"),
 
   readNotes: () => ipcRenderer.invoke("notes:read-all"),
-  writeNote: (folder: string, title: string, content: string, frontmatter?: any) =>
-    ipcRenderer.invoke("notes:write", { folder, title, content, frontmatter }),
+  writeNote: (...args: any[]) => {
+    // Compatibility for pre-v0.1.5 callers that still pass vaultPath first.
+    // The renderer-provided root is deliberately discarded and never reaches IPC.
+    const normalized = args.length >= 5 ? args.slice(1) : args;
+    const [folder, title, content, frontmatter] = normalized;
+    return ipcRenderer.invoke("notes:write", { folder, title, content, frontmatter });
+  },
   appendNote: (folder: string, title: string, contentToAppend: string) =>
     ipcRenderer.invoke("notes:append", { folder, title, contentToAppend }),
   upsertNoteSection: (folder: string, title: string, sectionId: string, heading: string, content: string) =>
