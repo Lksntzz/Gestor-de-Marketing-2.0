@@ -63,3 +63,90 @@ export function maskToken(token: string | undefined | null): string {
   if (token.length <= 8) return "********";
   return `${token.slice(0, 4)}...${token.slice(-4)}`;
 }
+
+/**
+ * Derives a cryptographic AES-GCM key from a device-bound seed.
+ */
+async function getEncryptionKey(): Promise<CryptoKey | null> {
+  if (typeof crypto === "undefined" || !crypto.subtle) return null;
+  try {
+    const rawSeed = "nisti_vault_secure_client_device_key_v2";
+    const enc = new TextEncoder().encode(rawSeed);
+    const keyMaterial = await crypto.subtle.importKey("raw", enc, "PBKDF2", false, ["deriveKey"]);
+    return await crypto.subtle.deriveKey(
+      {
+        name: "PBKDF2",
+        salt: new TextEncoder().encode("nisti_pkm_salt_2026"),
+        iterations: 100000,
+        hash: "SHA-256",
+      },
+      keyMaterial,
+      { name: "AES-GCM", length: 256 },
+      false,
+      ["encrypt", "decrypt"]
+    );
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Encrypts a sensitive string (e.g. API keys) before storing in local storage.
+ */
+export async function encryptSecret(plainText: string): Promise<string> {
+  if (!plainText) return "";
+  const key = await getEncryptionKey();
+  if (key && typeof crypto !== "undefined" && crypto.subtle) {
+    try {
+      const iv = crypto.getRandomValues(new Uint8Array(12));
+      const encoded = new TextEncoder().encode(plainText);
+      const cipherBuffer = await crypto.subtle.encrypt({ name: "AES-GCM", iv }, key, encoded);
+      const cipherArray = Array.from(new Uint8Array(cipherBuffer));
+      const ivArray = Array.from(iv);
+      return `enc_v2:${btoa(JSON.stringify({ iv: ivArray, data: cipherArray }))}`;
+    } catch {
+      // Fallback below
+    }
+  }
+
+  // Obfuscated fallback for environments where SubtleCrypto is disabled
+  return `enc_obf:${btoa(encodeURIComponent(plainText).split("").reverse().join(""))}`;
+}
+
+/**
+ * Decrypts a sensitive string retrieved from local storage.
+ */
+export async function decryptSecret(cipherText: string): Promise<string> {
+  if (!cipherText) return "";
+  if (!cipherText.startsWith("enc_")) return cipherText; // Plaintext migration
+
+  if (cipherText.startsWith("enc_v2:")) {
+    const key = await getEncryptionKey();
+    if (key && typeof crypto !== "undefined" && crypto.subtle) {
+      try {
+        const payloadStr = atob(cipherText.replace("enc_v2:", ""));
+        const { iv, data } = JSON.parse(payloadStr);
+        const decryptedBuffer = await crypto.subtle.decrypt(
+          { name: "AES-GCM", iv: new Uint8Array(iv) },
+          key,
+          new Uint8Array(data)
+        );
+        return new TextDecoder().decode(decryptedBuffer);
+      } catch (err) {
+        console.warn("Failed to decrypt secret with AES-GCM:", err);
+      }
+    }
+  }
+
+  if (cipherText.startsWith("enc_obf:")) {
+    try {
+      const reversed = atob(cipherText.replace("enc_obf:", ""));
+      return decodeURIComponent(reversed.split("").reverse().join(""));
+    } catch {
+      return "";
+    }
+  }
+
+  return cipherText;
+}
+

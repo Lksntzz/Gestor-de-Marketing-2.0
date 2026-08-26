@@ -46,6 +46,7 @@ import {
   DEFAULT_WEEKLY_ROUTINE,
 } from "./data/routineData";
 import { api } from "./services/api";
+import { StorageManager } from "./services/storage/StorageManager";
 import { formatToObsidianTask, parseObsidianTaskString } from "./utils/obsidianUri";
 import {
   generateLocalCampaign,
@@ -67,7 +68,7 @@ export default function App() {
     return (saved as EngineMode) || "local";
   });
 
-  // Core Data State (persisted to localStorage)
+  // Core Data State (persisted to localStorage & StorageManager)
   const [notes, setNotes] = useState<ObsidianNote[]>(() => {
     const saved = localStorage.getItem("obsidian_marketing_notes");
     return saved ? JSON.parse(saved) : DEFAULT_OBSIDIAN_NOTES;
@@ -128,21 +129,30 @@ export default function App() {
     return saved ? JSON.parse(saved) : DEFAULT_WEEKLY_ROUTINE;
   });
 
-  const [apiConfig, setApiConfig] = useState<ObsidianApiConfig>(() => {
-    const saved = localStorage.getItem("obsidian_api_config");
-    return saved
-      ? JSON.parse(saved)
-      : {
-          endpoint: "http://127.0.0.1:27124",
-          apiKey: "obsidian_marketing_token",
-          vaultName: "MarketingVault",
-          useHttps: false,
-          autoSync: true,
-          syncIntervalSeconds: 60,
-          connectionStatus: "disconnected",
-          allowSelfSignedCerts: true,
-        };
+  const [apiConfig, setApiConfig] = useState<ObsidianApiConfig>({
+    endpoint: "http://127.0.0.1:27124",
+    apiKey: "obsidian_marketing_token",
+    vaultName: "MarketingVault",
+    useHttps: false,
+    autoSync: true,
+    syncIntervalSeconds: 60,
+    connectionStatus: "disconnected",
+    allowSelfSignedCerts: true,
   });
+
+  // Load API config with AES-GCM decryption on mount
+  useEffect(() => {
+    StorageManager.getInstance()
+      .loadApiConfig(apiConfig)
+      .then((loaded) => {
+        if (loaded) setApiConfig(loaded);
+      });
+  }, []);
+
+  // Save encrypted API config on changes (omitting plaintext from legacy localStorage)
+  useEffect(() => {
+    StorageManager.getInstance().saveApiConfig(apiConfig);
+  }, [apiConfig]);
 
   // Selected Note & Audit State
   const [selectedNote, setSelectedNote] = useState<ObsidianNote | null>(notes[0] || null);
@@ -576,7 +586,7 @@ export default function App() {
         .join("\n");
 
       const today = new Date().toISOString().split("T")[0];
-      const dailyPath = `Daily Notes/${today}.md`;
+      const dailyPath = StorageManager.getInstance().getDailyNotePath(today);
 
       // Update local daily note or create one
       const existingDaily = notes.find((n) => n.path === dailyPath);
@@ -587,14 +597,30 @@ export default function App() {
         );
       } else {
         const newDaily: ObsidianNote = {
-          id: `note-${Date.now()}`,
+          id: `note-daily-${Date.now()}`,
           path: dailyPath,
           title: `Daily Note: ${today}`,
-          folder: "Daily Notes",
+          folder: "00_Inbox",
           content: `# 📅 Daily Note: ${today}\n\n## 📋 Tarefas Sincronizadas do Gestor de Marketing\n${pendingTaskList}`,
-          frontmatter: { title: `Daily Note: ${today}`, tags: ["daily-note", "marketing"] },
-          tags: ["daily-note", "marketing"],
-          wikilinks: [],
+          frontmatter: {
+            id: `daily_${today}`,
+            tipo: "Daily Note",
+            status: "OFICIAL",
+            owner: "Gestor de Marketing Nisti Print",
+            created_at: today,
+            updated_at: today,
+            confidencialidade: "Interno",
+            produto: "Todos",
+            nicho: "Operações & Marketing",
+            canal: "Omnichannel",
+            projeto: "Rotina Diária",
+            tags: ["daily-note", "marketing", "rotina"],
+            origem: "App Nisti PKM",
+            approved_by: "Gestor de Marketing",
+            hash: `daily_${Date.now()}`,
+          },
+          tags: ["daily-note", "marketing", "rotina"],
+          wikilinks: ["01_Estrategia/Brand Voice & Posicionamento Nisti Print"],
           lastModified: new Date().toISOString().replace("T", " ").slice(0, 16),
         };
         setNotes((prev) => [newDaily, ...prev]);
@@ -603,10 +629,17 @@ export default function App() {
       // Try pushing to API if available
       await api.appendToDailyNote(apiConfig, pendingTaskList).catch(() => {});
 
+      await StorageManager.getInstance().logAudit({
+        action: "DAILY_NOTE_APPENDED",
+        entityType: "NOTE",
+        entityId: dailyPath,
+        details: `Sincronizadas ${tasks.filter((t) => t.status !== "done").length} tarefas pendentes na Daily Note ${today}.`,
+      });
+
       showToast(
         "success",
         "Daily Note Atualizada!",
-        `Tarefas e lembretes inseridos na nota do dia ${today}.`
+        `Tarefas e lembretes inseridos na nota unificada ${dailyPath}.`
       );
       confetti({ particleCount: 30, spread: 50 });
     } finally {
@@ -643,7 +676,7 @@ export default function App() {
       };
 
       const today = todayDate.toISOString().split("T")[0];
-      const dailyPath = `Daily Notes/${today}.md`;
+      const dailyPath = StorageManager.getInstance().getDailyNotePath(today);
 
       const routineTasksText = weeklyRoutine
         .map((slot) => {
@@ -675,7 +708,7 @@ export default function App() {
 
       setTasks((prev) => [...newTasks, ...prev]);
 
-      // Update or create daily note
+      // Update or create daily note in 00_Inbox
       const existingDaily = notes.find((n) => n.path === dailyPath);
       if (existingDaily) {
         const updatedContent = `${existingDaily.content}\n\n## 🗓️ Rotina Semanal de Conteúdo (Gatilhos Emocionais & Nichos)\n${routineTasksText}`;
@@ -684,14 +717,30 @@ export default function App() {
         );
       } else {
         const newDaily: ObsidianNote = {
-          id: `note-${Date.now()}`,
+          id: `note-routine-${Date.now()}`,
           path: dailyPath,
           title: `Daily Note: ${today}`,
-          folder: "Daily Notes",
+          folder: "00_Inbox",
           content: `# 📅 Daily Note: ${today}\n\n## 🗓️ Rotina Semanal de Conteúdo (Gatilhos Emocionais & Nichos)\n${routineTasksText}`,
-          frontmatter: { title: `Daily Note: ${today}`, tags: ["daily-note", "marketing-rotina"] },
+          frontmatter: {
+            id: `daily_${today}`,
+            tipo: "Daily Note",
+            status: "OFICIAL",
+            owner: "Gestor de Marketing Nisti Print",
+            created_at: today,
+            updated_at: today,
+            confidencialidade: "Interno",
+            produto: "Todos",
+            nicho: "Operações & Marketing",
+            canal: "Omnichannel",
+            projeto: "Rotina Diária",
+            tags: ["daily-note", "marketing-rotina"],
+            origem: "App Nisti PKM",
+            approved_by: "Gestor de Marketing",
+            hash: `routine_${Date.now()}`,
+          },
           tags: ["daily-note", "marketing-rotina"],
-          wikilinks: [],
+          wikilinks: ["01_Estrategia/Brand Voice & Posicionamento Nisti Print"],
           lastModified: new Date().toISOString().replace("T", " ").slice(0, 16),
         };
         setNotes((prev) => [newDaily, ...prev]);
@@ -699,10 +748,17 @@ export default function App() {
 
       await api.appendToDailyNote(apiConfig, routineTasksText).catch(() => {});
 
+      await StorageManager.getInstance().logAudit({
+        action: "DAILY_NOTE_APPENDED",
+        entityType: "NOTE",
+        entityId: dailyPath,
+        details: `Rotina semanal de ${weeklyRoutine.length} dias sincronizada com sucesso para ${today}.`,
+      });
+
       showToast(
         "success",
         "Rotina Sincronizada!",
-        `${weeklyRoutine.length} slots de rotina com datas distribuídas na semana e alarmes gravados.`
+        `${weeklyRoutine.length} slots de rotina com datas distribuídas na semana e alarmes gravados em ${dailyPath}.`
       );
       confetti({ particleCount: 40, spread: 60 });
     } finally {
@@ -760,7 +816,9 @@ export default function App() {
     );
   };
 
-  const handleRunRuleNow = (ruleId: string) => {
+  const handleRunRuleNow = async (ruleId: string) => {
+    const today = new Date().toISOString().split("T")[0];
+
     // 1. Execute actual business action based on rule
     if (ruleId === "rule-1") {
       // Sync all campaigns to 04_Campanhas notes
@@ -776,14 +834,27 @@ export default function App() {
             folder: "04_Campanhas",
             content: `# 🚀 ${camp.title}\n\n## 🎯 Objetivo\n${camp.objective}\n\n## 📝 Estratégia\n${camp.strategy}\n\n## 📑 Resumo\n${camp.summary}`,
             frontmatter: {
+              id: `camp_${Date.now()}_${syncedCount}`,
+              tipo: "Campanha de Marketing",
               title: camp.title,
               tags: ["campanha", "marketing-nisti"],
               status: "OFICIAL",
               channels: (camp.channels || []).join(", "),
               publish_date: camp.startDate,
+              owner: "Gestor de Marketing Nisti Print",
+              created_at: today,
+              updated_at: today,
+              confidencialidade: "Interno",
+              produto: "Linha Nisti Print",
+              nicho: "Papelaria & B2B",
+              canal: "Omnichannel",
+              projeto: camp.title,
+              origem: "Gerador de Campanhas",
+              approved_by: "Gestor de Marketing",
+              hash: `np_camp_${Date.now()}`,
             },
             tags: ["campanha", "marketing-nisti"],
-            wikilinks: [],
+            wikilinks: ["01_Estrategia/Brand Voice & Posicionamento Nisti Print"],
             lastModified: new Date().toISOString().replace("T", " ").slice(0, 16),
             syncedWithApi: true,
           };
@@ -791,12 +862,27 @@ export default function App() {
           syncedCount++;
         }
       });
-      showToast("success", "Automação Executada!", `${syncedCount > 0 ? `${syncedCount} notas de campanha estruturadas em 04_Campanhas.` : "Todas as campanhas já estão sincronizadas em 04_Campanhas."}`);
+
+      await StorageManager.getInstance().logAudit({
+        action: "AUTOMATION_TRIGGERED",
+        entityType: "AUTOMATION",
+        entityId: ruleId,
+        details: `${syncedCount} novas notas de campanha criadas na pasta 04_Campanhas.`,
+      });
+
+      showToast(
+        "success",
+        "Automação Executada!",
+        syncedCount > 0
+          ? `${syncedCount} notas de campanha estruturadas em 04_Campanhas.`
+          : "Todas as campanhas já estão sincronizadas em 04_Campanhas."
+      );
     } else if (ruleId === "rule-2") {
       // Triage 00_Inbox: find unapproved notes and generate triage task
-      const inboxNotes = notes.filter((n) => n.folder === "00_Inbox" && n.frontmatter?.status !== "OFICIAL");
+      const inboxNotes = notes.filter(
+        (n) => n.folder === "00_Inbox" && n.frontmatter?.status !== "OFICIAL"
+      );
       if (inboxNotes.length > 0) {
-        const today = new Date().toISOString().split("T")[0];
         const triageTask: MarketingTask = {
           id: `triage-task-${Date.now()}`,
           title: `Triagem Obrigatória: ${inboxNotes.length} notas pendentes em 00_Inbox`,
@@ -813,11 +899,37 @@ export default function App() {
           isReminderActive: true,
         };
         setTasks((prev) => [triageTask, ...prev]);
-        showToast("success", "Triagem de Inbox Concluída!", `Criada 1 tarefa de alta prioridade para revisar ${inboxNotes.length} notas pendentes.`);
+
+        await StorageManager.getInstance().logAudit({
+          action: "AUTOMATION_TRIGGERED",
+          entityType: "AUTOMATION",
+          entityId: ruleId,
+          details: `Gerada tarefa de triagem para ${inboxNotes.length} notas pendentes em 00_Inbox.`,
+        });
+
+        showToast(
+          "success",
+          "Triagem de Inbox Concluída!",
+          `Criada 1 tarefa de alta prioridade para revisar ${inboxNotes.length} notas pendentes.`
+        );
       } else {
         showToast("info", "Inbox em Dia!", "Nenhuma nota pendente de triagem em 00_Inbox.");
       }
     } else {
+      // Generic / Custom Rule Execution: Sync all pending tasks to Daily Note and log audit
+      const pendingHighTasks = tasks.filter((t) => t.status !== "done" && t.priority === "high");
+      if (pendingHighTasks.length > 0) {
+        const taskLines = pendingHighTasks.map((t) => t.obsidianTaskString).join("\n");
+        await api.appendToDailyNote(apiConfig, taskLines).catch(() => {});
+      }
+
+      await StorageManager.getInstance().logAudit({
+        action: "AUTOMATION_TRIGGERED",
+        entityType: "AUTOMATION",
+        entityId: ruleId,
+        details: "Regra executada com sucesso e sincronizada com a base do cofre.",
+      });
+
       showToast("success", "Automação Executada!", "Regra processada com sucesso no cofre.");
     }
 

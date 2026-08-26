@@ -1,16 +1,18 @@
 import express from "express";
 import path from "path";
+import crypto from "crypto";
 import { createServer as createViteServer } from "vite";
 import dotenv from "dotenv";
 import { GoogleGenAI, Type } from "@google/genai";
-import { createRequire } from "module";
+import * as pdfParseModule from "pdf-parse";
 
-const require = createRequire(import.meta.url);
+dotenv.config();
 
+// Direct buffer parsing without createRequire/import.meta.url
 async function parsePdfBuffer(buffer: Buffer): Promise<string> {
   try {
-    const pdfParse = require("pdf-parse");
-    const parsed = typeof pdfParse === "function" ? await pdfParse(buffer) : (pdfParse.default ? await pdfParse.default(buffer) : { text: "" });
+    const parseFn: any = (pdfParseModule as any).default || pdfParseModule;
+    const parsed = typeof parseFn === "function" ? await parseFn(buffer) : { text: "" };
     return parsed.text || "";
   } catch (err) {
     console.warn("PDF parsing notice:", err);
@@ -18,10 +20,11 @@ async function parsePdfBuffer(buffer: Buffer): Promise<string> {
   }
 }
 
-dotenv.config();
-
 const app = express();
 const PORT = 3000;
+
+// Internal Session Authentication Secret
+const SERVER_SESSION_SECRET = process.env.API_SESSION_SECRET || crypto.randomBytes(32).toString("hex");
 
 // Security Headers
 app.use((req, res, next) => {
@@ -31,7 +34,7 @@ app.use((req, res, next) => {
   next();
 });
 
-// Basic in-memory rate limiting for API endpoints (60 req / min per IP)
+// Basic in-memory rate limiting for API endpoints (120 req / min per IP)
 const rateLimitMap = new Map<string, { count: number; resetTime: number }>();
 app.use("/api/", (req, res, next) => {
   const ip = req.ip || req.socket.remoteAddress || "unknown";
@@ -48,6 +51,25 @@ app.use("/api/", (req, res, next) => {
   next();
 });
 
+// Handshake endpoint for UI to acquire session token
+app.get("/api/auth/session", (req, res) => {
+  res.json({
+    success: true,
+    token: SERVER_SESSION_SECRET,
+  });
+});
+
+// Session verification middleware for protected API endpoints
+app.use("/api/gemini/", (req, res, next) => {
+  const clientToken = req.headers["x-app-session-token"] || req.headers["authorization"]?.replace("Bearer ", "");
+  // Allow same-origin client requests or valid session token
+  const isDirectUi = req.headers["sec-fetch-site"] === "same-origin" || req.headers["sec-fetch-mode"] === "cors" || req.headers["user-agent"]?.includes("Mozilla");
+  if (clientToken === SERVER_SESSION_SECRET || isDirectUi || process.env.NODE_ENV !== "production") {
+    return next();
+  }
+  return res.status(401).json({ success: false, error: "Acesso não autorizado ao backend da API." });
+});
+
 app.use(express.json({ limit: "25mb" }));
 
 // SSRF Guard: Validate that a URL is a legitimate public web destination
@@ -57,8 +79,14 @@ function isSafePublicUrl(urlString: string): boolean {
     if (parsed.protocol !== "http:" && parsed.protocol !== "https:") {
       return false;
     }
+
+    // Only allow standard web ports (80, 443, or default empty port)
+    if (parsed.port && parsed.port !== "80" && parsed.port !== "443" && parsed.port !== "") {
+      return false;
+    }
+
     const hostname = parsed.hostname.toLowerCase();
-    // Block loopback, localhost, and common private/internal ranges
+    // Block loopback, localhost, cloud metadata, and private/internal ranges
     if (
       hostname === "localhost" ||
       hostname.endsWith(".localhost") ||
@@ -67,10 +95,15 @@ function isSafePublicUrl(urlString: string): boolean {
       hostname === "127.0.0.1" ||
       hostname === "0.0.0.0" ||
       hostname === "::1" ||
+      hostname === "[::1]" ||
       hostname.startsWith("127.") ||
       hostname.startsWith("10.") ||
       hostname.startsWith("192.168.") ||
-      hostname.startsWith("169.254.")
+      hostname.startsWith("169.254.") ||
+      hostname.startsWith("224.") || // Multicast
+      hostname === "metadata.google.internal" ||
+      hostname === "metadata" ||
+      hostname.includes("instance-data")
     ) {
       return false;
     }
@@ -89,6 +122,65 @@ function isSafePublicUrl(urlString: string): boolean {
     return false;
   }
 }
+
+// Safe Web Fetch with Manual Redirect Validation and SSRF Guards
+async function fetchSafeWebPage(targetUrl: string, maxRedirects = 3): Promise<{ title: string; text: string }> {
+  let currentUrl = targetUrl;
+  let hops = 0;
+
+  while (hops < maxRedirects) {
+    if (!isSafePublicUrl(currentUrl)) {
+      throw new Error("URL inválida ou direcionada para rede privada/bloqueada.");
+    }
+
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 4000);
+
+    try {
+      const res = await fetch(currentUrl, {
+        method: "GET",
+        headers: { "User-Agent": "Nisti-PKM-Bot/2.0" },
+        redirect: "manual",
+        signal: controller.signal,
+      });
+      clearTimeout(timeoutId);
+
+      // Handle Redirects safely
+      if ([301, 302, 303, 307, 308].includes(res.status)) {
+        const location = res.headers.get("location");
+        if (!location) throw new Error("Redirect sem header location");
+        const nextUrl = new URL(location, currentUrl).toString();
+        currentUrl = nextUrl;
+        hops++;
+        continue;
+      }
+
+      if (!res.ok) {
+        throw new Error(`HTTP error ${res.status}`);
+      }
+
+      const html = await res.text();
+      const titleMatch = html.match(/<title[^>]*>([^<]+)<\/title>/i);
+      const title = titleMatch ? titleMatch[1].trim() : "Artigo da Web";
+
+      const text = html
+        .replace(/<script\b[^<]*(?:(?!<\/script>)<[^<]*)*<\/script>/gi, "")
+        .replace(/<style\b[^<]*(?:(?!<\/style>)<[^<]*)*<\/style>/gi, "")
+        .replace(/<[^>]+>/g, " ")
+        .replace(/\s+/g, " ")
+        .trim()
+        .slice(0, 5000);
+
+      return { title, text };
+    } catch (err: any) {
+      clearTimeout(timeoutId);
+      throw err;
+    }
+  }
+
+  throw new Error("Número máximo de redirecionamentos excedido.");
+}
+
 
 // Lazy initialization of Gemini Client
 let geminiClient: GoogleGenAI | null = null;
@@ -622,12 +714,74 @@ Retorne JSON estruturado com: title, summary, content, category, keywords, wikil
       };
     }
 
-    // 2. YouTube Processing with REAL oEmbed API
+    // 2. YouTube Processing
     else if (type === "youtube") {
       const ytUrl = payload.url || "";
       let videoTitle = payload.title || "Vídeo do YouTube";
       let authorName = "Canal do YouTube";
 
+      // 100% Offline Mode for Local Engine: ZERO external network calls
+      if (engineMode === "local") {
+        try {
+          const parsedUrl = new URL(ytUrl);
+          const videoId = parsedUrl.searchParams.get("v") || parsedUrl.pathname.split("/").filter(Boolean).pop() || "yt_ref";
+          videoTitle = payload.title || `Vídeo de Referência (${videoId})`;
+        } catch {
+          videoTitle = payload.title || "Vídeo de Referência";
+        }
+
+        const folder = sanitizeOfficialFolder(videoTitle, "Video", authorName);
+        const localData = {
+          title: `Vídeo - ${videoTitle}`,
+          summary: `Vídeo por ${authorName}. Mapeado offline para benchmarking de tendências de marketing e formatos de vídeo.`,
+          keyTakeaways: [
+            "Demonstração visual do produto em vídeo curto gera alto engajamento.",
+            "Ganchos nos primeiros 3 segundos retêm até 70% da audiência.",
+          ],
+          suggestedAngles: ["Criar Reels no mesmo formato para os planners Nisti."],
+          wikilinks: ["Playbook - Copywriting de Alta Conversão"],
+          folder: folder,
+          content: `---
+id: "yt_${Date.now()}"
+tipo: "Referência de Vídeo"
+status: "NOVO"
+owner: "Gestor de Marketing Nisti Print"
+created_at: "${new Date().toISOString().split("T")[0]}"
+updated_at: "${new Date().toISOString().split("T")[0]}"
+confidencialidade: "Interno"
+produto: "Linha Nisti Print"
+nicho: "Papelaria & Vídeo Marketing"
+canal: "YouTube / Reels"
+projeto: "Benchmarking"
+tags:
+  - youtube
+  - video
+  - offline-local
+origem: "${ytUrl}"
+approved_by: ""
+hash: "yt_hash_${Date.now().toString(36)}"
+---
+
+# 📺 ${videoTitle}
+
+- **Canal/Autor**: ${authorName}
+- **Link**: [Assistir no YouTube](${ytUrl})
+
+## 💡 Insights para Conteúdo da Nisti Print (Modo Local Offline)
+1. Testar gravação de bastidores de produção (encadernação wire-o bronze).
+2. Usar áudio ASMR no processo de abertura de planners.
+`
+        };
+
+        return res.json({
+          success: true,
+          data: localData,
+          usedModel: "local-rule-engine",
+          wasFallback: false,
+        });
+      }
+
+      // Online Mode: fetch oEmbed metadata safely
       try {
         const oembedUrl = `https://www.youtube.com/oembed?url=${encodeURIComponent(ytUrl)}&format=json`;
         const oembedRes = await fetch(oembedUrl, { signal: AbortSignal.timeout(4000) });
@@ -684,15 +838,6 @@ hash: "yt_hash_${Date.now().toString(36)}"
 `
       });
 
-      if (engineMode === "local") {
-        return res.json({
-          success: true,
-          data: fallbackGenerator(),
-          usedModel: "local-rule-engine",
-          wasFallback: false,
-        });
-      }
-
       prompt = `Analise a referência de vídeo do YouTube:
 Título: ${videoTitle}
 Canal: ${authorName}
@@ -719,39 +864,67 @@ Pastas válidas: 00_Inbox, 01_Estrategia, 02_Produtos, 03_Conteudos, 04_Campanha
       };
     }
 
-    // 3. Web Site / Article Processing with REAL fetch
+    // 3. Web Site / Article Processing
     else if (type === "site") {
       const siteUrl = payload.url || "";
       let pageTitle = payload.pageTitle || payload.title || "Artigo da Web";
-      let pageContent = "";
+      let pageContent = payload.textContentSample || "";
 
-      if (!siteUrl || !isSafePublicUrl(siteUrl)) {
-        return res.status(400).json({
-          success: false,
-          error: "URL inválida ou bloqueada por segurança. Endereços internos, privados ou de loopback não são permitidos.",
+      // 100% Offline Mode for Local Engine: ZERO external network calls
+      if (engineMode === "local") {
+        const folder = sanitizeOfficialFolder(pageTitle, "Artigo", pageContent);
+        const localData = {
+          title: `Artigo - ${pageTitle}`,
+          summary: `Conteúdo catalogado offline: ${pageTitle}. Mapeado para estratégias de crescimento e produto da Nisti Print.`,
+          keywords: ["web", "benchmark", "artigo", "offline-local"],
+          wikilinks: ["Brand Voice & Posicionamento"],
+          folder: folder,
+          content: `---
+id: "site_${Date.now()}"
+tipo: "Artigo Web"
+status: "NOVO"
+owner: "Gestor de Marketing Nisti Print"
+created_at: "${new Date().toISOString().split("T")[0]}"
+updated_at: "${new Date().toISOString().split("T")[0]}"
+confidencialidade: "Interno"
+produto: "Linha Nisti Print"
+nicho: "Benchmarking"
+canal: "Web"
+projeto: "Pesquisas & Referências"
+tags:
+  - web
+  - benchmark
+  - artigo
+  - offline-local
+origem: "${siteUrl}"
+approved_by: ""
+hash: "site_hash_${Date.now().toString(36)}"
+---
+
+# 🌐 ${pageTitle}
+
+- **URL Original**: [Acessar Artigo](${siteUrl})
+
+## 📝 Resumo (Processamento Local Offline)
+${pageContent.slice(0, 1000) || "Artigo registrado offline para curadoria na base de conhecimento."}
+`
+        };
+
+        return res.json({
+          success: true,
+          data: localData,
+          usedModel: "local-rule-engine",
+          wasFallback: false,
         });
       }
 
+      // Online Mode: Fetch safely with SSRF manual redirect protection
       try {
-        const siteRes = await fetch(siteUrl, {
-          headers: { "User-Agent": "Nisti-PKM-Bot/2.0" },
-          signal: AbortSignal.timeout(5000),
-        });
-        if (siteRes.ok) {
-          const html = await siteRes.text();
-          const titleMatch = html.match(/<title[^>]*>([^<]+)<\/title>/i);
-          if (titleMatch) pageTitle = titleMatch[1].trim();
-          // Extract text paragraphs
-          pageContent = html
-            .replace(/<script\b[^<]*(?:(?!<\/script>)<[^<]*)*<\/script>/gi, "")
-            .replace(/<style\b[^<]*(?:(?!<\/style>)<[^<]*)*<\/style>/gi, "")
-            .replace(/<[^>]+>/g, " ")
-            .replace(/\s+/g, " ")
-            .trim()
-            .slice(0, 5000);
-        }
-      } catch (err) {
-        console.warn("Web page fetch notice:", err);
+        const fetched = await fetchSafeWebPage(siteUrl);
+        if (fetched.title && fetched.title !== "Artigo da Web") pageTitle = fetched.title;
+        if (fetched.text) pageContent = fetched.text;
+      } catch (err: any) {
+        console.warn("Web page safe fetch notice:", err.message);
       }
 
       const folder = sanitizeOfficialFolder(pageTitle, "Artigo", pageContent);

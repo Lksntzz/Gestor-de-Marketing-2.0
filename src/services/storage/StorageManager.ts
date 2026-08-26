@@ -9,7 +9,8 @@ import {
   AuditAction
 } from "../../domain/schemas";
 import { TaxonomyFolder, normalizeTaxonomyFolder, sanitizeSafePath } from "../../domain/taxonomy";
-import { generateFastHash, generateUUID } from "../../utils/crypto";
+import { generateFastHash, generateUUID, encryptSecret, decryptSecret } from "../../utils/crypto";
+import { ObsidianApiConfig } from "../../types";
 
 const STORAGE_KEYS = {
   NOTES: "nisti_pkm_notes_v2",
@@ -18,6 +19,7 @@ const STORAGE_KEYS = {
   CONTENTS: "nisti_pkm_contents_v2",
   AUTOMATIONS: "nisti_pkm_automations_v2",
   AUDIT: "nisti_pkm_audit_logs_v2",
+  API_CONFIG_SECURE: "nisti_pkm_api_config_secure_v2",
   IS_DEMO_MODE: "nisti_is_demo_mode_v2",
 };
 
@@ -42,8 +44,9 @@ export class StorageManager implements IStorageService {
   // ==========================================
   // AUDIT LOGGING
   // ==========================================
-  public async logAudit(entry: Omit<AuditEntry, "id" | "timestamp">): Promise<AuditEntry> {
+  public async logAudit(entry: Omit<AuditEntry, "id" | "timestamp" | "actor"> & { actor?: string }): Promise<AuditEntry> {
     const fullEntry: AuditEntry = {
+      actor: entry.actor || "Gestor Nisti",
       ...entry,
       id: `audit_${generateUUID()}`,
       timestamp: new Date().toISOString().replace("T", " ").substring(0, 19),
@@ -265,6 +268,58 @@ export class StorageManager implements IStorageService {
 
   public async saveAutomations(rules: AutomationRule[]): Promise<void> {
     localStorage.setItem(STORAGE_KEYS.AUTOMATIONS, JSON.stringify(rules));
+  }
+
+  // ==========================================
+  // UNIFIED DAILY NOTE PATH
+  // ==========================================
+  public getDailyNotePath(dateStr?: string): string {
+    const d = dateStr || new Date().toISOString().split("T")[0];
+    return `00_Inbox/Daily-${d}.md`;
+  }
+
+  // ==========================================
+  // SECURE API CONFIG (ENCRYPTED SECRETS)
+  // ==========================================
+  public async saveApiConfig(config: ObsidianApiConfig): Promise<void> {
+    try {
+      const encryptedKey = await encryptSecret(config.apiKey);
+      const payloadToSave = {
+        ...config,
+        apiKey: encryptedKey,
+      };
+      localStorage.setItem(STORAGE_KEYS.API_CONFIG_SECURE, JSON.stringify(payloadToSave));
+      // Remove legacy unencrypted key
+      localStorage.removeItem("obsidian_api_config");
+    } catch (e) {
+      console.warn("Could not save encrypted API config:", e);
+    }
+  }
+
+  public async loadApiConfig(defaultConfig: ObsidianApiConfig): Promise<ObsidianApiConfig> {
+    try {
+      const rawSecure = localStorage.getItem(STORAGE_KEYS.API_CONFIG_SECURE);
+      if (rawSecure) {
+        const parsed = JSON.parse(rawSecure);
+        const decryptedKey = await decryptSecret(parsed.apiKey);
+        return {
+          ...parsed,
+          apiKey: decryptedKey,
+        };
+      }
+
+      // Check legacy and migrate automatically
+      const legacyRaw = localStorage.getItem("obsidian_api_config");
+      if (legacyRaw) {
+        const legacyParsed = JSON.parse(legacyRaw);
+        await this.saveApiConfig(legacyParsed);
+        return legacyParsed;
+      }
+    } catch (e) {
+      console.warn("Could not load API config securely, using defaults:", e);
+    }
+
+    return defaultConfig;
   }
 
   // ==========================================

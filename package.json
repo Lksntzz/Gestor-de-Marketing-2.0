@@ -1,15 +1,39 @@
 {
-  "name": "react-example",
+  "name": "nisti-pkm-marketing-hub",
   "private": true,
-  "version": "0.0.0",
+  "version": "2.0.0",
+  "main": "dist/electron-main.cjs",
   "type": "module",
   "scripts": {
     "dev": "tsx server.ts",
     "build": "vite build && esbuild server.ts --bundle --platform=node --format=cjs --packages=external --sourcemap --outfile=dist/server.cjs && esbuild src/preload.ts --bundle --platform=node --format=cjs --outfile=dist/preload.cjs && esbuild electron-main.ts --bundle --platform=node --format=cjs --packages=external --outfile=dist/electron-main.cjs",
     "start": "node dist/server.cjs",
+    "electron:start": "electron dist/electron-main.cjs",
+    "electron:dev": "npm run build && electron dist/electron-main.cjs",
     "preview": "vite preview",
     "clean": "rm -rf dist server.js",
     "lint": "tsc --noEmit"
+  },
+  "build": {
+    "appId": "com.nistiprint.pkm",
+    "productName": "Nisti Print Marketing Hub PKM",
+    "directories": {
+      "output": "dist-electron"
+    },
+    "files": [
+      "dist/**/*",
+      "package.json"
+    ],
+    "win": {
+      "target": ["nsis", "portable"]
+    },
+    "mac": {
+      "target": ["dmg", "zip"],
+      "category": "public.app-category.productivity"
+    },
+    "linux": {
+      "target": ["AppImage", "deb"]
+    }
   },
   "dependencies": {
     "@google/genai": "^2.4.0",

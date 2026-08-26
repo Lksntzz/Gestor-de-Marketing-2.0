@@ -1,5 +1,29 @@
 import { ObsidianApiConfig } from "../types";
 
+let cachedSessionToken: string | null = null;
+
+async function getSessionHeaders(): Promise<Record<string, string>> {
+  if (!cachedSessionToken) {
+    try {
+      const res = await fetch("/api/auth/session");
+      if (res.ok) {
+        const data = await res.json();
+        if (data.token) cachedSessionToken = data.token;
+      }
+    } catch {
+      // Ignored
+    }
+  }
+
+  const headers: Record<string, string> = {
+    "Content-Type": "application/json",
+  };
+  if (cachedSessionToken) {
+    headers["x-app-session-token"] = cachedSessionToken;
+  }
+  return headers;
+}
+
 export interface GenerateCampaignPayload {
   campaignName: string;
   objective: string;
@@ -8,11 +32,13 @@ export interface GenerateCampaignPayload {
   tone: string;
   contextNotes: string;
   customInstructions?: string;
+  engineMode?: string;
 }
 
 export interface ExtractTasksPayload {
   noteContent: string;
   noteTitle: string;
+  engineMode?: string;
 }
 
 export const api = {
@@ -28,9 +54,10 @@ export const api = {
 
   // Generate complete marketing campaign with Gemini AI
   async generateCampaign(payload: GenerateCampaignPayload) {
+    const headers = await getSessionHeaders();
     const res = await fetch("/api/gemini/generate-campaign", {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
+      headers,
       body: JSON.stringify(payload),
     });
     if (!res.ok) {
@@ -42,9 +69,10 @@ export const api = {
 
   // Extract actionable tasks and reminders from an Obsidian note
   async extractTasks(payload: ExtractTasksPayload) {
+    const headers = await getSessionHeaders();
     const res = await fetch("/api/gemini/extract-tasks", {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
+      headers,
       body: JSON.stringify(payload),
     });
     if (!res.ok) {
@@ -56,9 +84,10 @@ export const api = {
 
   // Audit Obsidian marketing vault & find knowledge gaps
   async analyzeVault(vaultNotesOverview: any) {
+    const headers = await getSessionHeaders();
     const res = await fetch("/api/gemini/analyze-vault", {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
+      headers,
       body: JSON.stringify({ vaultNotesOverview }),
     });
     if (!res.ok) {
@@ -71,9 +100,10 @@ export const api = {
   // Test connection to Obsidian Local REST API
   async testObsidianConnection(config: { endpoint: string; apiKey: string }) {
     try {
+      const headers = await getSessionHeaders();
       const res = await fetch("/api/obsidian/test-connection", {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers,
         body: JSON.stringify(config),
       });
       return await res.json();
