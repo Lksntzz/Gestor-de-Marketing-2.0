@@ -71,6 +71,31 @@ function requireSelectedVault(): string {
   return resolvedVault;
 }
 
+function normalizeVaultFolder(folder: string): string {
+  const normalized = String(folder || "")
+    .replace(/\\/g, "/")
+    .replace(/^\/+|\/+$/g, "")
+    .trim();
+
+  if (!normalized) return "00_Inbox";
+
+  const segments = normalized.split("/").filter(Boolean);
+  if (
+    segments.length === 0 ||
+    segments.some(
+      (segment) =>
+        segment === "." ||
+        segment === ".." ||
+        segment.startsWith(".") ||
+        /[<>:"|?*\x00-\x1F]/.test(segment)
+    )
+  ) {
+    throw new Error("Pasta inválida dentro do Vault do Obsidian.");
+  }
+
+  return segments.join(path.sep);
+}
+
 function validateAndResolvePath(folder: string, filename: string): string {
   const resolvedVault = requireSelectedVault();
 
@@ -83,10 +108,11 @@ function validateAndResolvePath(folder: string, filename: string): string {
     throw new Error("Nome de arquivo inválido.");
   }
 
-  const cleanFolder = STANDARD_FOLDERS.includes(folder) ? folder : "00_Inbox";
+  const cleanFolder = normalizeVaultFolder(folder);
   const targetFilePath = path.resolve(resolvedVault, cleanFolder, cleanFilename);
+  const vaultPrefix = resolvedVault.endsWith(path.sep) ? resolvedVault : `${resolvedVault}${path.sep}`;
 
-  if (!targetFilePath.startsWith(resolvedVault + path.sep)) {
+  if (!targetFilePath.startsWith(vaultPrefix)) {
     throw new Error("Violação de segurança: tentativa de acesso fora do limite do Vault Obsidian.");
   }
 
@@ -115,6 +141,24 @@ function upsertManagedBlock(rawContent: string, sectionId: string, heading: stri
 
   const trimmed = rawContent.trimEnd();
   return trimmed ? `${trimmed}\n\n${block}\n` : `${block}\n`;
+}
+
+async function listVaultFolders(): Promise<string[]> {
+  const targetVault = requireSelectedVault();
+  const folders: string[] = [];
+
+  async function scan(currentDir: string, relativeDir = "") {
+    const entries = await fs.readdir(currentDir, { withFileTypes: true });
+    for (const entry of entries) {
+      if (!entry.isDirectory() || entry.name.startsWith(".")) continue;
+      const relativePath = relativeDir ? path.join(relativeDir, entry.name) : entry.name;
+      folders.push(relativePath.replace(/\\/g, "/"));
+      await scan(path.join(currentDir, entry.name), relativePath);
+    }
+  }
+
+  await scan(targetVault);
+  return Array.from(new Set(folders)).sort((a, b) => a.localeCompare(b, "pt-BR"));
 }
 
 function createWindow() {
@@ -205,6 +249,15 @@ ipcMain.handle("vault:select", async () => {
 
 ipcMain.handle("vault:get-path", () => selectedVaultPath);
 
+ipcMain.handle("vault:list-folders", async () => {
+  try {
+    return await listVaultFolders();
+  } catch (err) {
+    console.warn("Could not list Obsidian Vault folders:", err);
+    return [];
+  }
+});
+
 ipcMain.handle("notes:read-all", async () => {
   let targetVault: string;
   try {
@@ -250,7 +303,7 @@ ipcMain.handle("notes:read-all", async () => {
 
           notes.push({
             title: entry.name.replace(/\.md$/, ""),
-            folder: relativeDir || "00_Inbox",
+            folder: (relativeDir || "00_Inbox").replace(/\\/g, "/"),
             content: body,
             frontmatter,
             size: stats.size,
