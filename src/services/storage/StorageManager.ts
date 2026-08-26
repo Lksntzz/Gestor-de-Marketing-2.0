@@ -9,7 +9,8 @@ import {
 } from "../../domain/schemas";
 import { TaxonomyFolder, normalizeTaxonomyFolder, sanitizeSafePath } from "../../domain/taxonomy";
 import { generateFastHash, generateUUID, encryptSecret, decryptSecret } from "../../utils/crypto";
-import { ObsidianApiConfig } from "../../types";
+import { APP_VERSION, localDateKey } from "../../utils/reliability";
+import { ObsidianApiConfig, ObsidianNote } from "../../types";
 
 const STORAGE_KEYS = {
   NOTES: "nisti_pkm_notes_v2",
@@ -22,7 +23,26 @@ const STORAGE_KEYS = {
   IS_DEMO_MODE: "nisti_is_demo_mode_v2",
 };
 
-const APP_VERSION = "0.1.5";
+export const APP_STATE_KEYS = {
+  NOTES: "obsidian_marketing_notes",
+  CAMPAIGNS: "obsidian_marketing_campaigns",
+  TASKS: "obsidian_marketing_tasks",
+  AUTOMATION_RULES: "obsidian_marketing_rules",
+  IDEAS: "obsidian_marketing_ideas",
+  SCRIPTS: "obsidian_marketing_scripts",
+  VISUALS: "obsidian_marketing_visuals",
+  EMOTIONAL_DRIVERS: "obsidian_emotional_drivers",
+  NICHES: "obsidian_niches",
+  POST_HISTORY: "obsidian_post_history",
+  LEARNINGS: "obsidian_learnings",
+  WEEKLY_ROUTINE: "obsidian_weekly_routine",
+  ENGINE_MODE: "obsidian_engine_mode",
+  FIRED_REMINDERS: "nisti_fired_reminders_v1",
+} as const;
+
+type SafeParseSchema = {
+  safeParse: (input: unknown) => { success: boolean; data?: unknown };
+};
 
 export class StorageManager implements IStorageService {
   private static instance: StorageManager;
@@ -40,6 +60,56 @@ export class StorageManager implements IStorageService {
 
   public getRuntimeName(): "electron" | "web_sandbox" {
     return this.isDesktopRuntime() ? "electron" : "web_sandbox";
+  }
+
+  // ==========================================
+  // CENTRALIZED APP STATE PERSISTENCE
+  // ==========================================
+  public loadAppState<T>(key: string, fallback: T, schema?: SafeParseSchema): T {
+    try {
+      const raw = localStorage.getItem(key);
+      if (raw === null) return fallback;
+      const parsed = JSON.parse(raw) as unknown;
+      if (!schema) return parsed as T;
+
+      const result = schema.safeParse(parsed);
+      if (!result.success) {
+        console.warn(`Invalid persisted state ignored for key: ${key}`);
+        return fallback;
+      }
+      return result.data as T;
+    } catch (err) {
+      console.warn(`Could not load persisted state for key: ${key}`, err);
+      return fallback;
+    }
+  }
+
+  public saveAppState<T>(key: string, value: T): void {
+    try {
+      localStorage.setItem(key, JSON.stringify(value));
+    } catch (err) {
+      console.warn(`Could not persist app state for key: ${key}`, err);
+    }
+  }
+
+  public loadTextState<T extends string>(key: string, fallback: T, schema?: SafeParseSchema): T {
+    try {
+      const raw = localStorage.getItem(key);
+      if (raw === null) return fallback;
+      if (!schema) return raw as T;
+      const result = schema.safeParse(raw);
+      return result.success ? (result.data as T) : fallback;
+    } catch {
+      return fallback;
+    }
+  }
+
+  public saveTextState(key: string, value: string): void {
+    try {
+      localStorage.setItem(key, value);
+    } catch (err) {
+      console.warn(`Could not persist text state for key: ${key}`, err);
+    }
   }
 
   // ==========================================
@@ -88,7 +158,7 @@ export class StorageManager implements IStorageService {
             title: f.title,
             folder: normalizeTaxonomyFolder(f.folder),
             content: f.content,
-            tags: f.frontmatter?.tags || [],
+            tags: Array.isArray(f.frontmatter?.tags) ? f.frontmatter.tags : [],
             wikilinks: [],
             frontmatter: {
               id: f.frontmatter?.id || `note_${generateFastHash("n", f.title)}`,
@@ -102,7 +172,7 @@ export class StorageManager implements IStorageService {
               nicho: f.frontmatter?.nicho || "Papelaria Criativa & B2B",
               canal: f.frontmatter?.canal || "Omnichannel",
               projeto: f.frontmatter?.projeto || "Geral",
-              tags: f.frontmatter?.tags || [],
+              tags: Array.isArray(f.frontmatter?.tags) ? f.frontmatter.tags : [],
               origem: f.frontmatter?.origem || "Obsidian Local Vault",
               approved_by: f.frontmatter?.approved_by || "",
               hash: f.frontmatter?.hash || generateFastHash("h", f.title),
@@ -123,6 +193,31 @@ export class StorageManager implements IStorageService {
     } catch {
       return [];
     }
+  }
+
+  public async readDesktopNotesForApp(): Promise<ObsidianNote[] | null> {
+    if (!this.isDesktopRuntime() || !window.electronAPI) return null;
+
+    const vaultPath = await window.electronAPI.getVaultPath();
+    if (!vaultPath) return null;
+
+    const files = await window.electronAPI.readNotes();
+    return files.map((f: any) => {
+      const tags = Array.isArray(f.frontmatter?.tags) ? f.frontmatter.tags : [];
+      return {
+        id: f.frontmatter?.id || `desktop-${generateFastHash("n", `${f.folder}/${f.title}`)}`,
+        path: `${f.folder || "00_Inbox"}/${f.title}.md`,
+        title: f.title,
+        folder: f.folder || "00_Inbox",
+        content: f.content || "",
+        frontmatter: f.frontmatter || {},
+        tags,
+        wikilinks: [],
+        lastModified: new Date(f.mtime || Date.now()).toISOString().replace("T", " ").slice(0, 16),
+        sizeBytes: typeof f.size === "number" ? f.size : undefined,
+        syncedWithApi: true,
+      } satisfies ObsidianNote;
+    });
   }
 
   public async writeNote(note: KnowledgeNote): Promise<{ success: boolean; error?: string }> {
@@ -271,7 +366,7 @@ export class StorageManager implements IStorageService {
   // UNIFIED DAILY NOTE PATH
   // ==========================================
   public getDailyNotePath(dateStr?: string): string {
-    const d = dateStr || new Date().toISOString().split("T")[0];
+    const d = dateStr || localDateKey();
     return `00_Inbox/Daily-${d}.md`;
   }
 
@@ -279,7 +374,6 @@ export class StorageManager implements IStorageService {
   // SECURE API CONFIG
   // ==========================================
   public async saveApiConfig(config: ObsidianApiConfig): Promise<void> {
-    // Migration cleanup only: v0.1.5+ never intentionally writes this legacy key.
     localStorage.removeItem("obsidian_api_config");
 
     try {
@@ -387,7 +481,7 @@ export class StorageManager implements IStorageService {
     };
 
     const jsonString = JSON.stringify(exportPayload, null, 2);
-    const dateStr = new Date().toISOString().split("T")[0];
+    const dateStr = localDateKey();
     const filename = `Nisti_Marketing_Vault_Backup_${dateStr}.json`;
 
     return { jsonString, filename };
