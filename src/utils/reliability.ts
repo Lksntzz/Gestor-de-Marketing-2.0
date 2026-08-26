@@ -88,10 +88,34 @@ export function stableRoutineTaskId(weekAnchor: Date, slotId: string): string {
   return `routine-task-${weekKey}-${safeSlot || "slot"}`;
 }
 
+/**
+ * Generic ID upsert with special protection for task execution state. When the
+ * same logical task is regenerated, its latest metadata/dates are refreshed,
+ * but a user's progress (status/completedAt) is not reset back to TODO.
+ */
 export function upsertItemsById<T extends { id: string }>(existing: T[], incoming: T[]): T[] {
+  const existingById = new Map(existing.map((item) => [item.id, item]));
+  const mergedIncoming = incoming.map((item) => {
+    const previous = existingById.get(item.id);
+    if (!previous) return item;
+
+    const previousRecord = previous as Record<string, unknown>;
+    const itemRecord = item as Record<string, unknown>;
+    const merged = { ...previousRecord, ...itemRecord };
+
+    if ("status" in previousRecord) {
+      merged.status = previousRecord.status;
+    }
+    if ("completedAt" in previousRecord) {
+      merged.completedAt = previousRecord.completedAt;
+    }
+
+    return merged as T;
+  });
+
   const incomingIds = new Set(incoming.map((item) => item.id));
   const preserved = existing.filter((item) => !incomingIds.has(item.id));
-  return [...incoming, ...preserved];
+  return [...mergedIncoming, ...preserved];
 }
 
 export function mergeByPath<T extends { path: string }>(localItems: T[], incomingItems: T[]): T[] {
