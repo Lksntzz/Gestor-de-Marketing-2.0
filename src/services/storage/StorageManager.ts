@@ -22,7 +22,7 @@ const STORAGE_KEYS = {
   IS_DEMO_MODE: "nisti_is_demo_mode_v2",
 };
 
-const APP_VERSION = "0.1.4";
+const APP_VERSION = "0.1.5";
 
 export class StorageManager implements IStorageService {
   private static instance: StorageManager;
@@ -279,7 +279,7 @@ export class StorageManager implements IStorageService {
   // SECURE API CONFIG
   // ==========================================
   public async saveApiConfig(config: ObsidianApiConfig): Promise<void> {
-    // Migration cleanup only: v0.1.4+ never intentionally writes this legacy key.
+    // Migration cleanup only: v0.1.5+ never intentionally writes this legacy key.
     localStorage.removeItem("obsidian_api_config");
 
     try {
