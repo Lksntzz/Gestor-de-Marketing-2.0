@@ -33,18 +33,23 @@ export interface LocalExtractionInput {
 /**
  * Helper: Extract key terms, pains, metrics and personas from Obsidian notes
  */
-function extractContextKnowledge(notes: ObsidianNote[]) {
+function extractContextKnowledge(notes: ObsidianNote[], allowDrafts: boolean = false) {
   const personas: string[] = [];
   const pains: string[] = [];
   const valueProps: string[] = [];
   const metrics: string[] = [];
   const keywords: string[] = [];
 
-  notes.forEach((n) => {
+  // Filter: ONLY OFICIAL notes by default to guide AI/Local engine unless allowDrafts is explicitly set
+  const filteredNotes = allowDrafts 
+    ? notes 
+    : notes.filter(n => (n.frontmatter?.status === "OFICIAL" || !n.frontmatter?.status));
+
+  filteredNotes.forEach((n) => {
     const { frontmatter, body, tags } = parseMarkdownNote(n.content);
     tags.forEach((t) => keywords.push(t));
 
-    if (n.folder.toLowerCase().includes("persona") || frontmatter.target_audience) {
+    if (n.folder.toLowerCase().includes("estrategia") || n.folder.toLowerCase().includes("persona") || frontmatter.target_audience) {
       personas.push(frontmatter.title || n.title);
     }
 
@@ -63,10 +68,10 @@ function extractContextKnowledge(notes: ObsidianNote[]) {
   });
 
   return {
-    personas: personas.length > 0 ? personas : ["Tomadores de Decisão", "Líderes de Equipe"],
-    pains: pains.length > 0 ? pains : ["Falta de previsibilidade e processos manuais", "Silos de informação e perda de contexto"],
-    valueProps: valueProps.length > 0 ? valueProps : ["Autonomia total com arquivos locais", "Integração direta entre estratégia e execução"],
-    metrics: metrics.length > 0 ? metrics : ["Redução de 40% no tempo de criação", "Zero vendor lock-in"],
+    personas: personas.length > 0 ? personas : ["Empreendedoras de Papelaria", "Líderes de Comunidades", "Clientes B2B"],
+    pains: pains.length > 0 ? pains : ["Pedido mínimo alto em gráficas tradicionais", "Prazos longos e acabamento com papel que vaza tinta"],
+    valueProps: valueProps.length > 0 ? valueProps : ["Impressão sob demanda a partir de 10 unidades com acabamento Soft Touch e wire-o bronze", "Miolo offset 90g de alta resistência"],
+    metrics: metrics.length > 0 ? metrics : ["Margem de até 150% na revenda", "Produção ágil em até 5 dias úteis"],
     keywords: Array.from(new Set(keywords)).slice(0, 10),
   };
 }
@@ -211,20 +216,30 @@ export function generateLocalCampaign(input: LocalCampaignInput) {
   ];
 
   // Build Obsidian Markdown Note
-  const wikilinkReferences = contextNotesList.map((n) => `[[${n.title}]]`).join(", ") || "[[00 - Estratégia/Brand Voice & Posicionamento]], [[01 - Personas/Persona - Tech Lead Rodrigo]]";
+  const wikilinkReferences = contextNotesList.map((n) => `[[${n.title}]]`).join(", ") || "[[Brand Voice & Posicionamento Nisti Print]], [[Catálogo - Planners & Devocionais 2026]]";
+  const campaignHash = `camp_${Date.now().toString(36)}`;
 
   const obsidianMarkdownNote = `---
-title: "${campaignName}"
-status: "Ativo"
-created: "${todayStr}"
-objective: "${objective}"
-audience: "${targetAudience}"
-tone: "${targetTone}"
-channels: [${chList.map((c) => `"${c}"`).join(", ")}]
+id: "${campaignHash}"
+tipo: "Campanha de Marketing"
+status: "OFICIAL"
+owner: "Gestor de Marketing Nisti Print"
+created_at: "${todayStr}"
+updated_at: "${todayStr}"
+validade: "${new Date(today.getTime() + 86400000 * 60).toISOString().split("T")[0]}"
+confidencialidade: "Interno"
+produto: "Linha Nisti Print"
+nicho: "${targetAudience}"
+canal: "${chList.join(", ")}"
+projeto: "${campaignName}"
 tags:
   - campanha
-  - marketing-local
+  - marketing-nisti
   - ${(chList || []).map((c) => (c || "").toLowerCase().replace(/\s+/g, "-")).filter(Boolean).join("\n  - ")}
+origem: "Gerador de Campanhas PKM"
+approved_by: "Gestor de Marketing"
+hash: "${campaignHash}"
+title: "${campaignName}"
 aliases:
   - "Campanha ${campaignName}"
 ---

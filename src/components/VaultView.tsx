@@ -76,11 +76,13 @@ export const VaultView: React.FC<VaultViewProps> = ({
     }));
   };
 
+  const [statusFilter, setStatusFilter] = useState<string | null>(null);
+
   // Group notes by folder
   const folders = useMemo(() => {
     const map = new Map<string, ObsidianNote[]>();
     notes.forEach((note) => {
-      const f = note.folder || "00 - Raiz";
+      const f = note.folder || "00_Inbox";
       if (!map.has(f)) map.set(f, []);
       map.get(f)!.push(note);
     });
@@ -103,9 +105,10 @@ export const VaultView: React.FC<VaultViewProps> = ({
         (n.title || "").toLowerCase().includes(term) ||
         (n.content || "").toLowerCase().includes(term);
       const matchTag = selectedTag ? (n.tags || []).includes(selectedTag) : true;
-      return matchSearch && matchTag;
+      const matchStatus = statusFilter ? (n.frontmatter?.status === statusFilter) : true;
+      return matchSearch && matchTag && matchStatus;
     });
-  }, [notes, searchTerm, selectedTag]);
+  }, [notes, searchTerm, selectedTag, statusFilter]);
 
   // Active note
   const currentNote = selectedNote || notes[0] || null;
@@ -200,9 +203,53 @@ export const VaultView: React.FC<VaultViewProps> = ({
               />
             </div>
 
+            {/* Status Filter Pills */}
+            <div className="flex items-center gap-1 pt-0.5">
+              <button
+                onClick={() => setStatusFilter(null)}
+                className={`px-2 py-0.5 text-[10px] font-bold rounded-lg transition-all cursor-pointer ${
+                  statusFilter === null
+                    ? "bg-stone-900 text-white"
+                    : "bg-stone-100 text-stone-600 hover:bg-stone-200"
+                }`}
+              >
+                Todos
+              </button>
+              <button
+                onClick={() => setStatusFilter(statusFilter === "OFICIAL" ? null : "OFICIAL")}
+                className={`px-2 py-0.5 text-[10px] font-bold rounded-lg transition-all cursor-pointer ${
+                  statusFilter === "OFICIAL"
+                    ? "bg-emerald-700 text-white"
+                    : "bg-emerald-50 text-emerald-800 border border-emerald-200/60 hover:bg-emerald-100"
+                }`}
+              >
+                OFICIAL
+              </button>
+              <button
+                onClick={() => setStatusFilter(statusFilter === "EM REVISÃO" ? null : "EM REVISÃO")}
+                className={`px-2 py-0.5 text-[10px] font-bold rounded-lg transition-all cursor-pointer ${
+                  statusFilter === "EM REVISÃO"
+                    ? "bg-amber-700 text-white"
+                    : "bg-amber-50 text-amber-800 border border-amber-200/60 hover:bg-amber-100"
+                }`}
+              >
+                EM REVISÃO
+              </button>
+              <button
+                onClick={() => setStatusFilter(statusFilter === "NOVO" ? null : "NOVO")}
+                className={`px-2 py-0.5 text-[10px] font-bold rounded-lg transition-all cursor-pointer ${
+                  statusFilter === "NOVO"
+                    ? "bg-blue-700 text-white"
+                    : "bg-blue-50 text-blue-800 border border-blue-200/60 hover:bg-blue-100"
+                }`}
+              >
+                NOVO
+              </button>
+            </div>
+
             {/* Tags Pills */}
             {allTags.length > 0 && (
-              <div className="flex flex-wrap gap-1 pt-1 max-h-20 overflow-y-auto">
+              <div className="flex flex-wrap gap-1 pt-1 max-h-20 overflow-y-auto border-t border-stone-100">
                 <button
                   onClick={() => setSelectedTag(null)}
                   className={`px-2 py-0.5 text-[10px] font-semibold rounded-md transition-all cursor-pointer ${
@@ -211,7 +258,7 @@ export const VaultView: React.FC<VaultViewProps> = ({
                       : "bg-stone-100 text-stone-600 hover:bg-stone-200"
                   }`}
                 >
-                  Todas
+                  Todas as tags
                 </button>
                 {allTags.map((tag) => (
                   <button
@@ -310,13 +357,26 @@ export const VaultView: React.FC<VaultViewProps> = ({
               <div className="p-5 sm:px-7 border-b border-stone-150 flex flex-col sm:flex-row sm:items-center justify-between gap-3 bg-stone-50/40">
                 <div>
                   <div className="flex items-center gap-2 text-[11px] text-stone-400">
-                    <span className="font-mono">{currentNote.folder || "Cofre"}</span>
+                    <span className="font-mono">{currentNote.folder || "00_Inbox"}</span>
                     <span>•</span>
                     <span>Modificado {currentNote.lastModified}</span>
                   </div>
-                  <h2 className="text-lg font-black text-stone-900 tracking-tight mt-0.5">
-                    {currentNote.title}
-                  </h2>
+                  <div className="flex items-center gap-2.5 mt-0.5">
+                    <h2 className="text-lg font-black text-stone-900 tracking-tight">
+                      {currentNote.title}
+                    </h2>
+                    <span
+                      className={`text-[10px] font-bold px-2 py-0.5 rounded-full border ${
+                        currentNote.frontmatter?.status === "OFICIAL"
+                          ? "bg-emerald-50 text-emerald-800 border-emerald-200"
+                          : currentNote.frontmatter?.status === "EM REVISÃO"
+                          ? "bg-amber-50 text-amber-800 border-amber-200"
+                          : "bg-blue-50 text-blue-800 border-blue-200"
+                      }`}
+                    >
+                      {currentNote.frontmatter?.status || "OFICIAL"}
+                    </span>
+                  </div>
                 </div>
 
                 {/* Toolbar de Ações Limpa */}

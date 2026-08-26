@@ -1,13 +1,29 @@
 export type EngineMode = "local" | "ai";
 
+export type KnowledgeStatus = "NOVO" | "EM REVISÃO" | "OFICIAL";
+
 export interface Frontmatter {
-  title?: string;
+  id?: string;
+  tipo?: string;
+  status?: KnowledgeStatus | string;
+  owner?: string;
+  created_at?: string;
+  updated_at?: string;
+  validade?: string;
+  confidencialidade?: "Público" | "Interno" | "Confidencial" | string;
+  produto?: string;
+  nicho?: string;
+  canal?: string;
+  projeto?: string;
   tags?: string[];
+  origem?: string;
+  source_url?: string;
+  approved_by?: string;
+  hash?: string;
+  title?: string;
   aliases?: string[];
   category?: string;
   target_audience?: string;
-  status?: string;
-  channel?: string;
   publish_date?: string;
   tone?: string;
   author?: string;
@@ -17,7 +33,7 @@ export interface Frontmatter {
 
 export interface ObsidianNote {
   id: string;
-  path: string; // e.g. "01 - Personas/Persona - Tech Lead Rodrigo.md"
+  path: string; // e.g. "01_Estrategia/Brand Voice & Posicionamento.md"
   title: string;
   folder: string;
   content: string;

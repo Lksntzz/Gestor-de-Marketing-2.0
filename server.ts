@@ -484,22 +484,35 @@ app.post("/api/gemini/process-knowledge", async (req, res) => {
 
     const sanitizeFolder = (title: string, category: string, bodyText: string): string => {
       const text = `${title} ${category} ${bodyText}`.toLowerCase();
-      if (text.includes("persona") || text.includes("rodrigo") || text.includes("mariana") || text.includes("público-alvo") || text.includes("avatar")) {
-        return "01 - Personas";
+      if (text.includes("estratégia") || text.includes("branding") || text.includes("posicionamento") || text.includes("missão") || text.includes("persona") || text.includes("avatar")) {
+        return "01_Estrategia";
       }
-      if (text.includes("produto") || text.includes("pricing") || text.includes("preço") || text.includes("growth engine") || text.includes("oferta")) {
-        return "02 - Produtos";
+      if (text.includes("produto") || text.includes("pricing") || text.includes("preço") || text.includes("planner") || text.includes("devocional") || text.includes("catálogo") || text.includes("impressão") || text.includes("brinde")) {
+        return "02_Produtos";
       }
-      if (text.includes("copywriting") || text.includes("copy") || text.includes("gatilho") || text.includes("headline") || text.includes("anúncio") || text.includes("email") || text.includes("newsletter") || text.includes("pas") || text.includes("aida")) {
-        return "03 - Copywriting";
+      if (text.includes("copywriting") || text.includes("copy") || text.includes("post") || text.includes("roteiro") || text.includes("artigo") || text.includes("headline") || text.includes("carrossel")) {
+        return "03_Conteudos";
       }
-      if (text.includes("distribuição") || text.includes("seo") || text.includes("youtube") || text.includes("linkedin") || text.includes("tráfego") || text.includes("canal") || text.includes("mídia")) {
-        return "04 - Distribuição";
+      if (text.includes("campanha") || text.includes("lançamento") || text.includes("meta ads") || text.includes("tráfego pago") || text.includes("cronograma")) {
+        return "04_Campanhas";
       }
-      if (text.includes("estratégia") || text.includes("branding") || text.includes("posicionamento") || text.includes("missão") || text.includes("visão")) {
-        return "00 - Estratégia";
+      if (text.includes("reunião") || text.includes("ata") || text.includes("alinhamento") || text.includes("briefing interno")) {
+        return "05_Reunioes";
       }
-      return "06 - Referências";
+      if (text.includes("influenciador") || text.includes("ugc") || text.includes("parceria") || text.includes("afiliado")) {
+        return "06_Influenciadores_UGC";
+      }
+      if (text.includes("pesquisa") || text.includes("benchmark") || text.includes("concorrente") || text.includes("estudo de mercado")) {
+        return "07_Pesquisas";
+      }
+      if (text.includes("aprendizado") || text.includes("relatório") || text.includes("métrica") || text.includes("post-mortem") || text.includes("pós-campanha")) {
+        return "08_Aprendizados";
+      }
+      if (text.includes("template") || text.includes("modelo") || text.includes("estrutura padrão")) {
+        return "99_Templates";
+      }
+      // Regra crítica: qualquer conteúdo que ainda não possa ser classificado com segurança deve entrar inicialmente no 00_Inbox
+      return "00_Inbox";
     };
 
     if (type === "pdf") {
