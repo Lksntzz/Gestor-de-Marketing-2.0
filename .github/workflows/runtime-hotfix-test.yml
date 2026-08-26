@@ -70,6 +70,34 @@ jobs:
               if (Test-Path $stderr) { Get-Content $stderr }
               throw "Packaged backend failed the self-contained runtime smoke test."
             }
+
+            $webSession = New-Object Microsoft.PowerShell.Commands.WebRequestSession
+            $auth = Invoke-RestMethod -Uri "http://127.0.0.1:32123/api/auth/session" -WebSession $webSession -TimeoutSec 2
+            if (-not $auth.token) {
+              throw "Local session handshake did not return a token."
+            }
+
+            $seedHeaders = @{
+              "x-app-session-token" = $auth.token
+              "x-gemini-api-key" = "ci-runtime-dummy-key"
+            }
+            $seedHealth = Invoke-RestMethod -Uri "http://127.0.0.1:32123/api/health" -Headers $seedHeaders -WebSession $webSession -TimeoutSec 2
+            if (-not $seedHealth.hasApiKey) {
+              throw "Gemini credential was not seeded into the protected runtime session."
+            }
+
+            $ingestionStatus = 0
+            try {
+              Invoke-WebRequest -Uri "http://127.0.0.1:32123/api/gemini/process-knowledge" -Method Post -ContentType "application/json" -Body "{}" -WebSession $webSession -TimeoutSec 2 -ErrorAction Stop | Out-Null
+              $ingestionStatus = 200
+            } catch {
+              if ($_.Exception.Response) {
+                $ingestionStatus = [int]$_.Exception.Response.StatusCode
+              }
+            }
+            if ($ingestionStatus -ne 400) {
+              throw "Direct ingestion session smoke test expected HTTP 400 after authentication, received $ingestionStatus."
+            }
           } finally {
             if (-not $server.HasExited) { Stop-Process -Id $server.Id -Force }
           }
@@ -82,5 +110,5 @@ jobs:
       - name: Upload Windows Test Installers
         uses: actions/upload-artifact@v4
         with:
-          name: Nisti-Marketing-Hub-1.0.1-Windows-Runtime-Test
+          name: Nisti-Marketing-1.0.1-Windows-Test
           path: dist-electron/*.exe
