@@ -8,7 +8,7 @@ import crypto from "crypto";
 import * as path from "path";
 
 const LOOPBACK_HOST = "127.0.0.1";
-const ALLOWED_SECRET_NAMES = new Set(["obsidianApiKey"]);
+const ALLOWED_SECRET_NAMES = new Set(["obsidianApiKey", "geminiApiKey"]);
 let backendProcess: ChildProcess | null = null;
 let appUrl = "";
 let backendInstanceId = "";
@@ -38,7 +38,11 @@ ipcMain.handle("secret:set", async (_, name: string, value: string) => {
   if (!safeStorage.isEncryptionAvailable()) throw new Error("OS secure storage is unavailable.");
 
   const store = await readSecretStore();
-  store[name] = safeStorage.encryptString(value || "").toString("base64");
+  if (!value) {
+    delete store[name];
+  } else {
+    store[name] = safeStorage.encryptString(value).toString("base64");
+  }
   await writeSecretStore(store);
   return { success: true };
 });
@@ -47,10 +51,14 @@ ipcMain.handle("secret:get", async (_, name: string) => {
   if (!ALLOWED_SECRET_NAMES.has(name)) throw new Error("Secret name not allowed.");
   if (!safeStorage.isEncryptionAvailable()) return "";
 
-  const store = await readSecretStore();
-  const encrypted = store[name];
-  if (!encrypted) return "";
-  return safeStorage.decryptString(Buffer.from(encrypted, "base64"));
+  try {
+    const store = await readSecretStore();
+    const encrypted = store[name];
+    if (!encrypted) return "";
+    return safeStorage.decryptString(Buffer.from(encrypted, "base64"));
+  } catch {
+    return "";
+  }
 });
 
 ipcMain.handle("secret:delete", async (_, name: string) => {
@@ -132,6 +140,7 @@ async function startBackend(): Promise<void> {
 
   const serverPath = path.join(__dirname, "server.cjs");
   backendProcess = spawn(process.execPath, [serverPath], {
+    cwd: path.resolve(__dirname, ".."),
     env: {
       ...process.env,
       NODE_ENV: "production",
