@@ -3,6 +3,7 @@ import { localDateKey, upsertManagedSection } from "../utils/reliability";
 import { StorageManager } from "./storage/StorageManager";
 
 let cachedSessionToken: string | null = null;
+let obsidianSessionVerified = false;
 const storage = StorageManager.getInstance();
 
 const DEFAULT_API_CONFIG: ObsidianApiConfig = {
@@ -16,6 +17,15 @@ const DEFAULT_API_CONFIG: ObsidianApiConfig = {
   connectionStatus: "disconnected",
   allowSelfSignedCerts: true,
 };
+
+export interface ObsidianConnectionResult {
+  success: boolean;
+  message: string;
+  localVaultPath?: string;
+  localNotesFound?: number;
+  localFoldersFound?: number;
+  localFolders?: string[];
+}
 
 async function getSessionHeaders(geminiApiKeyOverride?: string): Promise<Record<string, string>> {
   if (!cachedSessionToken) {
@@ -51,6 +61,116 @@ async function getSessionHeaders(geminiApiKeyOverride?: string): Promise<Record<
   return headers;
 }
 
+async function requestObsidianConnectionTest(config: { endpoint: string; apiKey: string }) {
+  const headers = await getSessionHeaders();
+  const res = await fetch("/api/obsidian/test-connection", {
+    method: "POST",
+    headers,
+    body: JSON.stringify(config),
+  });
+  const data = await res.json().catch(() => ({
+    success: false,
+    message: `Obsidian retornou HTTP ${res.status}.`,
+  }));
+  return { res, data };
+}
+
+async function inspectDesktopVault(selectVault: boolean): Promise<ObsidianConnectionResult> {
+  if (!window.electronAPI) {
+    return {
+      success: true,
+      message: "REST API do Obsidian conectada.",
+    };
+  }
+
+  let vaultPath = await window.electronAPI.getVaultPath();
+
+  if (selectVault || !vaultPath) {
+    const selection = await window.electronAPI.selectVault();
+    if (selection?.vaultPath) {
+      vaultPath = selection.vaultPath;
+    }
+  }
+
+  if (!vaultPath) {
+    return {
+      success: false,
+      message: "A REST API respondeu, mas falta selecionar a pasta física do Vault usada pelo Obsidian.",
+    };
+  }
+
+  const notes = await window.electronAPI.readNotes();
+  const folders = window.electronAPI.listVaultFolders
+    ? await window.electronAPI.listVaultFolders()
+    : Array.from(
+        new Set(
+          (Array.isArray(notes) ? notes : [])
+            .map((note: any) => String(note?.folder || "00_Inbox").replace(/\\/g, "/"))
+            .filter(Boolean)
+        )
+      );
+
+  return {
+    success: true,
+    localVaultPath: vaultPath,
+    localNotesFound: Array.isArray(notes) ? notes.length : 0,
+    localFoldersFound: Array.isArray(folders) ? folders.length : 0,
+    localFolders: Array.isArray(folders) ? folders : [],
+    message: `Vault local confirmado: ${vaultPath}. ${Array.isArray(notes) ? notes.length : 0} notas Markdown em ${Array.isArray(folders) ? folders.length : 0} pastas.`,
+  };
+}
+
+async function verifyObsidianConnection(
+  config: { endpoint: string; apiKey: string },
+  selectVault: boolean
+): Promise<ObsidianConnectionResult> {
+  obsidianSessionVerified = false;
+
+  if (!config.endpoint.trim() || !config.apiKey.trim()) {
+    return {
+      success: false,
+      message: "Informe o endpoint e o token do Obsidian Local REST API.",
+    };
+  }
+
+  try {
+    const { res, data } = await requestObsidianConnectionTest(config);
+    if (!res.ok || !data?.success) {
+      return {
+        success: false,
+        message: data?.message || data?.error || `Obsidian retornou HTTP ${res.status}.`,
+      };
+    }
+
+    const desktop = await inspectDesktopVault(selectVault);
+    if (!desktop.success) return desktop;
+
+    obsidianSessionVerified = true;
+    return {
+      ...desktop,
+      success: true,
+      message: `${data.message || "REST API do Obsidian conectada."} ${desktop.message}`.trim(),
+    };
+  } catch (err: any) {
+    obsidianSessionVerified = false;
+    return {
+      success: false,
+      message: err.message || "Não foi possível confirmar a conexão com o Obsidian.",
+    };
+  }
+}
+
+async function requireVerifiedObsidian(config: ObsidianApiConfig): Promise<ObsidianConnectionResult> {
+  const result = await verifyObsidianConnection(
+    { endpoint: config.endpoint, apiKey: config.apiKey },
+    false
+  );
+  if (!result.success) {
+    obsidianSessionVerified = false;
+  }
+  return result;
+}
+
 async function obsidianProxyRequest(
   config: ObsidianApiConfig,
   method: string,
@@ -58,6 +178,10 @@ async function obsidianProxyRequest(
   body?: unknown,
   customHeaders?: Record<string, string>
 ): Promise<{ response: Response; data: any }> {
+  if (!obsidianSessionVerified) {
+    throw new Error("Obsidian não está conectado. Valide a conexão antes de acessar o Vault.");
+  }
+
   const headers = await getSessionHeaders();
   const response = await fetch("/api/obsidian/proxy", {
     method: "POST",
@@ -93,6 +217,14 @@ export interface ExtractTasksPayload {
 }
 
 export const api = {
+  disconnectObsidianSession() {
+    obsidianSessionVerified = false;
+  },
+
+  isObsidianSessionVerified() {
+    return obsidianSessionVerified;
+  },
+
   async checkHealth() {
     try {
       const [headers, config] = await Promise.all([
@@ -205,80 +337,47 @@ export const api = {
     return await res.json();
   },
 
-  async testObsidianConnection(config: { endpoint: string; apiKey: string }) {
-    try {
-      const headers = await getSessionHeaders();
-      const res = await fetch("/api/obsidian/test-connection", {
-        method: "POST",
-        headers,
-        body: JSON.stringify(config),
-      });
-      const data = await res.json().catch(() => ({
-        success: false,
-        message: `Obsidian retornou HTTP ${res.status}.`,
-      }));
-
-      if (!res.ok || !data?.success) {
-        return data;
-      }
-
-      if (!window.electronAPI) {
-        return data;
-      }
-
-      const previousVaultPath = await window.electronAPI.getVaultPath();
-      const selection = await window.electronAPI.selectVault();
-      const vaultPath = selection?.vaultPath || previousVaultPath;
-
-      if (!vaultPath) {
-        return {
-          success: false,
-          message: "A REST API respondeu, mas falta selecionar a pasta física do Vault. Teste novamente e escolha a pasta raiz usada pelo Obsidian.",
-        };
-      }
-
-      const notes = await window.electronAPI.readNotes();
-      const folders = new Set(
-        (Array.isArray(notes) ? notes : [])
-          .map((note: any) => String(note?.folder || "Raiz"))
-          .filter(Boolean)
-      );
-
-      return {
-        ...data,
-        success: true,
-        localVaultPath: vaultPath,
-        localNotesFound: Array.isArray(notes) ? notes.length : 0,
-        localFoldersFound: folders.size,
-        message: `Obsidian conectado. Vault local selecionado: ${vaultPath}. ${Array.isArray(notes) ? notes.length : 0} notas Markdown encontradas em ${folders.size} pastas. Use “Sincronizar Agora” para carregar a base no Nisti Marketing.`,
-      };
-    } catch (err: any) {
-      return {
-        success: false,
-        message: err.message || "Erro de conexão ao testar endpoint",
-      };
-    }
+  async probeObsidianConnection(config: { endpoint: string; apiKey: string }) {
+    return await verifyObsidianConnection(config, false);
   },
 
-  async pushNoteToObsidian(config: ObsidianApiConfig, filePath: string, markdownContent: string) {
+  async testObsidianConnection(config: { endpoint: string; apiKey: string }) {
+    return await verifyObsidianConnection(config, true);
+  },
+
+  async pushNoteToObsidian(
+    config: ObsidianApiConfig,
+    filePath: string,
+    markdownContent: string,
+    frontmatter?: Record<string, unknown>
+  ) {
+    const verified = await requireVerifiedObsidian(config);
+    if (!verified.success) {
+      return { success: false, message: verified.message };
+    }
+
     if (window.electronAPI) {
       try {
         const vaultPath = await window.electronAPI.getVaultPath();
         if (vaultPath) {
-          const cleanPath = filePath.replace(/^\//, "").replace(/^vault\//, "");
-          const pathParts = cleanPath.split("/");
+          const cleanPath = filePath
+            .replace(/^\//, "")
+            .replace(/^vault\//, "")
+            .replace(/\\/g, "/");
+          const pathParts = cleanPath.split("/").filter(Boolean);
+          const filename = pathParts.pop() || "Nova Nota.md";
+          const folder = pathParts.join("/") || "00_Inbox";
+          const title = filename.replace(/\.md$/i, "");
+          const contentHasFrontmatter = markdownContent.trimStart().startsWith("---");
 
-          let folder = "00_Inbox";
-          let title = cleanPath.replace(/\.md$/, "");
-
-          if (pathParts.length > 1) {
-            folder = pathParts[0];
-            title = pathParts.slice(1).join("/").replace(/\.md$/, "");
-          }
-
-          const writeRes = await window.electronAPI.writeNote(folder, title, markdownContent);
+          const writeRes = await window.electronAPI.writeNote(
+            folder,
+            title,
+            markdownContent,
+            contentHasFrontmatter ? undefined : frontmatter
+          );
           if (writeRes.success) {
-            return { success: true, message: "Nota gravada diretamente via Electron" };
+            return { success: true, message: "Nota gravada diretamente no Vault do Obsidian" };
           }
           throw new Error(writeRes.error || "Erro desconhecido ao gravar nota");
         }
@@ -298,6 +397,11 @@ export const api = {
     heading: string,
     sectionContent: string
   ) {
+    const verified = await requireVerifiedObsidian(config);
+    if (!verified.success) {
+      return { success: false, message: verified.message };
+    }
+
     const today = localDateKey();
 
     if (window.electronAPI?.upsertNoteSection) {
@@ -343,6 +447,11 @@ export const api = {
   },
 
   async appendToDailyNote(config: ObsidianApiConfig, contentToAppend: string) {
+    const verified = await requireVerifiedObsidian(config);
+    if (!verified.success) {
+      return { success: false, message: verified.message };
+    }
+
     if (window.electronAPI) {
       try {
         const vaultPath = await window.electronAPI.getVaultPath();
