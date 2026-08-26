@@ -3,20 +3,16 @@ import {
   X,
   Laptop,
   FolderSync,
-  Sparkles,
   ShieldCheck,
   CheckCircle2,
   HardDrive,
-  Cpu,
-  ArrowRight,
-  HelpCircle,
-  ExternalLink,
-  Layers,
-  Terminal,
-  FileCode,
-  FolderOpen,
+  Sparkles,
   Key,
+  Terminal,
+  Cloud,
+  AlertCircle,
 } from "lucide-react";
+import { APP_VERSION } from "../utils/reliability";
 
 interface LocalInstallationGuideModalProps {
   isOpen: boolean;
@@ -25,6 +21,19 @@ interface LocalInstallationGuideModalProps {
 }
 
 type GuideTab = "installation" | "obsidian" | "updates" | "security";
+
+const STANDARD_FOLDERS = [
+  "00_Inbox",
+  "01_Estrategia",
+  "02_Produtos",
+  "03_Conteudos",
+  "04_Campanhas",
+  "05_Reunioes",
+  "06_Influenciadores_UGC",
+  "07_Pesquisas",
+  "08_Aprendizados",
+  "99_Templates",
+];
 
 export const LocalInstallationGuideModal: React.FC<LocalInstallationGuideModalProps> = ({
   isOpen,
@@ -35,196 +44,124 @@ export const LocalInstallationGuideModal: React.FC<LocalInstallationGuideModalPr
 
   if (!isOpen) return null;
 
+  const tabClass = (tab: GuideTab) =>
+    `px-3 py-2 text-xs font-bold border-b-2 flex items-center gap-1.5 transition-colors cursor-pointer ${
+      activeTab === tab
+        ? "border-purple-600 text-purple-900 bg-white rounded-t-lg"
+        : "border-transparent text-stone-500 hover:text-stone-800"
+    }`;
+
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-stone-900/60 backdrop-blur-xs">
       <div className="bg-white rounded-2xl border border-stone-200 shadow-2xl max-w-2xl w-full overflow-hidden flex flex-col max-h-[90vh] animate-fadeIn">
-        {/* Modal Header */}
         <div className="p-5 border-b border-stone-150 flex items-center justify-between bg-stone-50">
           <div className="flex items-center gap-3">
-            <div className="w-10 h-10 rounded-xl bg-purple-100 text-purple-700 flex items-center justify-center font-bold">
+            <div className="w-10 h-10 rounded-xl bg-purple-100 text-purple-700 flex items-center justify-center">
               <Laptop className="w-5 h-5" />
             </div>
             <div>
-              <h2 className="text-base font-black text-stone-900">
-                Guia de Instalação Local & Integração Obsidian
-              </h2>
-              <p className="text-xs text-stone-500">
-                Funcionamento local, conexão com o cofre e atualizações contínuas
-              </p>
+              <h2 className="text-base font-black text-stone-900">Instalação Local & Obsidian</h2>
+              <p className="text-xs text-stone-500">Arquitetura desktop, cofre local, configuração e segurança</p>
             </div>
           </div>
           <button
             onClick={onClose}
             className="p-1.5 text-stone-400 hover:text-stone-700 rounded-lg hover:bg-stone-200 transition-colors cursor-pointer"
+            aria-label="Fechar guia"
           >
             <X className="w-5 h-5" />
           </button>
         </div>
 
-        {/* Navigation Tabs */}
-        <div className="flex border-b border-stone-200 bg-stone-50/50 px-5 gap-2 pt-2">
-          <button
-            onClick={() => setActiveTab("installation")}
-            className={`px-3 py-2 text-xs font-bold border-b-2 flex items-center gap-1.5 transition-colors cursor-pointer ${
-              activeTab === "installation"
-                ? "border-purple-600 text-purple-900 bg-white rounded-t-lg"
-                : "border-transparent text-stone-500 hover:text-stone-800"
-            }`}
-          >
+        <div className="flex border-b border-stone-200 bg-stone-50/50 px-5 gap-2 pt-2 overflow-x-auto">
+          <button onClick={() => setActiveTab("installation")} className={tabClass("installation")}>
             <HardDrive className="w-3.5 h-3.5" />
-            <span>1. Instalação Local</span>
+            <span>1. Instalação</span>
           </button>
-          <button
-            onClick={() => setActiveTab("obsidian")}
-            className={`px-3 py-2 text-xs font-bold border-b-2 flex items-center gap-1.5 transition-colors cursor-pointer ${
-              activeTab === "obsidian"
-                ? "border-purple-600 text-purple-900 bg-white rounded-t-lg"
-                : "border-transparent text-stone-500 hover:text-stone-800"
-            }`}
-          >
+          <button onClick={() => setActiveTab("obsidian")} className={tabClass("obsidian")}>
             <FolderSync className="w-3.5 h-3.5" />
-            <span>2. Conexão Obsidian</span>
+            <span>2. Obsidian</span>
           </button>
-          <button
-            onClick={() => setActiveTab("updates")}
-            className={`px-3 py-2 text-xs font-bold border-b-2 flex items-center gap-1.5 transition-colors cursor-pointer ${
-              activeTab === "updates"
-                ? "border-purple-600 text-purple-900 bg-white rounded-t-lg"
-                : "border-transparent text-stone-500 hover:text-stone-800"
-            }`}
-          >
+          <button onClick={() => setActiveTab("updates")} className={tabClass("updates")}>
             <Sparkles className="w-3.5 h-3.5" />
-            <span>3. Atualizações Automáticas</span>
+            <span>3. Atualizações</span>
           </button>
-          <button
-            onClick={() => setActiveTab("security")}
-            className={`px-3 py-2 text-xs font-bold border-b-2 flex items-center gap-1.5 transition-colors cursor-pointer ${
-              activeTab === "security"
-                ? "border-purple-600 text-purple-900 bg-white rounded-t-lg"
-                : "border-transparent text-stone-500 hover:text-stone-800"
-            }`}
-          >
+          <button onClick={() => setActiveTab("security")} className={tabClass("security")}>
             <ShieldCheck className="w-3.5 h-3.5" />
-            <span>Segurança & Criptografia</span>
+            <span>4. Segurança</span>
           </button>
         </div>
 
-        {/* Modal Body */}
         <div className="p-6 overflow-y-auto space-y-5 text-stone-700 text-xs leading-relaxed">
-          {/* TAB 1: INSTALAÇÃO LOCAL */}
           {activeTab === "installation" && (
             <div className="space-y-4">
               <div className="bg-purple-50/70 border border-purple-200 rounded-xl p-4 space-y-2">
                 <h3 className="text-sm font-bold text-purple-950 flex items-center gap-2">
                   <HardDrive className="w-4 h-4 text-purple-700" />
-                  <span>Como o sistema roda na sua máquina (Desktop Standalone)</span>
+                  Desktop local com Electron
                 </h3>
-                <p className="text-stone-600 text-xs">
-                  O aplicativo foi construído com arquitetura <strong>Electron + Vite Desktop</strong>, empacotando todo o motor do sistema em um executável nativo leve e rápido.
+                <p className="text-stone-600">
+                  O pacote final executa o frontend, o processo Electron e um backend HTTP restrito ao loopback da própria máquina. O backend usa uma porta local efêmera no desktop para evitar colisões com outros serviços.
                 </p>
               </div>
 
               <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-                <div className="p-3.5 bg-stone-50 rounded-xl border border-stone-200 space-y-1.5">
+                <div className="p-3.5 bg-stone-50 rounded-xl border border-stone-200">
                   <span className="font-bold text-stone-900 flex items-center gap-1.5">
-                    <CheckCircle2 className="w-4 h-4 text-emerald-600" />
-                    <span>Instalador Único (.exe / .dmg / .AppImage)</span>
+                    <CheckCircle2 className="w-4 h-4 text-emerald-600" /> Instalador final
                   </span>
-                  <p className="text-[11px] text-stone-600">
-                    Basta executar o instalador padrão do seu sistema operacional. O instalador configura o aplicativo sem criar serviços em segundo plano desnecessários.
+                  <p className="text-[11px] text-stone-600 mt-1">
+                    Depois de empacotado, o usuário final não precisa instalar Node.js, Bun, Python ou Docker para abrir o aplicativo.
                   </p>
                 </div>
-
-                <div className="p-3.5 bg-stone-50 rounded-xl border border-stone-200 space-y-1.5">
+                <div className="p-3.5 bg-stone-50 rounded-xl border border-stone-200">
                   <span className="font-bold text-stone-900 flex items-center gap-1.5">
-                    <CheckCircle2 className="w-4 h-4 text-emerald-600" />
-                    <span>Zero Dependências Externas</span>
+                    <CheckCircle2 className="w-4 h-4 text-emerald-600" /> Dados locais
                   </span>
-                  <p className="text-[11px] text-stone-600">
-                    Você <strong>não</strong> precisa instalar Node.js, Python, Docker ou banco de dados relacional. Todo o ambiente é autocontido e isolado em sandbox.
-                  </p>
-                </div>
-
-                <div className="p-3.5 bg-stone-50 rounded-xl border border-stone-200 space-y-1.5">
-                  <span className="font-bold text-stone-900 flex items-center gap-1.5">
-                    <CheckCircle2 className="w-4 h-4 text-emerald-600" />
-                    <span>Diretório Padrão de Dados</span>
-                  </span>
-                  <p className="text-[11px] text-stone-600">
-                    Configurações e cache ficam salvos na pasta de aplicativo do usuário (<code>%APPDATA%</code> no Windows, <code>~/Library/Application Support</code> no Mac).
-                  </p>
-                </div>
-
-                <div className="p-3.5 bg-stone-50 rounded-xl border border-stone-200 space-y-1.5">
-                  <span className="font-bold text-stone-900 flex items-center gap-1.5">
-                    <CheckCircle2 className="w-4 h-4 text-emerald-600" />
-                    <span>Modo 100% Offline / Local</span>
-                  </span>
-                  <p className="text-[11px] text-stone-600">
-                    Quando operando em Modo Local, todas as análises e formatações de notas são realizadas diretamente pelo motor local sem enviar dados para a internet.
+                  <p className="text-[11px] text-stone-600 mt-1">
+                    O Vault permanece na pasta escolhida por você. Configurações do aplicativo ficam no diretório de dados do usuário do Electron.
                   </p>
                 </div>
               </div>
 
-              <div className="bg-stone-100 p-3.5 rounded-xl border border-stone-200 text-[11px] font-mono text-stone-800">
-                <span className="font-bold text-stone-900 block mb-1 font-sans">Comandos de Empacotamento Desktop:</span>
-                <code>npm run electron:build</code> → Gera instaladores finais na pasta <code>dist_electron/</code>
+              <div className="bg-stone-100 p-4 rounded-xl border border-stone-200 space-y-2">
+                <span className="font-bold text-stone-900 flex items-center gap-2">
+                  <Terminal className="w-4 h-4" /> Preparação do instalador a partir do código-fonte
+                </span>
+                <div className="text-[11px] font-mono text-stone-800 space-y-1">
+                  <div><code>bun install --frozen-lockfile</code></div>
+                  <div><code>bun run verify</code></div>
+                  <div><code>bun run dist</code></div>
+                </div>
+                <p className="text-[11px] text-stone-600">
+                  Os instaladores são gerados em <code>dist-electron/</code>. Para recursos Gemini e Google Drive, configure o arquivo <code>.env</code> antes do build.
+                </p>
               </div>
             </div>
           )}
 
-          {/* TAB 2: CONEXÃO COM O OBSIDIAN */}
           {activeTab === "obsidian" && (
             <div className="space-y-4">
-              <div className="bg-emerald-50/70 border border-emerald-200 rounded-xl p-4 space-y-2">
+              <div className="bg-emerald-50/70 border border-emerald-200 rounded-xl p-4">
                 <h3 className="text-sm font-bold text-emerald-950 flex items-center gap-2">
-                  <FolderSync className="w-4 h-4 text-emerald-700" />
-                  <span>Como o sistema reconhece e conecta no Obsidian</span>
+                  <FolderSync className="w-4 h-4 text-emerald-700" /> Via recomendada: acesso direto ao Vault
                 </h3>
-                <p className="text-stone-600 text-xs">
-                  O sistema possui duas vias complementares de reconhecimento e integração com o seu cofre:
+                <p className="text-stone-600 mt-1">
+                  No desktop, selecione a pasta raiz do seu Vault. O processo principal do Electron mantém essa raiz sob controle e restringe as operações de leitura e gravação ao Vault selecionado.
                 </p>
               </div>
 
-              {/* OPÇÃO 1 */}
+              <div className="grid grid-cols-2 gap-2 text-[10px] font-mono bg-stone-50 p-3 rounded-lg border border-stone-200">
+                {STANDARD_FOLDERS.map((folder) => (
+                  <div key={folder}>📁 <code>{folder}/</code></div>
+                ))}
+              </div>
+
               <div className="p-4 bg-white rounded-xl border border-stone-200 space-y-2">
-                <div className="flex items-center justify-between">
-                  <h4 className="font-bold text-stone-900 text-xs flex items-center gap-1.5">
-                    <span className="px-1.5 py-0.5 rounded bg-purple-100 text-purple-800 text-[10px] font-mono">VIA 1</span>
-                    <span>Acesso Direto ao Cofre (Arquivos Markdown .md)</span>
-                  </h4>
-                  <span className="text-[10px] text-emerald-600 font-bold bg-emerald-50 px-2 py-0.5 rounded-full border border-emerald-200">
-                    Nativo Desktop
-                  </span>
-                </div>
+                <h4 className="font-bold text-stone-900">Via opcional: Obsidian Local REST API</h4>
                 <p className="text-[11px] text-stone-600">
-                  Ao abrir o aplicativo pela primeira vez, você pode selecionar a pasta raiz do seu cofre do Obsidian (ex: <code>D:/Documentos/ObsidianVault</code>). O sistema lê e grava diretamente nos arquivos <code>.md</code> das pastas padrão:
+                  Se quiser usar o plugin Local REST API, mantenha o endpoint no loopback local (por exemplo <code>http://127.0.0.1:27124</code>). A chave do plugin é armazenada com proteção do sistema operacional no desktop.
                 </p>
-                <div className="grid grid-cols-2 gap-2 text-[10px] font-mono bg-stone-50 p-2.5 rounded-lg border border-stone-200">
-                  <div>📁 <code>00_Inbox/Daily-YYYY-MM-DD.md</code></div>
-                  <div>📁 <code>01_Estrategia/</code></div>
-                  <div>📁 <code>02_Inteligencia_Mercado/</code></div>
-                  <div>📁 <code>04_Campanhas/</code></div>
-                </div>
-              </div>
-
-              {/* OPÇÃO 2 */}
-              <div className="p-4 bg-white rounded-xl border border-stone-200 space-y-2">
-                <div className="flex items-center justify-between">
-                  <h4 className="font-bold text-stone-900 text-xs flex items-center gap-1.5">
-                    <span className="px-1.5 py-0.5 rounded bg-blue-100 text-blue-800 text-[10px] font-mono">VIA 2</span>
-                    <span>Obsidian Local REST API (Sincronização em Tempo Real)</span>
-                  </h4>
-                  <span className="text-[10px] text-blue-600 font-bold bg-blue-50 px-2 py-0.5 rounded-full border border-blue-200">
-                    Plugin REST
-                  </span>
-                </div>
-                <ol className="list-decimal list-inside space-y-1 text-[11px] text-stone-600 pl-1">
-                  <li>No Obsidian, instale o plugin comunitário <strong>Local REST API</strong>.</li>
-                  <li>Ative o plugin e copie o <strong>API Key / Bearer Token</strong> gerado.</li>
-                  <li>O Obsidian passa a escutar exclusivamente no endereço interno <code>http://127.0.0.1:27124</code>.</li>
-                  <li>O aplicativo envia as novas notas e tarefas instantaneamente para o Obsidian aberto.</li>
-                </ol>
               </div>
 
               {onOpenSettings && (
@@ -236,118 +173,71 @@ export const LocalInstallationGuideModal: React.FC<LocalInstallationGuideModalPr
                   className="w-full py-2.5 bg-stone-900 hover:bg-stone-800 text-white rounded-xl text-xs font-bold transition-colors flex items-center justify-center gap-2 cursor-pointer"
                 >
                   <Key className="w-4 h-4 text-purple-400" />
-                  <span>Configurar Endpoint & Chave da API do Obsidian</span>
+                  Configurar Obsidian Local REST API
                 </button>
               )}
             </div>
           )}
 
-          {/* TAB 3: ATUALIZAÇÕES AUTOMÁTICAS */}
           {activeTab === "updates" && (
             <div className="space-y-4">
               <div className="bg-amber-50/70 border border-amber-200 rounded-xl p-4 space-y-2">
                 <h3 className="text-sm font-bold text-amber-950 flex items-center gap-2">
-                  <Sparkles className="w-4 h-4 text-amber-700" />
-                  <span>Como o sistema recebe atualizações sem desinstalar</span>
+                  <AlertCircle className="w-4 h-4 text-amber-700" /> Atualização automática ainda não está implementada
                 </h3>
-                <p className="text-stone-600 text-xs">
-                  O sistema utiliza o motor <strong>Electron Updater</strong> integrado a lançamentos de versões contínuas (GitHub Releases / CDN):
+                <p className="text-stone-600">
+                  A versão atual não possui Electron Updater ativo. As atualizações devem ser instaladas a partir de um novo pacote validado. O aplicativo não deve anunciar download silencioso ou atualização automática enquanto esse mecanismo não existir no código.
                 </p>
               </div>
 
-              <div className="space-y-3">
-                <div className="flex items-start gap-3 p-3.5 bg-stone-50 rounded-xl border border-stone-200">
-                  <div className="w-6 h-6 rounded-full bg-purple-100 text-purple-800 font-bold flex items-center justify-center shrink-0 text-[11px]">
-                    1
-                  </div>
-                  <div>
-                    <h4 className="font-bold text-stone-900 text-xs">Checagem Silenciosa de Versão</h4>
-                    <p className="text-[11px] text-stone-600 mt-0.5">
-                      Ao iniciar ou periodicamente, o app consulta o manifesto da versão mais recente em segundo plano.
-                    </p>
-                  </div>
+              <div className="space-y-2 text-[11px]">
+                <div className="p-3 bg-stone-50 rounded-xl border border-stone-200">
+                  <strong>1.</strong> Exporte um backup sanitizado do workspace antes de atualizar.
                 </div>
-
-                <div className="flex items-start gap-3 p-3.5 bg-stone-50 rounded-xl border border-stone-200">
-                  <div className="w-6 h-6 rounded-full bg-purple-100 text-purple-800 font-bold flex items-center justify-center shrink-0 text-[11px]">
-                    2
-                  </div>
-                  <div>
-                    <h4 className="font-bold text-stone-900 text-xs">Download em Background (Sem Travamentos)</h4>
-                    <p className="text-[11px] text-stone-600 mt-0.5">
-                      Se houver uma versão mais nova com novos recursos, apenas o pacote delta é baixado silenciosamente sem interromper suas notas.
-                    </p>
-                  </div>
+                <div className="p-3 bg-stone-50 rounded-xl border border-stone-200">
+                  <strong>2.</strong> Feche o aplicativo e instale o novo pacote gerado pelo pipeline validado.
                 </div>
-
-                <div className="flex items-start gap-3 p-3.5 bg-stone-50 rounded-xl border border-stone-200">
-                  <div className="w-6 h-6 rounded-full bg-purple-100 text-purple-800 font-bold flex items-center justify-center shrink-0 text-[11px]">
-                    3
-                  </div>
-                  <div>
-                    <h4 className="font-bold text-stone-900 text-xs">Aplicação Automática (Hot Swap)</h4>
-                    <p className="text-[11px] text-stone-600 mt-0.5">
-                      Quando o download termina, o aplicativo é atualizado automaticamente na próxima reinicialização — <strong>sem você precisar desinstalar e reinstalar</strong>.
-                    </p>
-                  </div>
-                </div>
-
-                <div className="flex items-start gap-3 p-3.5 bg-emerald-50 rounded-xl border border-emerald-200">
-                  <div className="w-6 h-6 rounded-full bg-emerald-100 text-emerald-800 font-bold flex items-center justify-center shrink-0 text-[11px]">
-                    ✓
-                  </div>
-                  <div>
-                    <h4 className="font-bold text-emerald-950 text-xs">Preservação Total dos Dados</h4>
-                    <p className="text-[11px] text-emerald-800 mt-0.5">
-                      O processo de atualização substitui apenas os arquivos executáveis do programa. Todo o cofre de notas, chaves criptografadas e tarefas são 100% preservados no banco local.
-                    </p>
-                  </div>
+                <div className="p-3 bg-stone-50 rounded-xl border border-stone-200">
+                  <strong>3.</strong> Confirme o Vault selecionado e teste a sincronização após a atualização.
                 </div>
               </div>
             </div>
           )}
 
-          {/* TAB 4: SEGURANÇA & CRIPTOGRAFIA */}
           {activeTab === "security" && (
             <div className="space-y-4">
               <div className="bg-stone-900 text-white rounded-xl p-4 space-y-2">
                 <h3 className="text-sm font-bold flex items-center gap-2">
-                  <ShieldCheck className="w-4 h-4 text-purple-400" />
-                  <span>Blindagem Arquitetural de Dados</span>
+                  <ShieldCheck className="w-4 h-4 text-purple-400" /> Controles ativos na versão {APP_VERSION}
                 </h3>
-                <p className="text-stone-300 text-xs">
-                  Privacidade em primeiro lugar: todo o armazenamento de credenciais é blindado no navegador e no desktop.
+                <p className="text-stone-300">
+                  O backend local aceita conexões apenas pela interface loopback, exige sessão local para as rotas de API e o Electron valida a instância do backend antes de carregar a interface.
                 </p>
               </div>
 
               <div className="space-y-2.5">
-                <div className="p-3 bg-stone-50 rounded-xl border border-stone-200 space-y-1">
-                  <span className="font-bold text-stone-900 text-xs flex items-center gap-1.5">
-                    <Key className="w-3.5 h-3.5 text-purple-600" />
-                    <span>Criptografia AES-GCM (256 bits)</span>
+                <div className="p-3 bg-stone-50 rounded-xl border border-stone-200">
+                  <span className="font-bold text-stone-900 flex items-center gap-1.5">
+                    <Key className="w-3.5 h-3.5 text-purple-600" /> Credenciais
                   </span>
-                  <p className="text-[11px] text-stone-600">
-                    A chave de API do Obsidian é criptografada com a Web Cryptography API (<code>crypto.subtle</code>) e nunca fica exposta em texto puro no disco.
+                  <p className="text-[11px] text-stone-600 mt-1">
+                    No desktop, a chave do Obsidian usa <code>safeStorage</code> do Electron. No runtime web, o armazenamento seguro usa AES-GCM com chave aleatória não extraível persistida via IndexedDB e falha fechado se a criptografia não estiver disponível.
                   </p>
                 </div>
-
-                <div className="p-3 bg-stone-50 rounded-xl border border-stone-200 space-y-1">
-                  <span className="font-bold text-stone-900 text-xs flex items-center gap-1.5">
-                    <ShieldCheck className="w-3.5 h-3.5 text-emerald-600" />
-                    <span>Proteção SSRF & Isolamento de Rede</span>
+                <div className="p-3 bg-stone-50 rounded-xl border border-stone-200">
+                  <span className="font-bold text-stone-900 flex items-center gap-1.5">
+                    <Cloud className="w-3.5 h-3.5 text-blue-600" /> Google Drive
                   </span>
-                  <p className="text-[11px] text-stone-600">
-                    URLs capturadas são validadas estritamente e bloqueiam qualquer acesso a IPs privados, portas não padrão ou endpoints de nuvem.
+                  <p className="text-[11px] text-stone-600 mt-1">
+                    O importador solicita somente acesso de leitura e mantém o access token apenas em memória durante a sessão do aplicativo.
                   </p>
                 </div>
-
-                <div className="p-3 bg-stone-50 rounded-xl border border-stone-200 space-y-1">
-                  <span className="font-bold text-stone-900 text-xs flex items-center gap-1.5">
-                    <FileCode className="w-3.5 h-3.5 text-blue-600" />
-                    <span>Exportações Sanitizadas</span>
+                <div className="p-3 bg-stone-50 rounded-xl border border-stone-200">
+                  <span className="font-bold text-stone-900 flex items-center gap-1.5">
+                    <ShieldCheck className="w-3.5 h-3.5 text-emerald-600" /> Backups
                   </span>
-                  <p className="text-[11px] text-stone-600">
-                    Backups exportados em JSON removem automaticamente tokens e chaves privadas para evitar vazamentos acidentais.
+                  <p className="text-[11px] text-stone-600 mt-1">
+                    A exportação segura do workspace não inclui a chave da API do Obsidian.
                   </p>
                 </div>
               </div>
@@ -355,11 +245,8 @@ export const LocalInstallationGuideModal: React.FC<LocalInstallationGuideModalPr
           )}
         </div>
 
-        {/* Modal Footer */}
         <div className="p-4 border-t border-stone-200 bg-stone-50 flex items-center justify-between">
-          <span className="text-[11px] text-stone-400">
-            Nisti PKM & Marketing Hub v2.0.0 Desktop Ready
-          </span>
+          <span className="text-[11px] text-stone-400">Nisti PKM & Marketing Hub v{APP_VERSION}</span>
           <button
             onClick={onClose}
             className="px-5 py-2 bg-stone-900 hover:bg-stone-800 text-white rounded-xl text-xs font-bold transition-colors cursor-pointer"
