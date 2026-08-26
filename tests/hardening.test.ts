@@ -48,12 +48,40 @@ describe("v1.0.1 hardening invariants", () => {
     expect(source).toContain('parsed.protocol = "https:"');
   });
 
-  test("Obsidian setup validates REST and binds the physical desktop Vault", async () => {
+  test("Obsidian setup validates REST, binds the physical Vault and publishes the full snapshot", async () => {
     const source = await read("src/services/api.ts");
+    expect(source).toContain("requestObsidianConnectionTest");
+    expect(source).toContain("setDesktopObsidianAuthorization(true)");
     expect(source).toContain("window.electronAPI.selectVault()");
-    expect(source).toContain("window.electronAPI.readNotes()");
-    expect(source).toContain("localNotesFound");
-    expect(source).toContain("Sincronizar Agora");
+    expect(source).toContain("window.electronAPI.listVaultFolders()");
+    expect(source).toContain("publishCurrentDesktopVaultSnapshot");
+    expect(source).toContain("Base sincronizada automaticamente");
+  });
+
+  test("knowledge filesystem is fail-closed until Obsidian REST connection is verified", async () => {
+    const main = await read("electron-main.ts");
+    const preload = await read("src/preload.ts");
+    const hook = await read("src/hooks/usePersistentState.ts");
+    const runtime = await read("src/services/obsidianRuntimeState.ts");
+
+    expect(main).toContain("let obsidianConnectionAuthorized = false");
+    expect(main).toContain("requireObsidianConnection()");
+    expect(main).toContain('ipcMain.handle("vault:connection-state"');
+    expect(main).toContain('ipcMain.handle("vault:list-folders"');
+    expect(preload).toContain("setObsidianConnectionState");
+    expect(preload).toContain("listVaultFolders");
+    expect(hook).toContain("Knowledge state mutation blocked").not;
+    expect(hook).toContain("Banco de conhecimento indisponível");
+    expect(hook).toContain("OBSIDIAN_DISCONNECTED_EVENT");
+    expect(runtime).toContain("OBSIDIAN_SNAPSHOT_EVENT");
+  });
+
+  test("manual note creation writes to verified Obsidian before reporting success", async () => {
+    const source = await read("src/components/NoteModal.tsx");
+    expect(source).toContain("api.isObsidianSessionVerified()");
+    expect(source).toContain("api.pushNoteToObsidian");
+    expect(source).toContain("await window.electronAPI.listVaultFolders()");
+    expect(source).toContain("A nota não foi salva");
   });
 
   test("desktop secret store protects both Obsidian and Gemini credentials", async () => {
