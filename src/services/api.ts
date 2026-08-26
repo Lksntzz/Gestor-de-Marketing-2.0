@@ -95,10 +95,11 @@ export interface ExtractTasksPayload {
 export const api = {
   async checkHealth() {
     try {
-      const [res, config] = await Promise.all([
-        fetch("/api/health", { cache: "no-store" }),
+      const [headers, config] = await Promise.all([
+        getSessionHeaders(),
         storage.loadApiConfig(DEFAULT_API_CONFIG),
       ]);
+      const res = await fetch("/api/health", { cache: "no-store", headers });
       const health = await res.json();
       return {
         ...health,
@@ -146,6 +147,20 @@ export const api = {
         message: err.message || "Não foi possível conectar ao Gemini.",
       };
     }
+  },
+
+  async processKnowledge(type: string, payload: unknown, engineMode: string) {
+    const headers = await getSessionHeaders();
+    const res = await fetch("/api/gemini/process-knowledge", {
+      method: "POST",
+      headers,
+      body: JSON.stringify({ type, payload, engineMode }),
+    });
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({}));
+      throw new Error(err.error || `Erro HTTP ${res.status}`);
+    }
+    return await res.json();
   },
 
   async generateCampaign(payload: GenerateCampaignPayload) {
@@ -198,7 +213,45 @@ export const api = {
         headers,
         body: JSON.stringify(config),
       });
-      return await res.json();
+      const data = await res.json().catch(() => ({
+        success: false,
+        message: `Obsidian retornou HTTP ${res.status}.`,
+      }));
+
+      if (!res.ok || !data?.success) {
+        return data;
+      }
+
+      if (!window.electronAPI) {
+        return data;
+      }
+
+      const previousVaultPath = await window.electronAPI.getVaultPath();
+      const selection = await window.electronAPI.selectVault();
+      const vaultPath = selection?.vaultPath || previousVaultPath;
+
+      if (!vaultPath) {
+        return {
+          success: false,
+          message: "A REST API respondeu, mas falta selecionar a pasta física do Vault. Teste novamente e escolha a pasta raiz usada pelo Obsidian.",
+        };
+      }
+
+      const notes = await window.electronAPI.readNotes();
+      const folders = new Set(
+        (Array.isArray(notes) ? notes : [])
+          .map((note: any) => String(note?.folder || "Raiz"))
+          .filter(Boolean)
+      );
+
+      return {
+        ...data,
+        success: true,
+        localVaultPath: vaultPath,
+        localNotesFound: Array.isArray(notes) ? notes.length : 0,
+        localFoldersFound: folders.size,
+        message: `Obsidian conectado. Vault local selecionado: ${vaultPath}. ${Array.isArray(notes) ? notes.length : 0} notas Markdown encontradas em ${folders.size} pastas. Use “Sincronizar Agora” para carregar a base no Nisti Marketing.`,
+      };
     } catch (err: any) {
       return {
         success: false,
