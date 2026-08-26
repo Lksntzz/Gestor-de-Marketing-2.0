@@ -122,6 +122,7 @@ export interface AutomationRule {
 export interface ObsidianApiConfig {
   endpoint: string;
   apiKey: string;
+  geminiApiKey?: string;
   vaultName: string;
   useHttps: boolean;
   autoSync: boolean;

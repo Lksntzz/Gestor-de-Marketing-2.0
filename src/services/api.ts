@@ -22,6 +22,20 @@ async function getSessionHeaders(): Promise<Record<string, string>> {
   if (cachedSessionToken) {
     headers["x-app-session-token"] = cachedSessionToken;
   }
+
+  // Load custom Gemini API key from localStorage under "obsidian_api_config"
+  try {
+    const savedConfig = localStorage.getItem("obsidian_api_config");
+    if (savedConfig) {
+      const configObj = JSON.parse(savedConfig);
+      if (configObj.geminiApiKey) {
+        headers["x-gemini-api-key"] = configObj.geminiApiKey;
+      }
+    }
+  } catch (e) {
+    console.error("Failed to parse obsidian_api_config for Gemini API Key", e);
+  }
+
   return headers;
 }
 

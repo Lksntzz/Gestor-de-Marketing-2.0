@@ -1,0 +1,65 @@
+name: Release & Build Installers
+
+on:
+  push:
+    tags:
+      - "v*"
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "Versão do Release (ex: v0.1.7)"
+        required: false
+        default: "v0.1.7"
+
+permissions:
+  contents: write
+
+jobs:
+  build-and-release:
+    runs-on: windows-latest
+    timeout-minutes: 30
+
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: latest
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Install Dependencies
+        run: bun install
+
+      - name: Build Application
+        run: bun run build
+
+      - name: Build Windows NSIS & Portable Installer
+        env:
+          CSC_IDENTITY_AUTO_DISCOVERY: "false"
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: bunx electron-builder@26.0.12 --win --x64 --publish never
+
+      - name: Upload Artifacts to GitHub Actions
+        uses: actions/upload-artifact@v4
+        with:
+          name: Nisti-Print-PKM-Windows-Installer
+          path: dist-electron/*.exe
+
+      - name: Create GitHub Release and Attach Installers
+        if: startsWith(github.ref, 'refs/tags/') || github.event_name == 'workflow_dispatch'
+        uses: softprops/action-gh-release@v2
+        with:
+          name: Nisti Print PKM Marketing Hub ${{ github.ref_name || inputs.version }}
+          tag_name: ${{ github.ref_name || inputs.version }}
+          files: |
+            dist-electron/*.exe
+            dist-electron/*.zip
+          draft: false
+          prerelease: false
+          generate_release_notes: true

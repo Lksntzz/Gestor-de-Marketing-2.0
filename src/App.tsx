@@ -7,8 +7,6 @@ import { TasksAutomationView } from "./components/TasksAutomationView";
 import { RoutineIntelligenceView } from "./components/RoutineIntelligenceView";
 import { AddKnowledgeView } from "./components/AddKnowledgeView";
 import { ObsidianApiSettingsModal } from "./components/ObsidianApiSettingsModal";
-import { LocalInstallationGuideModal } from "./components/LocalInstallationGuideModal";
-import { DesktopSetupWizardModal } from "./components/DesktopSetupWizardModal";
 import { TaskModal } from "./components/TaskModal";
 import { NoteModal } from "./components/NoteModal";
 
@@ -208,8 +206,6 @@ export default function App() {
   const [auditInsight, setAuditInsight] = useState<VaultAuditInsight | null>(null);
 
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
-  const [isGuideModalOpen, setIsGuideModalOpen] = useState(false);
-  const [isSetupWizardOpen, setIsSetupWizardOpen] = useState(false);
   const [isTaskModalOpen, setIsTaskModalOpen] = useState(false);
   const [isNoteModalOpen, setIsNoteModalOpen] = useState(false);
 
@@ -265,11 +261,6 @@ export default function App() {
         console.log("Backend executando. Motor Local inteligente ativo por padrão.");
       }
     });
-
-    // Check if first-run setup wizard was completed
-    if (typeof window !== "undefined" && !localStorage.getItem("nisti_setup_wizard_completed")) {
-      setIsSetupWizardOpen(true);
-    }
 
     if (!auditInsight && notes.length > 0) {
       void runVaultAudit();
@@ -943,6 +934,37 @@ export default function App() {
     showToast("success", "Backup Exportado", `Backup v${APP_VERSION} exportado sem credenciais.`);
   };
 
+  const handleClearAllData = useCallback(async () => {
+    await storage.factoryResetAll();
+    setNotes([]);
+    setCampaigns([]);
+    setTasks([]);
+    setAutomationRules([]);
+    setIdeas([]);
+    setScripts([]);
+    setVisuals([]);
+    setPostHistory([]);
+    setLearnings([]);
+    setWeeklyRoutine([]);
+    setNiches([]);
+    setSelectedNote(null);
+    showToast("info", "Reset de Fábrica Concluído", "Todo o armazenamento local foi zerado e restaurado aos padrões limpos de fábrica.");
+  }, [
+    setNotes,
+    setCampaigns,
+    setTasks,
+    setAutomationRules,
+    setIdeas,
+    setScripts,
+    setVisuals,
+    setPostHistory,
+    setLearnings,
+    setWeeklyRoutine,
+    setNiches,
+    setSelectedNote,
+    showToast,
+  ]);
+
   const handleImportVault = (file: File) => {
     const reader = new FileReader();
     reader.onload = (e) => {
@@ -998,8 +1020,6 @@ export default function App() {
         setActiveTab={setActiveTab}
         apiConfig={apiConfig}
         onOpenSettings={() => setIsSettingsOpen(true)}
-        onOpenGuide={() => setIsGuideModalOpen(true)}
-        onOpenSetupWizard={() => setIsSetupWizardOpen(true)}
         onSyncNow={handleSyncNow}
         isSyncing={isSyncing}
         onQuickNewCampaign={() => {
@@ -1062,8 +1082,6 @@ export default function App() {
               setActiveTab("campaigns");
               showToast("info", "Convertendo Ideia", `Gerador aberto com base em "${idea.title}".`);
             }}
-            onOpenGuide={() => setIsGuideModalOpen(true)}
-            onOpenSetupWizard={() => setIsSetupWizardOpen(true)}
           />
         )}
 
@@ -1213,39 +1231,7 @@ export default function App() {
         onTestConnection={handleTestConnection}
         onExportVault={handleExportVault}
         onImportVault={handleImportVault}
-        onOpenGuide={() => setIsGuideModalOpen(true)}
-      />
-
-      <LocalInstallationGuideModal
-        isOpen={isGuideModalOpen}
-        onClose={() => setIsGuideModalOpen(false)}
-        onOpenSettings={() => setIsSettingsOpen(true)}
-      />
-
-      <DesktopSetupWizardModal
-        isOpen={isSetupWizardOpen}
-        onClose={() => setIsSetupWizardOpen(false)}
-        onComplete={(vaultPath) => {
-          showToast("success", "Cofre Inicializado", `Caminho configurado: ${vaultPath}`);
-          confetti({ particleCount: 40 });
-        }}
-        apiConfig={apiConfig}
-        setApiConfig={setApiConfig}
-        engineMode={engineMode}
-        onToggleEngineMode={(mode) => {
-          setEngineMode(mode);
-          showToast(
-            "info",
-            mode === "local" ? "Motor Local Ativado" : "Modo IA Gemini Ativado",
-            mode === "local"
-              ? "Operando 100% offline com lógica determinística e 0 consumo de tokens."
-              : "Operando em modo híbrido com a API do Gemini."
-          );
-        }}
-        onOpenGuide={() => {
-          setIsSetupWizardOpen(false);
-          setIsGuideModalOpen(true);
-        }}
+        onClearAllData={handleClearAllData}
       />
 
       <TaskModal

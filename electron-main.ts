@@ -119,13 +119,15 @@ function upsertManagedBlock(rawContent: string, sectionId: string, heading: stri
 
 function createWindow() {
   const baseDir = __dirname.endsWith("dist") ? __dirname : path.join(__dirname, "dist");
+  const indexPath = path.join(baseDir, "index.html");
+  const preloadPath = path.join(baseDir, "preload.cjs");
 
   mainWindow = new BrowserWindow({
     width: 1360,
     height: 860,
-    title: "Nisti Print PKM Marketing Hub (Desktop Local-First)",
+    title: "Nisti Print PKM Marketing Hub",
     webPreferences: {
-      preload: path.join(baseDir, "preload.cjs"),
+      preload: existsSync(preloadPath) ? preloadPath : undefined,
       contextIsolation: true,
       nodeIntegration: false,
       sandbox: true,
@@ -135,8 +137,14 @@ function createWindow() {
   if (process.env.NODE_ENV === "development") {
     mainWindow.loadURL("http://localhost:3000");
   } else {
-    mainWindow.loadFile(path.join(baseDir, "index.html"));
+    mainWindow.loadFile(indexPath).catch((err) => {
+      console.error("Erro ao carregar index.html:", err);
+    });
   }
+
+  mainWindow.webContents.on("did-fail-load", (_event, errorCode, errorDescription) => {
+    console.error("Falha ao carregar conteúdo:", errorCode, errorDescription);
+  });
 
   mainWindow.on("closed", () => {
     mainWindow = null;

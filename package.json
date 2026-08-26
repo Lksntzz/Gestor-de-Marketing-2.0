@@ -2,6 +2,8 @@
   "name": "nisti-pkm-marketing-hub",
   "private": true,
   "version": "0.1.7-patch.1",
+  "description": "Nisti Print PKM Marketing Hub - Gestor de Marketing e Obsidian PKM",
+  "author": "Nisti Print Solutions",
   "main": "dist/electron-main.cjs",
   "type": "module",
   "scripts": {
@@ -44,7 +46,8 @@
       ],
       "requestedExecutionLevel": "asInvoker",
       "legalTrademarks": "Nisti Print PKM Solutions",
-      "rfc3161TimeStampServer": "http://timestamp.digicert.com"
+      "signAndEditExecutable": false,
+      "forceCodeSigning": false
     },
     "nsis": {
       "oneClick": false,

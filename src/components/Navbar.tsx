@@ -30,8 +30,6 @@ interface NavbarProps {
   setActiveTab: (tab: "dashboard" | "vault" | "campaigns" | "tasks" | "automations" | "routine" | "knowledge") => void;
   apiConfig: ObsidianApiConfig;
   onOpenSettings: () => void;
-  onOpenGuide?: () => void;
-  onOpenSetupWizard?: () => void;
   onSyncNow: () => void;
   isSyncing: boolean;
   onQuickNewCampaign: () => void;
@@ -48,8 +46,6 @@ export const Navbar: React.FC<NavbarProps> = ({
   setActiveTab,
   apiConfig,
   onOpenSettings,
-  onOpenGuide,
-  onOpenSetupWizard,
   onSyncNow,
   isSyncing,
   onQuickNewCampaign,
@@ -99,7 +95,7 @@ export const Navbar: React.FC<NavbarProps> = ({
         title="Modo local simulado. Clique para conectar a REST API do Obsidian."
       >
         <span className="w-2 h-2 rounded-full bg-stone-400"></span>
-        <span className="truncate max-w-[90px] sm:max-w-none">Modo Local</span>
+        <span className="truncate max-w-[90px] sm:max-w-none">Modo IA</span>
       </button>
     );
   };
@@ -222,7 +218,7 @@ export const Navbar: React.FC<NavbarProps> = ({
                 title="Alternar entre Motor Local (0 tokens) e Gemini AI"
               >
                 <Cpu className="w-3 h-3 text-purple-600" />
-                <span>{engineMode === "local" ? "Motor Local" : "Gemini IA"}</span>
+                <span>{engineMode === "local" ? "Motor Local" : "IA"}</span>
               </button>
 
               {getStatusBadge()}
@@ -326,34 +322,11 @@ export const Navbar: React.FC<NavbarProps> = ({
               )}
             </div>
 
-            {/* Setup Wizard Button */}
-            {onOpenSetupWizard && (
-              <button
-                onClick={onOpenSetupWizard}
-                className="hidden lg:flex items-center gap-1.5 px-2.5 py-1.5 text-xs font-bold text-purple-900 bg-purple-50 hover:bg-purple-100 rounded-xl transition-all border border-purple-200 cursor-pointer"
-                title="Assistente de Instalação e Configuração Inicial"
-              >
-                <Laptop className="w-3.5 h-3.5 text-purple-700" />
-                <span>Instalador & Setup</span>
-              </button>
-            )}
-
-            {/* Guide Button */}
-            {onOpenGuide && (
-              <button
-                onClick={onOpenGuide}
-                className="p-2 text-stone-600 hover:text-purple-900 hover:bg-purple-50 rounded-xl transition-all border border-stone-200/60 cursor-pointer"
-                title="Guia de Instalação Local, Obsidian & Atualizações"
-              >
-                <HelpCircle className="w-4 h-4 text-purple-600" />
-              </button>
-            )}
-
             {/* Settings Button */}
             <button
               onClick={onOpenSettings}
               className="p-2 text-stone-600 hover:text-stone-900 hover:bg-stone-100 rounded-xl transition-all border border-stone-200/60 cursor-pointer"
-              title="Configurações e Conexão Obsidian"
+              title="Configurações (IA, Obsidian, Google Drive)"
             >
               <Settings className="w-4 h-4" />
             </button>
@@ -401,21 +374,6 @@ export const Navbar: React.FC<NavbarProps> = ({
               );
             })}
           </div>
-
-          {onOpenSetupWizard && (
-            <div className="pt-2 border-t border-stone-100">
-              <button
-                onClick={() => {
-                  setIsMobileMenuOpen(false);
-                  onOpenSetupWizard();
-                }}
-                className="w-full p-2.5 bg-purple-50 hover:bg-purple-100 border border-purple-200 rounded-xl text-xs font-bold text-purple-900 flex items-center justify-center gap-2 transition-colors cursor-pointer"
-              >
-                <Laptop className="w-4 h-4 text-purple-700" />
-                <span>Abrir Assistente de Instalação & Setup</span>
-              </button>
-            </div>
-          )}
         </div>
       )}
     </header>

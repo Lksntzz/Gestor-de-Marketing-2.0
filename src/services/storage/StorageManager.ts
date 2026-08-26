@@ -486,4 +486,21 @@ export class StorageManager implements IStorageService {
 
     return { jsonString, filename };
   }
+
+  // ==========================================
+  // FACTORY RESET (ZERAR DE FÁBRICA)
+  // ==========================================
+  public async factoryResetAll(): Promise<void> {
+    try {
+      if (typeof localStorage !== "undefined") {
+        localStorage.clear();
+      }
+
+      if (this.isDesktopRuntime() && window.electronAPI?.setSecret) {
+        await window.electronAPI.setSecret("obsidianApiKey", "");
+      }
+    } catch (e) {
+      console.error("Error during factory reset:", e);
+    }
+  }
 }

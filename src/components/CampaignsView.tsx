@@ -778,31 +778,46 @@ export const CampaignsView: React.FC<CampaignsViewProps> = ({
             </div>
 
             <div className="space-y-2">
-              {campaigns.map((camp) => {
-                const isSelected = selectedCampaign?.id === camp.id;
-                return (
-                  <div
-                    key={camp.id}
-                    onClick={() => setSelectedCampaign(camp)}
-                    className={`p-3 rounded-xl border text-left cursor-pointer transition-all ${
-                      isSelected
-                        ? "bg-purple-50/70 border-purple-300 shadow-3xs"
-                        : "border-stone-200 hover:bg-stone-50"
-                    }`}
+              {campaigns.length === 0 ? (
+                <div className="p-8 text-center text-xs text-stone-400 space-y-2">
+                  <p>Nenhuma campanha criada ainda.</p>
+                  <button
+                    onClick={() => {
+                      setViewMode("wizard");
+                      setCurrentStep(1);
+                    }}
+                    className="px-3 py-1.5 bg-stone-900 text-white font-bold rounded-lg text-xs hover:bg-stone-800 transition-colors"
                   >
-                    <div className="flex items-center justify-between">
-                      <span className="text-[10px] font-bold text-purple-700 bg-purple-100 px-1.5 py-0.5 rounded">
-                        {camp.status}
-                      </span>
-                      <span className="text-[10px] text-stone-400">{camp.createdDate}</span>
+                    Criar Primeira Campanha
+                  </button>
+                </div>
+              ) : (
+                campaigns.map((camp) => {
+                  const isSelected = selectedCampaign?.id === camp.id;
+                  return (
+                    <div
+                      key={camp.id}
+                      onClick={() => setSelectedCampaign(camp)}
+                      className={`p-3 rounded-xl border text-left cursor-pointer transition-all ${
+                        isSelected
+                          ? "bg-purple-50/70 border-purple-300 shadow-3xs"
+                          : "border-stone-200 hover:bg-stone-50"
+                      }`}
+                    >
+                      <div className="flex items-center justify-between">
+                        <span className="text-[10px] font-bold text-purple-700 bg-purple-100 px-1.5 py-0.5 rounded">
+                          {camp.status}
+                        </span>
+                        <span className="text-[10px] text-stone-400">{camp.createdDate}</span>
+                      </div>
+                      <h3 className="text-xs font-bold text-stone-900 mt-1 line-clamp-1">
+                        {camp.title}
+                      </h3>
+                      <p className="text-[11px] text-stone-500 mt-0.5 line-clamp-1">{camp.objective}</p>
                     </div>
-                    <h3 className="text-xs font-bold text-stone-900 mt-1 line-clamp-1">
-                      {camp.title}
-                    </h3>
-                    <p className="text-[11px] text-stone-500 mt-0.5 line-clamp-1">{camp.objective}</p>
-                  </div>
-                );
-              })}
+                  );
+                })
+              )}
             </div>
           </div>
 

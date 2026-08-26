@@ -182,21 +182,17 @@ async function fetchSafeWebPage(targetUrl: string, maxRedirects = 3): Promise<{ 
 }
 
 
-// Lazy initialization of Gemini Client
-let geminiClient: GoogleGenAI | null = null;
-function getGeminiClient(): GoogleGenAI {
-  if (!geminiClient) {
-    const apiKey = process.env.GEMINI_API_KEY;
-    geminiClient = new GoogleGenAI({
-      apiKey: apiKey || "dummy_key",
-      httpOptions: {
-        headers: {
-          "User-Agent": "nisti-pkm-build",
-        },
+// Helper to create a Gemini Client with dynamic or fallback API key
+function createGeminiClient(customApiKey?: string): GoogleGenAI {
+  const apiKey = customApiKey || process.env.GEMINI_API_KEY;
+  return new GoogleGenAI({
+    apiKey: apiKey || "dummy_key",
+    httpOptions: {
+      headers: {
+        "User-Agent": "nisti-pkm-build",
       },
-    });
-  }
-  return geminiClient;
+    },
+  });
 }
 
 // ==========================================
@@ -256,15 +252,16 @@ function sanitizeOfficialFolder(title: string, category: string, bodyText: strin
 // Resilient executor with backoff & model fallback
 async function executeGeminiWithFallback<T>(
   buildParams: (model: string) => any,
-  fallbackGenerator: () => T
+  fallbackGenerator: () => T,
+  customApiKey?: string
 ): Promise<{ data: T; usedModel: string; wasFallback: boolean }> {
-  const ai = getGeminiClient();
-  const apiKey = process.env.GEMINI_API_KEY;
+  const apiKey = customApiKey || process.env.GEMINI_API_KEY;
 
   if (!apiKey || apiKey === "dummy_key") {
     return { data: fallbackGenerator(), usedModel: "offline-fallback", wasFallback: true };
   }
 
+  const ai = createGeminiClient(apiKey);
   let lastError: any = null;
 
   for (const model of GEMINI_TEXT_MODELS) {
@@ -455,13 +452,16 @@ Retorne estritamente em formato JSON com: summary, strategy, channelsContent, ta
       },
     };
 
+    const customApiKey = req.headers["x-gemini-api-key"] as string | undefined;
+
     const result = await executeGeminiWithFallback(
       (model) => ({
         model,
         contents: prompt,
         config: schemaConfig,
       }),
-      fallbackGenerator
+      fallbackGenerator,
+      customApiKey
     );
 
     res.json({
@@ -577,13 +577,16 @@ ${noteContent}`;
       },
     };
 
+    const customApiKey = req.headers["x-gemini-api-key"] as string | undefined;
+
     const result = await executeGeminiWithFallback(
       (model) => ({
         model,
         contents: prompt,
         config: schemaConfig,
       }),
-      fallbackGenerator
+      fallbackGenerator,
+      customApiKey
     );
 
     res.json({
@@ -1074,13 +1077,16 @@ Pastas válidas: 00_Inbox, 01_Estrategia, 02_Produtos, 03_Conteudos, 04_Campanha
       };
     }
 
+    const customApiKey = req.headers["x-gemini-api-key"] as string | undefined;
+
     const result = await executeGeminiWithFallback(
       (model) => ({
         model,
         contents: prompt,
         config: schemaConfig,
       }),
-      fallbackGenerator
+      fallbackGenerator,
+      customApiKey
     );
 
     res.json({
@@ -1178,13 +1184,16 @@ ${JSON.stringify(vaultNotesOverview, null, 2)}`;
       },
     };
 
+    const customApiKey = req.headers["x-gemini-api-key"] as string | undefined;
+
     const result = await executeGeminiWithFallback(
       (model) => ({
         model,
         contents: prompt,
         config: schemaConfig,
       }),
-      fallbackGenerator
+      fallbackGenerator,
+      customApiKey
     );
 
     res.json({

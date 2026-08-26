@@ -610,10 +610,25 @@ export const VaultView: React.FC<VaultViewProps> = ({
 
             </div>
           ) : (
-            <div className="p-12 bg-white rounded-3xl border border-stone-200 text-center space-y-2">
-              <FolderOpen className="w-8 h-8 text-stone-300 mx-auto" />
-              <h3 className="text-sm font-bold text-stone-700">Nenhuma nota selecionada</h3>
-              <p className="text-xs text-stone-400">Escolha um documento na árvore à esquerda para iniciar a leitura.</p>
+            <div className="p-12 bg-white rounded-3xl border border-stone-200/80 text-center space-y-4 shadow-3xs">
+              <div className="w-12 h-12 rounded-2xl bg-purple-50 text-purple-700 mx-auto flex items-center justify-center border border-purple-100">
+                <FolderOpen className="w-6 h-6" />
+              </div>
+              <div className="space-y-1.5 max-w-md mx-auto">
+                <h3 className="text-base font-bold text-stone-800">Cofre Pronto e Limpo</h3>
+                <p className="text-xs text-stone-500 leading-relaxed">
+                  Nenhuma nota selecionada. Você pode criar novas notas em Markdown com frontmatter estruturado, sincronizar diretamente com seu aplicativo Obsidian ou importar arquivos.
+                </p>
+              </div>
+              <div className="flex items-center justify-center gap-2 pt-2">
+                <button
+                  onClick={onOpenNewNoteModal}
+                  className="px-4 py-2 bg-stone-900 hover:bg-stone-800 text-white text-xs font-bold rounded-xl transition-all flex items-center gap-1.5 cursor-pointer shadow-3xs"
+                >
+                  <Plus className="w-3.5 h-3.5" />
+                  <span>Criar Primeira Nota</span>
+                </button>
+              </div>
             </div>
           )}
         </div>

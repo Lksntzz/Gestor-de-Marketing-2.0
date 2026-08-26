@@ -108,19 +108,35 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
       };
     }
 
-    // 2. Default high-leverage marketing action from Local Engine for Nisti Print
+    // 2. High-leverage marketing action from Local Engine
     const activeCamp = campaigns[0];
+    if (activeCamp) {
+      return {
+        id: activeCamp.id,
+        type: "campaign" as const,
+        title: activeCamp.title,
+        subtitle: activeCamp.summary || "Estratégia multicanal ativa no cofre.",
+        channel: activeCamp.channels?.[0] || "Omnichannel",
+        time: "11:30",
+        date: "Hoje",
+        persona: activeCamp.targetPersona || "Público Alvo",
+        hook: activeCamp.strategy || "Avançar na execução dos criativos desta campanha.",
+        filePath: activeCamp.obsidianOutputNotePath || undefined,
+      };
+    }
+
+    // 3. Clean Empty Vault State
     return {
-      id: "strategic_action_1",
+      id: "initial_setup",
       type: "campaign" as const,
-      title: activeCamp?.title || "Lançamento Linha Planners & Devocionais 2026",
-      subtitle: activeCamp?.summary || "Campanha focada em quebrar a objeção de lote mínimo e destacar acabamento Soft Touch.",
-      channel: "Instagram & WhatsApp",
-      time: "11:30",
+      title: "Cofre pronto para receber suas notas e campanhas",
+      subtitle: "Comece criando uma nova campanha ou sincronizando suas notas do Obsidian para estruturar seu marketing.",
+      channel: "Obsidian Vault",
+      time: "Agora",
       date: "Hoje",
-      persona: "Empreendedoras de Papelaria & Ministérios",
-      hook: "Você já desenhou a coleção de planners mais linda do ano, mas a gráfica pediu 500 peças para rodar? Na Nisti Print seu projeto ganha vida a partir de 10 unidades com laminação Soft Touch e wire-o bronze.",
-      filePath: "01_Estrategia/Brand Voice & Posicionamento Nisti Print.md",
+      persona: "Seu Negócio / Projeto",
+      hook: "Clique no botão 'Nova Campanha' ou use o assistente para iniciar o seu planejamento.",
+      filePath: undefined,
     };
   }, [pendingTasks, campaigns]);
 

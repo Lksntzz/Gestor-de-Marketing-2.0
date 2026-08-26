@@ -1,4 +1,4 @@
-import React, { useState } from "react";
+import React, { useState, useEffect } from "react";
 import {
   FileText,
   Image as ImageIcon,
@@ -28,6 +28,7 @@ import { ObsidianNote, ObsidianApiConfig, KnowledgeStatus, EngineMode } from "..
 import { STANDARD_VAULT_FOLDERS } from "../data/defaultVault";
 import { buildObsidianOpenUri } from "../utils/obsidianUri";
 import { GoogleDriveSelector } from "./GoogleDriveSelector";
+import { googleDriveService } from "../services/googleDriveService";
 import confetti from "canvas-confetti";
 
 interface AddKnowledgeViewProps {
@@ -70,6 +71,21 @@ export const AddKnowledgeView: React.FC<AddKnowledgeViewProps> = ({
   engineMode
 }) => {
   const [selectedType, setSelectedType] = useState<KnowledgeType | null>(null);
+  
+  // Google Drive Connection Status
+  const [isDriveConnected, setIsDriveConnected] = useState<boolean>(googleDriveService.isAuthenticated());
+
+  useEffect(() => {
+    // Initial check
+    setIsDriveConnected(googleDriveService.isAuthenticated());
+
+    // Periodically re-check (every 1.5s) to stay in sync with Settings Modal edits
+    const interval = setInterval(() => {
+      setIsDriveConnected(googleDriveService.isAuthenticated());
+    }, 1500);
+
+    return () => clearInterval(interval);
+  }, []);
   
   // Form values
   const [pdfFile, setPdfFile] = useState<File | null>(null);
@@ -500,13 +516,17 @@ hash: ${hash}
       color: "bg-amber-50 text-amber-700 border-amber-200 hover:border-amber-400",
       description: "Ideias de campanhas, atas de reuniões rápidas e insights de novos produtos."
     },
-    {
-      id: "gdrive" as const,
-      label: "Google Drive / Nuvem",
-      icon: Cloud,
-      color: "bg-blue-50 text-blue-700 border-blue-200 hover:border-blue-400",
-      description: "Navegue e importe briefings, docs, planilhas e relatórios da sua conta Google."
-    }
+    ...(isDriveConnected
+      ? [
+          {
+            id: "gdrive" as const,
+            label: "Google Drive / Nuvem",
+            icon: Cloud,
+            color: "bg-blue-50 text-blue-700 border-blue-200 hover:border-blue-400",
+            description: "Navegue e importe briefings, docs, planilhas e relatórios da sua conta Google."
+          }
+        ]
+      : [])
   ];
 
   return (
@@ -558,33 +578,57 @@ hash: ${hash}
           
           {/* Card Selection Grid */}
           {!selectedType ? (
-            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
-              {knowledgeOptions.map((opt) => {
-                const IconComponent = opt.icon;
-                return (
-                  <button
-                    key={opt.id}
-                    onClick={() => setSelectedType(opt.id)}
-                    className="p-5 bg-white hover:bg-stone-50/80 rounded-2xl border border-stone-200/80 hover:border-purple-300 shadow-3xs hover:shadow-xs transition-all text-left space-y-3 cursor-pointer group"
-                  >
-                    <div className={`w-10 h-10 rounded-xl flex items-center justify-center border ${opt.color}`}>
-                      <IconComponent className="w-5 h-5" />
+            <div className="space-y-6">
+              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+                {knowledgeOptions.map((opt) => {
+                  const IconComponent = opt.icon;
+                  return (
+                    <button
+                      key={opt.id}
+                      onClick={() => setSelectedType(opt.id)}
+                      className="p-5 bg-white hover:bg-stone-50/80 rounded-2xl border border-stone-200/80 hover:border-purple-300 shadow-3xs hover:shadow-xs transition-all text-left space-y-3 cursor-pointer group"
+                    >
+                      <div className={`w-10 h-10 rounded-xl flex items-center justify-center border ${opt.color}`}>
+                        <IconComponent className="w-5 h-5" />
+                      </div>
+                      <div>
+                        <h3 className="text-sm font-black text-stone-900 group-hover:text-purple-900 transition-colors">
+                          {opt.label}
+                        </h3>
+                        <p className="text-xs text-stone-500 mt-1 leading-relaxed">
+                          {opt.description}
+                        </p>
+                      </div>
+                      <div className="pt-2 flex items-center gap-1 text-[11px] font-bold text-purple-700">
+                        <span>Selecionar</span>
+                        <ArrowRight className="w-3 h-3 group-hover:translate-x-1 transition-transform" />
+                      </div>
+                    </button>
+                  );
+                })}
+              </div>
+
+              {isDriveConnected && (
+                <div className="bg-white rounded-3xl border border-stone-200 p-6 sm:p-8 shadow-xs space-y-4 animate-fadeIn">
+                  <div className="flex items-center gap-2 pb-3 border-b border-stone-100">
+                    <div className="w-8 h-8 rounded-lg bg-blue-50 text-blue-600 flex items-center justify-center font-bold border border-blue-100">
+                      <FolderOpen className="w-4 h-4 text-blue-500" />
                     </div>
                     <div>
-                      <h3 className="text-sm font-black text-stone-900 group-hover:text-purple-900 transition-colors">
-                        {opt.label}
+                      <h3 className="text-xs font-black uppercase tracking-wider text-stone-900">
+                        📂 PASTA DO GOOGLE DRIVE (CONECTADO)
                       </h3>
-                      <p className="text-xs text-stone-500 mt-1 leading-relaxed">
-                        {opt.description}
+                      <p className="text-[10px] text-stone-500 mt-0.5">
+                        Sua conta Google está conectada. Selecione qualquer arquivo listado abaixo para importação direta e curadoria automática.
                       </p>
                     </div>
-                    <div className="pt-2 flex items-center gap-1 text-[11px] font-bold text-purple-700">
-                      <span>Selecionar</span>
-                      <ArrowRight className="w-3 h-3 group-hover:translate-x-1 transition-transform" />
-                    </div>
-                  </button>
-                );
-              })}
+                  </div>
+                  <GoogleDriveSelector
+                    onSelectFile={handleGoogleDriveFileSelected}
+                    onCancel={() => {}}
+                  />
+                </div>
+              )}
             </div>
           ) : (
             /* Selected Capture Type Form */
