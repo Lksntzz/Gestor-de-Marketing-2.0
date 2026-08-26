@@ -8,11 +8,14 @@ async function read(path: string): Promise<string> {
 describe("v1.0.1 hardening invariants", () => {
   test("desktop packaging uses a self-contained hardened backend and Electron bootstrap", async () => {
     const pkg = JSON.parse(await read("package.json"));
+    const backendBuilder = await read("scripts/build-backend.mjs");
     expect(pkg.version).toBe("1.0.1");
     expect(pkg.scripts.dev).toContain("secure-server.ts");
-    expect(pkg.scripts.build).toContain("secure-server.ts");
+    expect(pkg.scripts.build).toContain("scripts/build-backend.mjs");
     expect(pkg.scripts.build).toContain("electron-bootstrap.ts");
-    expect(pkg.scripts.build).not.toContain("secure-server.ts --bundle --platform=node --format=cjs --packages=external");
+    expect(backendBuilder).toContain('entryPoints: ["secure-server.ts"]');
+    expect(backendBuilder).toContain('external: ["vite"]');
+    expect(backendBuilder).toContain('await import("vite")');
     expect(pkg.scripts.electronBuild || pkg.scripts["electron:build"]).toContain("verify");
     expect(pkg.build.files).toContain("dist/**/*");
   });
