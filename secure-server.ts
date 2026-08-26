@@ -12,6 +12,7 @@ const APP_ORIGINS = new Set([
 const SESSION_TOKEN = process.env.API_SESSION_SECRET || crypto.randomBytes(32).toString("hex");
 const INSTANCE_ID = process.env.NISTI_INSTANCE_ID || crypto.randomBytes(16).toString("hex");
 const IS_DESKTOP_ENV = process.env.ELECTRON_RUN_AS_NODE === "1" || !!process.env.NISTI_INSTANCE_ID;
+let cachedGeminiApiKey = "";
 
 const originalListen = (http.Server.prototype as any).listen;
 const originalEmit = (http.Server.prototype as any).emit;
@@ -31,6 +32,30 @@ function isLoopbackHost(hostHeader: string | undefined): boolean {
     host === `${LOOPBACK_HOST}:${APP_PORT}` ||
     host === `localhost:${APP_PORT}`
   );
+}
+
+function getCookieValue(cookieHeader: string | undefined, name: string): string {
+  if (!cookieHeader) return "";
+  const prefix = `${name}=`;
+  const match = cookieHeader
+    .split(";")
+    .map((part) => part.trim())
+    .find((part) => part.startsWith(prefix));
+  if (!match) return "";
+  try {
+    return decodeURIComponent(match.slice(prefix.length));
+  } catch {
+    return "";
+  }
+}
+
+function cacheGeminiCredential(req: http.IncomingMessage): void {
+  const incomingKey = String(req.headers["x-gemini-api-key"] || "").trim();
+  if (incomingKey) {
+    cachedGeminiApiKey = incomingKey;
+  } else if (cachedGeminiApiKey) {
+    req.headers["x-gemini-api-key"] = cachedGeminiApiKey;
+  }
 }
 
 function writeJson(res: http.ServerResponse, statusCode: number, payload: unknown): true {
@@ -213,9 +238,13 @@ let hasBoundMainServer = false;
   }
 
   if (url === "/api/health") {
+    const healthToken = String(req.headers["x-app-session-token"] || "");
+    if (healthToken === SESSION_TOKEN) {
+      cacheGeminiCredential(req);
+    }
     return writeJson(res, 200, {
       status: "ok",
-      hasApiKey: !!process.env.GEMINI_API_KEY,
+      hasApiKey: !!process.env.GEMINI_API_KEY || !!cachedGeminiApiKey,
       runtime: "nisti-secure-local",
       instanceId: INSTANCE_ID,
       timestamp: new Date().toISOString(),
@@ -227,14 +256,21 @@ let hasBoundMainServer = false;
     if (fetchSite && fetchSite !== "same-origin" && fetchSite !== "none") {
       return writeJson(res, 403, { success: false, error: "Handshake de sessão bloqueado." });
     }
+    res.setHeader(
+      "Set-Cookie",
+      `nisti_session=${encodeURIComponent(SESSION_TOKEN)}; HttpOnly; SameSite=Strict; Path=/api/; Max-Age=43200`
+    );
     return writeJson(res, 200, { success: true, token: SESSION_TOKEN });
   }
 
-  const providedToken = String(req.headers["x-app-session-token"] || "");
+  const headerToken = String(req.headers["x-app-session-token"] || "");
+  const cookieToken = getCookieValue(req.headers.cookie, "nisti_session");
+  const providedToken = headerToken || cookieToken;
   if (providedToken !== SESSION_TOKEN) {
     return writeJson(res, 401, { success: false, error: "Sessão local inválida." });
   }
 
+  cacheGeminiCredential(req);
   req.headers["sec-fetch-site"] = "same-origin";
   return originalEmit.call(this, event, ...args);
 };
