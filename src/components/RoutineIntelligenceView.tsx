@@ -23,6 +23,7 @@ import {
   ObsidianNote,
 } from "../types";
 import { buildObsidianOpenUri } from "../utils/obsidianUri";
+import { localDateKey } from "../utils/reliability";
 import confetti from "canvas-confetti";
 
 interface RoutineIntelligenceViewProps {
@@ -45,7 +46,7 @@ interface RoutineIntelligenceViewProps {
     hook: string;
   }) => void;
   onSyncRoutineToDailyNotes: () => void;
-  showToast: (type: "success" | "error" | "info", title: string, message: string) => void;
+  showToast: (type: "success" | "warning" | "info", title: string, message: string) => void;
 }
 
 const formatChannelLabel = (format?: string) => {
@@ -98,12 +99,10 @@ export const RoutineIntelligenceView: React.FC<RoutineIntelligenceViewProps> = (
   onSyncRoutineToDailyNotes,
   showToast,
 }) => {
-  // Current Day
   const todayNames = ["Domingo", "Segunda", "Terça", "Quarta", "Quinta", "Sexta", "Sábado"];
-  const currentDayIndex = new Date().getDay(); // 0-6
+  const currentDayIndex = new Date().getDay();
   const currentDayName = todayNames[currentDayIndex] || "Segunda";
 
-  // Routine of today safely resolved
   const todayRoutine = useMemo(() => {
     if (!weeklyRoutine || weeklyRoutine.length === 0) return null;
     return (
@@ -113,10 +112,8 @@ export const RoutineIntelligenceView: React.FC<RoutineIntelligenceViewProps> = (
     );
   }, [weeklyRoutine, currentDayName]);
 
-  // Primary active task/action (O que fazer agora)
   const [activeSlotStatus, setActiveSlotStatus] = useState<"pending" | "done" | "postponed">("pending");
 
-  // Dynamic Suggestion / Local Engine Recommendation
   const currentRecommendation = useMemo(() => {
     const defaultNiche = niches[0] || { id: "empreendedoras_papelaria", name: "Empreendedoras de Papelaria" };
     const defaultEmotion = emotionalDrivers[0] || { id: "alivio_praticidade", name: "Alívio & Tiragens Acessíveis" };
@@ -135,65 +132,60 @@ export const RoutineIntelligenceView: React.FC<RoutineIntelligenceViewProps> = (
       niche: nicheLabel,
       nicheId: (todayRoutine?.primaryNiche as NicheSegmentKey) || (defaultNiche.id as NicheSegmentKey),
       emotion: emotionLabel,
-      emotionId: (todayRoutine?.suggestedDriver as EmotionalDriverKey) || (defaultEmotion.id as EmotionalDriverKey),
+      emotionId: (todayRoutine?.primaryEmotion as EmotionalDriverKey) || (defaultEmotion.id as EmotionalDriverKey),
       bestSlot: `${slotDay}, ${slotTime}`,
       optimalTime: slotTime,
       channel: slotChannel,
-      why: "O Motor Local identificou que conteúdos focados na quebra da barreira de lote mínimo com demonstração visual de acabamento Soft Touch têm taxa de conversão 3.2x maior para contatos via WhatsApp e Direct.",
+      why: "O Motor Local prioriza o padrão configurado na rotina e os aprendizados registrados no histórico para sugerir o próximo conteúdo.",
     };
   }, [niches, emotionalDrivers, todayRoutine]);
 
-  // Handle Mark Done
   const handleMarkDone = () => {
     setActiveSlotStatus("done");
     confetti({ particleCount: 35, spread: 60, origin: { y: 0.7 } });
     showToast("success", "Ação Concluída!", "A publicação de hoje foi marcada como concluída e reconciliada.");
   };
 
-  // Handle Postpone
   const handlePostpone = () => {
     setActiveSlotStatus("postponed");
     showToast("info", "Ação Adiada", "Reagendada para o próximo slot de alta conversão.");
   };
 
-  // 4 Micro KPIs with Trend Indicators
   const kpiData = useMemo(() => {
     const totalImpressions = postHistory.reduce((acc, p) => acc + (p?.metrics?.impressions || 0), 0);
     const avgCtr =
       postHistory.length > 0
         ? (postHistory.reduce((acc, p) => acc + (p?.metrics?.ctrPercent || 0), 0) / postHistory.length).toFixed(1)
-        : "3.8";
+        : "0.0";
     const totalSaves = postHistory.reduce((acc, p) => acc + (p?.metrics?.saves || 0), 0);
     const totalLeads = postHistory.reduce((acc, p) => acc + (p?.metrics?.clicksOrLeads || 0), 0);
 
     return [
-      { label: "Alcance Semanal", value: `${(totalImpressions / 1000).toFixed(1)}k`, trend: "+18%", positive: true },
-      { label: "CTR Médio", value: `${avgCtr}%`, trend: "+0.4%", positive: true },
-      { label: "Taxa de Salvamentos", value: totalSaves.toString(), trend: "+24%", positive: true },
-      { label: "Conversões / MQLs", value: totalLeads.toString(), trend: "+12%", positive: true },
+      { label: "Alcance Acumulado", value: `${(totalImpressions / 1000).toFixed(1)}k`, trend: "histórico", positive: true },
+      { label: "CTR Médio", value: `${avgCtr}%`, trend: "histórico", positive: true },
+      { label: "Salvamentos", value: totalSaves.toString(), trend: "histórico", positive: true },
+      { label: "Conversões / MQLs", value: totalLeads.toString(), trend: "histórico", positive: true },
     ];
   }, [postHistory]);
 
-  // Key Learning highlight
   const topLearning = useMemo(() => {
     if (!learnings || learnings.length === 0) {
       return {
-        title: "Posts de benchmark técnico pela manhã superam posts opinativos",
-        ruleOfThumb: "Publicações com comparativos práticos às 08:30 geram +84% de retenção e cliques em documentações.",
-        suggestedAction: "Manter terças e quintas focadas exclusivamente em estudos de caso e tutoriais práticos.",
+        title: "Ainda não há aprendizado validado no histórico",
+        ruleOfThumb: "Registre resultados reais de publicação antes de transformar padrões em regras de decisão.",
+        suggestedAction: "Publicar, medir e salvar o aprendizado observado.",
       };
     }
     const winner = learnings.find((l) => l.verdict === "VENCEDOR") || learnings[0];
     return {
-      title: winner.title || "Posts técnicos geram maior conversão",
-      ruleOfThumb: winner.ruleOfThumb || "Conteúdos orientados a dados têm taxa de retenção superior.",
-      suggestedAction: winner.suggestedAction || "Priorizar benchmarks reais nas primeiras horas da manhã.",
+      title: winner.title || "Aprendizado registrado",
+      ruleOfThumb: winner.ruleOfThumb || "Use somente evidências registradas na base para orientar a próxima decisão.",
+      suggestedAction: winner.suggestedAction || "Revisar os resultados antes de repetir a estratégia.",
     };
   }, [learnings]);
 
   return (
     <div className="w-full px-4 md:px-8 lg:px-12 space-y-8 pb-16 animate-fadeIn">
-      {/* 1. HEADER MINIMALISTA: ROTINA DE HOJE & STATUS MOTOR LOCAL */}
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 pb-4 border-b border-stone-200/50">
         <div>
           <div className="flex items-center gap-2">
@@ -212,7 +204,6 @@ export const RoutineIntelligenceView: React.FC<RoutineIntelligenceViewProps> = (
           </p>
         </div>
 
-        {/* Sync Action */}
         <button
           onClick={onSyncRoutineToDailyNotes}
           className="px-3.5 py-2 bg-stone-900 hover:bg-stone-850 text-white text-xs font-bold rounded-xl shadow-xs transition-all flex items-center gap-1.5 shrink-0 self-start sm:self-center cursor-pointer"
@@ -222,7 +213,6 @@ export const RoutineIntelligenceView: React.FC<RoutineIntelligenceViewProps> = (
         </button>
       </div>
 
-      {/* 2. CARD GRANDE: "O QUE FAZER AGORA" (AÇÃO PRINCIPAL / FOCO LINEAR) */}
       <div className="bg-white rounded-3xl border border-stone-200/80 p-6 sm:p-8 shadow-xs space-y-6 relative overflow-hidden">
         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
           <div className="flex items-center gap-2.5">
@@ -242,7 +232,7 @@ export const RoutineIntelligenceView: React.FC<RoutineIntelligenceViewProps> = (
               {todayRoutine?.focusTheme || "Autoridade Técnica"}
             </span>
             <span className="text-[10px] font-bold uppercase px-2 py-0.5 rounded bg-stone-100 text-stone-700">
-              {todayRoutine?.primaryNiche ? todayRoutine.primaryNiche.replace(/_/g, " ") : "Tech Leads"}
+              {todayRoutine?.primaryNiche ? todayRoutine.primaryNiche.replace(/_/g, " ") : "Geral"}
             </span>
             <span className="text-[10px] font-bold uppercase px-2 py-0.5 rounded bg-purple-50 text-purple-700 border border-purple-150">
               {formatTypeName(todayRoutine?.recommendedFormat)}
@@ -258,7 +248,6 @@ export const RoutineIntelligenceView: React.FC<RoutineIntelligenceViewProps> = (
           </p>
         </div>
 
-        {/* Action Controls: Abrir, Concluir, Adiar */}
         <div className="flex flex-wrap items-center justify-between gap-3 pt-4 border-t border-stone-150">
           <div className="flex items-center gap-2">
             {activeSlotStatus === "done" ? (
@@ -303,7 +292,7 @@ export const RoutineIntelligenceView: React.FC<RoutineIntelligenceViewProps> = (
               <span>Gerar Campanha com IA</span>
             </button>
             <a
-              href={buildObsidianOpenUri(apiConfig.vaultName, `Daily Notes/${new Date().toISOString().slice(0, 10)}.md`)}
+              href={buildObsidianOpenUri(apiConfig.vaultName, `00_Inbox/Daily-${localDateKey()}.md`)}
               className="p-2 text-stone-500 hover:text-stone-900 border border-stone-200 rounded-xl hover:bg-stone-50 transition-colors"
               title="Abrir Daily Note no Obsidian"
             >
@@ -313,7 +302,6 @@ export const RoutineIntelligenceView: React.FC<RoutineIntelligenceViewProps> = (
         </div>
       </div>
 
-      {/* 3. AGENDA SEMANAL BÁSICA (COMPREENDA A SEMANA EM 5 SEGUNDOS) */}
       <div className="space-y-3">
         <div className="flex items-center justify-between">
           <span className="text-[11px] font-bold text-stone-400 uppercase tracking-wider">
@@ -360,7 +348,6 @@ export const RoutineIntelligenceView: React.FC<RoutineIntelligenceViewProps> = (
         </div>
       </div>
 
-      {/* 4. 4 PEQUENOS KPIS SÓ COM TENDÊNCIA */}
       <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
         {kpiData.map((kpi, idx) => (
           <div key={idx} className="bg-white p-4 rounded-2xl border border-stone-200/80 space-y-1 shadow-3xs">
@@ -378,9 +365,7 @@ export const RoutineIntelligenceView: React.FC<RoutineIntelligenceViewProps> = (
         ))}
       </div>
 
-      {/* 5. SEÇÃO DUPLA: "O QUE APRENDEMOS" & RECOMENDAÇÃO DETALHADA DO MOTOR LOCAL */}
       <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-        {/* Card: O Que Aprendemos */}
         <div className="bg-white p-5 rounded-2xl border border-stone-200/80 shadow-3xs space-y-3">
           <div className="flex items-center gap-2">
             <Lightbulb className="w-4 h-4 text-amber-500" />
@@ -400,7 +385,6 @@ export const RoutineIntelligenceView: React.FC<RoutineIntelligenceViewProps> = (
           </div>
         </div>
 
-        {/* Card: Por que esta recomendação? (Motor Local) */}
         <div className="bg-stone-900 text-stone-200 p-5 rounded-2xl space-y-3">
           <div className="flex items-center justify-between">
             <span className="text-[10px] font-bold uppercase tracking-wider text-purple-400 flex items-center gap-1.5">

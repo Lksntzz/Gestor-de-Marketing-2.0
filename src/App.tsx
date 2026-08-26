@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo, useCallback } from "react";
+import React, { useState, useEffect, useMemo, useCallback, useRef } from "react";
 import { Navbar } from "./components/Navbar";
 import { DashboardView } from "./components/DashboardView";
 import { VaultView } from "./components/VaultView";
@@ -22,9 +22,7 @@ import {
   CreativeScript,
   VisualAsset,
   EmotionalDriver,
-  EmotionalDriverKey,
   NicheSegment,
-  NicheSegmentKey,
   PostHistoryItem,
   LearningInsight,
   DailyRoutineSlot,
@@ -46,88 +44,137 @@ import {
   DEFAULT_WEEKLY_ROUTINE,
 } from "./data/routineData";
 import { api } from "./services/api";
-import { StorageManager } from "./services/storage/StorageManager";
-import { formatToObsidianTask, parseObsidianTaskString } from "./utils/obsidianUri";
+import { APP_STATE_KEYS, StorageManager } from "./services/storage/StorageManager";
+import { usePersistentState, usePersistentTextState } from "./hooks/usePersistentState";
+import { AppStateSchemas, parseWorkspaceImport } from "./domain/appStateSchemas";
+import { formatToObsidianTask } from "./utils/obsidianUri";
 import {
   generateLocalCampaign,
   extractLocalTasksFromNote,
   analyzeLocalVault,
 } from "./utils/localEngine";
+import {
+  APP_VERSION,
+  AUTOMATION_HIGH_PRIORITY_SECTION_ID,
+  DAILY_TASKS_SECTION_ID,
+  dateForRoutineDay,
+  isReminderDue,
+  localDateKey,
+  mergeByPath,
+  pruneFiredReminderKeys,
+  reminderEventKey,
+  stableRoutineTaskId,
+  startOfWeekMonday,
+  upsertItemsById,
+  upsertManagedSection,
+} from "./utils/reliability";
 import confetti from "canvas-confetti";
-import { Bell, CheckCircle2, AlertTriangle, Sparkles, Zap } from "lucide-react";
+import { Bell, CheckCircle2, Sparkles } from "lucide-react";
+
+const storage = StorageManager.getInstance();
+
+function createDailyNote(today: string, content: string): ObsidianNote {
+  return {
+    id: `note-daily-${today}`,
+    path: storage.getDailyNotePath(today),
+    title: `Daily Note: ${today}`,
+    folder: "00_Inbox",
+    content,
+    frontmatter: {
+      id: `daily_${today}`,
+      tipo: "Daily Note",
+      status: "OFICIAL",
+      owner: "Gestor de Marketing Nisti Print",
+      created_at: today,
+      updated_at: today,
+      confidencialidade: "Interno",
+      produto: "Todos",
+      nicho: "Operações & Marketing",
+      canal: "Omnichannel",
+      projeto: "Rotina Diária",
+      tags: ["daily-note", "marketing", "rotina"],
+      origem: "App Nisti PKM",
+      approved_by: "Gestor de Marketing",
+      hash: `daily_${today}`,
+    },
+    tags: ["daily-note", "marketing", "rotina"],
+    wikilinks: ["01_Estrategia/Brand Voice & Posicionamento Nisti Print"],
+    lastModified: new Date().toISOString().replace("T", " ").slice(0, 16),
+    syncedWithApi: false,
+  };
+}
 
 export default function App() {
-  // Navigation State
   const [activeTab, setActiveTab] = useState<
     "dashboard" | "vault" | "campaigns" | "tasks" | "automations" | "routine" | "knowledge"
   >("dashboard");
 
-  // Engine Mode State: "local" (0 tokens, deterministic, offline) vs "ai" (Gemini)
-  const [engineMode, setEngineMode] = useState<EngineMode>(() => {
-    const saved = localStorage.getItem("obsidian_engine_mode");
-    return (saved as EngineMode) || "local";
-  });
+  const [engineMode, setEngineMode] = usePersistentTextState<EngineMode>(
+    APP_STATE_KEYS.ENGINE_MODE,
+    "local",
+    AppStateSchemas.engineMode
+  );
 
-  // Core Data State (persisted to localStorage & StorageManager)
-  const [notes, setNotes] = useState<ObsidianNote[]>(() => {
-    const saved = localStorage.getItem("obsidian_marketing_notes");
-    return saved ? JSON.parse(saved) : DEFAULT_OBSIDIAN_NOTES;
-  });
-
-  const [campaigns, setCampaigns] = useState<MarketingCampaign[]>(() => {
-    const saved = localStorage.getItem("obsidian_marketing_campaigns");
-    return saved ? JSON.parse(saved) : DEFAULT_CAMPAIGNS;
-  });
-
-  const [tasks, setTasks] = useState<MarketingTask[]>(() => {
-    const saved = localStorage.getItem("obsidian_marketing_tasks");
-    return saved ? JSON.parse(saved) : DEFAULT_TASKS;
-  });
-
-  const [automationRules, setAutomationRules] = useState<AutomationRule[]>(() => {
-    const saved = localStorage.getItem("obsidian_marketing_rules");
-    return saved ? JSON.parse(saved) : DEFAULT_AUTOMATION_RULES;
-  });
-
-  const [ideas, setIdeas] = useState<IdeaItem[]>(() => {
-    const saved = localStorage.getItem("obsidian_marketing_ideas");
-    return saved ? JSON.parse(saved) : DEFAULT_IDEAS;
-  });
-
-  const [scripts, setScripts] = useState<CreativeScript[]>(() => {
-    const saved = localStorage.getItem("obsidian_marketing_scripts");
-    return saved ? JSON.parse(saved) : DEFAULT_SCRIPTS;
-  });
-
-  const [visuals, setVisuals] = useState<VisualAsset[]>(() => {
-    const saved = localStorage.getItem("obsidian_marketing_visuals");
-    return saved ? JSON.parse(saved) : DEFAULT_VISUALS;
-  });
-
-  const [emotionalDrivers, setEmotionalDrivers] = useState<EmotionalDriver[]>(() => {
-    const saved = localStorage.getItem("obsidian_emotional_drivers");
-    return saved ? JSON.parse(saved) : DEFAULT_EMOTIONAL_DRIVERS;
-  });
-
-  const [niches, setNiches] = useState<NicheSegment[]>(() => {
-    const saved = localStorage.getItem("obsidian_niches");
-    return saved ? JSON.parse(saved) : DEFAULT_NICHES;
-  });
-
-  const [postHistory, setPostHistory] = useState<PostHistoryItem[]>(() => {
-    const saved = localStorage.getItem("obsidian_post_history");
-    return saved ? JSON.parse(saved) : DEFAULT_POST_HISTORY;
-  });
-
-  const [learnings, setLearnings] = useState<LearningInsight[]>(() => {
-    const saved = localStorage.getItem("obsidian_learnings");
-    return saved ? JSON.parse(saved) : DEFAULT_LEARNING_INSIGHTS;
-  });
-
-  const [weeklyRoutine, setWeeklyRoutine] = useState<DailyRoutineSlot[]>(() => {
-    const saved = localStorage.getItem("obsidian_weekly_routine");
-    return saved ? JSON.parse(saved) : DEFAULT_WEEKLY_ROUTINE;
-  });
+  const [notes, setNotes] = usePersistentState<ObsidianNote[]>(
+    APP_STATE_KEYS.NOTES,
+    DEFAULT_OBSIDIAN_NOTES,
+    AppStateSchemas.notes
+  );
+  const [campaigns, setCampaigns] = usePersistentState<MarketingCampaign[]>(
+    APP_STATE_KEYS.CAMPAIGNS,
+    DEFAULT_CAMPAIGNS,
+    AppStateSchemas.campaigns
+  );
+  const [tasks, setTasks] = usePersistentState<MarketingTask[]>(
+    APP_STATE_KEYS.TASKS,
+    DEFAULT_TASKS,
+    AppStateSchemas.tasks
+  );
+  const [automationRules, setAutomationRules] = usePersistentState<AutomationRule[]>(
+    APP_STATE_KEYS.AUTOMATION_RULES,
+    DEFAULT_AUTOMATION_RULES,
+    AppStateSchemas.automationRules
+  );
+  const [ideas, setIdeas] = usePersistentState<IdeaItem[]>(
+    APP_STATE_KEYS.IDEAS,
+    DEFAULT_IDEAS,
+    AppStateSchemas.ideas
+  );
+  const [scripts, setScripts] = usePersistentState<CreativeScript[]>(
+    APP_STATE_KEYS.SCRIPTS,
+    DEFAULT_SCRIPTS,
+    AppStateSchemas.scripts
+  );
+  const [visuals, setVisuals] = usePersistentState<VisualAsset[]>(
+    APP_STATE_KEYS.VISUALS,
+    DEFAULT_VISUALS,
+    AppStateSchemas.visuals
+  );
+  const [emotionalDrivers, setEmotionalDrivers] = usePersistentState<EmotionalDriver[]>(
+    APP_STATE_KEYS.EMOTIONAL_DRIVERS,
+    DEFAULT_EMOTIONAL_DRIVERS,
+    AppStateSchemas.emotionalDrivers
+  );
+  const [niches, setNiches] = usePersistentState<NicheSegment[]>(
+    APP_STATE_KEYS.NICHES,
+    DEFAULT_NICHES,
+    AppStateSchemas.niches
+  );
+  const [postHistory, setPostHistory] = usePersistentState<PostHistoryItem[]>(
+    APP_STATE_KEYS.POST_HISTORY,
+    DEFAULT_POST_HISTORY,
+    AppStateSchemas.postHistory
+  );
+  const [learnings, setLearnings] = usePersistentState<LearningInsight[]>(
+    APP_STATE_KEYS.LEARNINGS,
+    DEFAULT_LEARNING_INSIGHTS,
+    AppStateSchemas.learnings
+  );
+  const [weeklyRoutine, setWeeklyRoutine] = usePersistentState<DailyRoutineSlot[]>(
+    APP_STATE_KEYS.WEEKLY_ROUTINE,
+    DEFAULT_WEEKLY_ROUTINE,
+    AppStateSchemas.weeklyRoutine
+  );
 
   const [apiConfig, setApiConfig] = useState<ObsidianApiConfig>({
     endpoint: "http://127.0.0.1:27124",
@@ -141,10 +188,8 @@ export default function App() {
   });
   const [isApiConfigLoaded, setIsApiConfigLoaded] = useState(false);
 
-  // Load/migrate API config before enabling persistence, avoiding a race that
-  // could overwrite a previously stored credential with defaults on startup.
   useEffect(() => {
-    StorageManager.getInstance()
+    storage
       .loadApiConfig(apiConfig)
       .then((loaded) => {
         if (loaded) setApiConfig(loaded);
@@ -152,22 +197,18 @@ export default function App() {
       .finally(() => setIsApiConfigLoaded(true));
   }, []);
 
-  // Persist only through StorageManager (safeStorage on Electron, AES-GCM on web).
   useEffect(() => {
     if (!isApiConfigLoaded) return;
-    void StorageManager.getInstance().saveApiConfig(apiConfig);
+    void storage.saveApiConfig(apiConfig);
   }, [apiConfig, isApiConfigLoaded]);
 
-  // Selected Note & Audit State
   const [selectedNote, setSelectedNote] = useState<ObsidianNote | null>(notes[0] || null);
   const [auditInsight, setAuditInsight] = useState<VaultAuditInsight | null>(null);
 
-  // Modals & UI Controls
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
   const [isTaskModalOpen, setIsTaskModalOpen] = useState(false);
   const [isNoteModalOpen, setIsNoteModalOpen] = useState(false);
 
-  // Loading States
   const [isGeneratingCampaign, setIsGeneratingCampaign] = useState(false);
   const [isAuditingVault, setIsAuditingVault] = useState(false);
   const [isExtractingTasks, setIsExtractingTasks] = useState(false);
@@ -175,72 +216,27 @@ export default function App() {
   const [isPushingToApi, setIsPushingToApi] = useState(false);
   const [isSyncingDaily, setIsSyncingDaily] = useState(false);
 
-  // Toast / Alert Notification
   const [toastMessage, setToastMessage] = useState<{
     type: "success" | "info" | "warning";
     title: string;
     text: string;
   } | null>(null);
 
+  const firedReminderKeysRef = useRef<Set<string>>(
+    new Set(
+      storage.loadAppState<string[]>(
+        APP_STATE_KEYS.FIRED_REMINDERS,
+        [],
+        AppStateSchemas.firedReminderKeys
+      )
+    )
+  );
+
   const showToast = (type: "success" | "info" | "warning", title: string, text: string) => {
     setToastMessage({ type, title, text });
     setTimeout(() => setToastMessage(null), 4000);
   };
 
-  // Sync to LocalStorage
-  useEffect(() => {
-    localStorage.setItem("obsidian_marketing_notes", JSON.stringify(notes));
-  }, [notes]);
-
-  useEffect(() => {
-    localStorage.setItem("obsidian_marketing_campaigns", JSON.stringify(campaigns));
-  }, [campaigns]);
-
-  useEffect(() => {
-    localStorage.setItem("obsidian_marketing_tasks", JSON.stringify(tasks));
-  }, [tasks]);
-
-  useEffect(() => {
-    localStorage.setItem("obsidian_marketing_rules", JSON.stringify(automationRules));
-  }, [automationRules]);
-
-  useEffect(() => {
-    localStorage.setItem("obsidian_marketing_ideas", JSON.stringify(ideas));
-  }, [ideas]);
-
-  useEffect(() => {
-    localStorage.setItem("obsidian_marketing_scripts", JSON.stringify(scripts));
-  }, [scripts]);
-
-  useEffect(() => {
-    localStorage.setItem("obsidian_marketing_visuals", JSON.stringify(visuals));
-  }, [visuals]);
-
-  useEffect(() => {
-    localStorage.setItem("obsidian_emotional_drivers", JSON.stringify(emotionalDrivers));
-  }, [emotionalDrivers]);
-
-  useEffect(() => {
-    localStorage.setItem("obsidian_niches", JSON.stringify(niches));
-  }, [niches]);
-
-  useEffect(() => {
-    localStorage.setItem("obsidian_post_history", JSON.stringify(postHistory));
-  }, [postHistory]);
-
-  useEffect(() => {
-    localStorage.setItem("obsidian_learnings", JSON.stringify(learnings));
-  }, [learnings]);
-
-  useEffect(() => {
-    localStorage.setItem("obsidian_weekly_routine", JSON.stringify(weeklyRoutine));
-  }, [weeklyRoutine]);
-
-  useEffect(() => {
-    localStorage.setItem("obsidian_engine_mode", engineMode);
-  }, [engineMode]);
-
-  // Global CTRL+K Shortcut for Universal Search
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
       if ((e.ctrlKey || e.metaKey) && e.key === "k") {
@@ -259,7 +255,6 @@ export default function App() {
     return () => window.removeEventListener("keydown", handleKeyDown);
   }, []);
 
-  // Initial Health Check & Initial Vault Audit
   useEffect(() => {
     api.checkHealth().then((h) => {
       if (!h.hasApiKey) {
@@ -267,57 +262,52 @@ export default function App() {
       }
     });
 
-    // Auto-audit on first load if empty
     if (!auditInsight && notes.length > 0) {
-      runVaultAudit();
+      void runVaultAudit();
     }
   }, []);
 
-  // Check reminders alarm loop (every 30 seconds)
   useEffect(() => {
-    const interval = setInterval(() => {
+    const checkReminders = () => {
       const now = new Date();
-      const currentDate = now.toISOString().split("T")[0];
-      const currentHours = String(now.getHours()).padStart(2, "0");
-      const currentMins = String(now.getMinutes()).padStart(2, "0");
-      const currentTime = `${currentHours}:${currentMins}`;
+      let changed = false;
 
-      tasks.forEach((t) => {
-        if (
-          t.isReminderActive &&
-          t.status !== "done" &&
-          t.reminderDate === currentDate &&
-          t.reminderTime === currentTime
-        ) {
-          showToast(
-            "warning",
-            "⏰ Lembrete Obsidian Ativado!",
-            `Tarefa: ${t.title} (${t.channel || "Geral"})`
-          );
-        }
+      tasks.forEach((task) => {
+        const eventKey = reminderEventKey(task);
+        if (!eventKey || firedReminderKeysRef.current.has(eventKey)) return;
+        if (!isReminderDue(task, now)) return;
+
+        firedReminderKeysRef.current.add(eventKey);
+        changed = true;
+        showToast(
+          "warning",
+          "⏰ Lembrete Obsidian Ativado!",
+          `Tarefa: ${task.title} (${task.channel || "Geral"})`
+        );
       });
-    }, 30000);
 
+      if (changed) {
+        const keys = pruneFiredReminderKeys(Array.from(firedReminderKeysRef.current));
+        firedReminderKeysRef.current = new Set(keys);
+        storage.saveAppState(APP_STATE_KEYS.FIRED_REMINDERS, keys);
+      }
+    };
+
+    checkReminders();
+    const interval = setInterval(checkReminders, 30_000);
     return () => clearInterval(interval);
   }, [tasks]);
 
-  // Existing Folders list
   const existingFolders = useMemo(() => {
     const set = new Set<string>();
     notes.forEach((n) => set.add(n.folder || "Raiz"));
     return Array.from(set).sort();
   }, [notes]);
 
-  // ==========================================
-  // HANDLERS & ACTIONS
-  // ==========================================
-
-  // 1. Audit Vault with Local Heuristic Engine or AI
   const runVaultAudit = useCallback(async () => {
     setIsAuditingVault(true);
     try {
       if (engineMode === "local") {
-        // Deterministic, offline heuristic audit (0 tokens)
         const localAudit = analyzeLocalVault(notes);
         setAuditInsight(localAudit);
         return;
@@ -345,7 +335,6 @@ export default function App() {
     }
   }, [notes, engineMode]);
 
-  // 2. Generate Campaign with Local Heuristic Engine or AI
   const handleGenerateCampaign = async (params: {
     campaignName: string;
     objective: string;
@@ -361,7 +350,6 @@ export default function App() {
       let d: any;
 
       if (engineMode === "local") {
-        // 100% deterministic local generation with copywriting frameworks (0 tokens)
         d = generateLocalCampaign({
           campaignName: params.campaignName,
           objective: params.objective,
@@ -372,7 +360,6 @@ export default function App() {
           customInstructions: params.customInstructions,
         });
       } else {
-        // Hybrid mode with Gemini API
         const contextNotes = matchedNotes
           .map((n) => `--- NOTA: ${n.title} (Pasta: ${n.folder}) ---\n${n.content}`)
           .join("\n\n");
@@ -408,6 +395,7 @@ export default function App() {
 
       const newCampaignId = `camp-${Date.now()}`;
       const outputNotePath = `04_Campanhas/${params.campaignName}.md`;
+      const today = localDateKey();
 
       const newCampaign: MarketingCampaign = {
         id: newCampaignId,
@@ -422,24 +410,24 @@ export default function App() {
         obsidianOutputNotePath: outputNotePath,
         summary: d.summary || "",
         strategy: d.strategy || "",
-        startDate: new Date().toISOString().split("T")[0],
-        endDate: new Date(Date.now() + 86400000 * 20).toISOString().split("T")[0],
-        createdDate: new Date().toISOString().split("T")[0],
+        startDate: today,
+        endDate: localDateKey(new Date(Date.now() + 86400000 * 20)),
+        createdDate: today,
       };
 
-      // Create the note in vault
-      if (d.obsidianMarkdownNote) {
+      const generatedMarkdown = d.obsidianMarkdownNote || d.obsidianNoteMarkdown;
+      if (generatedMarkdown) {
         const newNote: ObsidianNote = {
           id: `note-${Date.now()}`,
           path: outputNotePath,
           title: params.campaignName,
           folder: "04_Campanhas",
-          content: d.obsidianMarkdownNote,
+          content: generatedMarkdown,
           frontmatter: {
             title: params.campaignName,
             tags: ["campanha", "marketing-local", ...(params.channels || []).map((c) => (c || "").toLowerCase().replace(/\s+/g, "-")).filter(Boolean)],
             status: "Ativo",
-            publish_date: new Date().toISOString().split("T")[0],
+            publish_date: today,
             channel: params.channels.join(", "),
           },
           tags: ["campanha", "marketing-local"],
@@ -450,7 +438,6 @@ export default function App() {
         setNotes((prev) => [newNote, ...prev]);
       }
 
-      // Add generated tasks to Task Board
       if (d.tasks && Array.isArray(d.tasks)) {
         const generatedTasks: MarketingTask[] = d.tasks.map((t: any, idx: number) => ({
           id: `task-${Date.now()}-${idx}`,
@@ -459,9 +446,9 @@ export default function App() {
           channel: t.channel || "Geral",
           priority: t.priority || "medium",
           status: "todo",
-          dueDate: t.dueDate || new Date().toISOString().split("T")[0],
+          dueDate: t.dueDate || today,
           dueTime: t.dueTime || "14:00",
-          reminderDate: t.dueDate || new Date().toISOString().split("T")[0],
+          reminderDate: t.dueDate || today,
           reminderTime: t.reminderTime || "11:00",
           obsidianTaskString: t.obsidianTaskString || formatToObsidianTask(t),
           obsidianFilePath: outputNotePath,
@@ -487,7 +474,6 @@ export default function App() {
     }
   };
 
-  // 3. Extract Tasks from any Obsidian Note with Local Heuristic Engine or AI
   const handleExtractTasksFromNote = async (note: ObsidianNote) => {
     setIsExtractingTasks(true);
     try {
@@ -517,6 +503,7 @@ export default function App() {
       }
 
       if (tasksData?.extractedTasks) {
+        const today = localDateKey();
         const newTasks: MarketingTask[] = tasksData.extractedTasks.map(
           (t: any, idx: number) => ({
             id: `task-${Date.now()}-${idx}`,
@@ -524,9 +511,9 @@ export default function App() {
             channel: t.channel || "Geral",
             priority: t.priority || "medium",
             status: "todo",
-            dueDate: t.dueDate || new Date().toISOString().split("T")[0],
+            dueDate: t.dueDate || today,
             dueTime: t.dueTime || "12:00",
-            reminderDate: t.reminderDate || t.dueDate,
+            reminderDate: t.reminderDate || t.dueDate || today,
             reminderTime: t.reminderTime || "09:00",
             obsidianTaskString: t.obsidianTaskString || formatToObsidianTask(t),
             obsidianFilePath: note.path,
@@ -551,7 +538,6 @@ export default function App() {
     }
   };
 
-  // 4. Save/Push Note to Obsidian via Local REST API
   const handlePushNoteToObsidianApi = async (note: ObsidianNote) => {
     setIsPushingToApi(true);
     try {
@@ -565,7 +551,7 @@ export default function App() {
           `Use 'Abrir no App' ou copie o Markdown. (${res.message || "REST API Offline"})`
         );
       }
-    } catch (err: any) {
+    } catch {
       showToast(
         "info",
         "Nota Salva Localmente",
@@ -576,120 +562,97 @@ export default function App() {
     }
   };
 
-  // 5. Sync Tasks directly to Obsidian Daily Note
-  const handleSyncDailyNote = async () => {
-    setIsSyncingDaily(true);
-    try {
-      const pendingTaskList = tasks
-        .filter((t) => t.status !== "done")
-        .map((t) => t.obsidianTaskString)
-        .join("\n");
+  const syncManagedDailySection = async (
+    sectionId: string,
+    heading: string,
+    body: string
+  ): Promise<boolean> => {
+    const today = localDateKey();
+    const dailyPath = storage.getDailyNotePath(today);
+    const safeBody = body.trim() || "_Nenhum item pendente._";
 
-      const today = new Date().toISOString().split("T")[0];
-      const dailyPath = StorageManager.getInstance().getDailyNotePath(today);
-
-      // Update local daily note or create one
-      const existingDaily = notes.find((n) => n.path === dailyPath);
+    setNotes((prev) => {
+      const existingDaily = prev.find((n) => n.path === dailyPath);
       if (existingDaily) {
-        const updatedContent = `${existingDaily.content}\n\n## 📋 Tarefas Adicionadas pelo Marketing Engine\n${pendingTaskList}`;
-        setNotes((prev) =>
-          prev.map((n) => (n.id === existingDaily.id ? { ...n, content: updatedContent } : n))
-        );
-      } else {
-        const newDaily: ObsidianNote = {
-          id: `note-daily-${Date.now()}`,
-          path: dailyPath,
-          title: `Daily Note: ${today}`,
-          folder: "00_Inbox",
-          content: `# 📅 Daily Note: ${today}\n\n## 📋 Tarefas Sincronizadas do Gestor de Marketing\n${pendingTaskList}`,
-          frontmatter: {
-            id: `daily_${today}`,
-            tipo: "Daily Note",
-            status: "OFICIAL",
-            owner: "Gestor de Marketing Nisti Print",
-            created_at: today,
-            updated_at: today,
-            confidencialidade: "Interno",
-            produto: "Todos",
-            nicho: "Operações & Marketing",
-            canal: "Omnichannel",
-            projeto: "Rotina Diária",
-            tags: ["daily-note", "marketing", "rotina"],
-            origem: "App Nisti PKM",
-            approved_by: "Gestor de Marketing",
-            hash: `daily_${Date.now()}`,
-          },
-          tags: ["daily-note", "marketing", "rotina"],
-          wikilinks: ["01_Estrategia/Brand Voice & Posicionamento Nisti Print"],
+        const updated: ObsidianNote = {
+          ...existingDaily,
+          content: upsertManagedSection(existingDaily.content, sectionId, heading, safeBody),
           lastModified: new Date().toISOString().replace("T", " ").slice(0, 16),
         };
-        setNotes((prev) => [newDaily, ...prev]);
+        return prev.map((n) => (n.id === existingDaily.id ? updated : n));
       }
 
-      // Try pushing to API if available
-      await api.appendToDailyNote(apiConfig, pendingTaskList).catch(() => {});
+      const content = `# 📅 Daily Note: ${today}\n\n${upsertManagedSection("", sectionId, heading, safeBody)}`;
+      return [createDailyNote(today, content), ...prev];
+    });
 
-      await StorageManager.getInstance().logAudit({
+    const remoteResult = await api
+      .upsertDailyNoteSection(apiConfig, sectionId, heading, safeBody)
+      .catch(() => ({ success: false }));
+
+    return Boolean(remoteResult?.success);
+  };
+
+  const syncPendingTasksToDaily = async (silent = false): Promise<boolean> => {
+    setIsSyncingDaily(true);
+    try {
+      const pendingTasks = tasks.filter((t) => t.status !== "done");
+      const pendingTaskList = pendingTasks.map((t) => t.obsidianTaskString).join("\n");
+      const today = localDateKey();
+      const dailyPath = storage.getDailyNotePath(today);
+
+      const remoteSuccess = await syncManagedDailySection(
+        DAILY_TASKS_SECTION_ID,
+        "📋 Tarefas Sincronizadas do Gestor de Marketing",
+        pendingTaskList
+      );
+
+      await storage.logAudit({
         action: "DAILY_NOTE_APPENDED",
         entityType: "NOTE",
         entityId: dailyPath,
-        details: `Sincronizadas ${tasks.filter((t) => t.status !== "done").length} tarefas pendentes na Daily Note ${today}.`,
+        details: `Seção idempotente atualizada com ${pendingTasks.length} tarefas pendentes na Daily Note ${today}.`,
       });
 
-      showToast(
-        "success",
-        "Daily Note Atualizada!",
-        `Tarefas e lembretes inseridos na nota unificada ${dailyPath}.`
-      );
-      confetti({ particleCount: 30, spread: 50 });
+      if (!silent) {
+        showToast(
+          remoteSuccess ? "success" : "info",
+          remoteSuccess ? "Daily Note Sincronizada!" : "Daily Note Atualizada Localmente",
+          remoteSuccess
+            ? `Tarefas sincronizadas sem duplicação em ${dailyPath}.`
+            : `Estado local atualizado em ${dailyPath}; o Obsidian externo não confirmou a gravação.`
+        );
+        if (remoteSuccess) confetti({ particleCount: 30, spread: 50 });
+      }
+
+      return remoteSuccess;
     } finally {
       setIsSyncingDaily(false);
     }
   };
 
-  // 5.1 Sync Weekly Routine to Daily Notes & Tasks
+  const handleSyncDailyNote = () => syncPendingTasksToDaily(false);
+
   const handleSyncRoutineToDailyNotes = async () => {
     setIsSyncingDaily(true);
     try {
-      const todayDate = new Date();
-      const currentDayOfWeek = todayDate.getDay(); // 0 is Sun, 1 is Mon...
-      // Calculate Monday of current week
-      const mondayOffset = currentDayOfWeek === 0 ? -6 : 1 - currentDayOfWeek;
-      const mondayDate = new Date(todayDate);
-      mondayDate.setDate(todayDate.getDate() + mondayOffset);
-
-      const dayOffsetMap: Record<string, number> = {
-        "Segunda-feira": 0,
-        "Terça-feira": 1,
-        "Quarta-feira": 2,
-        "Quinta-feira": 3,
-        "Sexta-feira": 4,
-        "Sábado": 5,
-        "Domingo": 6,
-      };
-
-      const getSlotDate = (dayName: string) => {
-        const offset = dayOffsetMap[dayName] ?? 0;
-        const d = new Date(mondayDate);
-        d.setDate(mondayDate.getDate() + offset);
-        return d.toISOString().split("T")[0];
-      };
-
-      const today = todayDate.toISOString().split("T")[0];
-      const dailyPath = StorageManager.getInstance().getDailyNotePath(today);
+      const anchor = new Date();
+      const today = localDateKey(anchor);
+      const weekStart = localDateKey(startOfWeekMonday(anchor));
+      const dailyPath = storage.getDailyNotePath(today);
+      const sectionId = `weekly-routine-${weekStart}`;
 
       const routineTasksText = weeklyRoutine
         .map((slot) => {
-          const slotDate = getSlotDate(slot.dayOfWeek);
+          const slotDate = dateForRoutineDay(slot.dayOfWeek, anchor);
           return `- [ ] Publicar ${slot.dayOfWeek}: ${slot.focusTheme} 📅 ${slotDate} ⏰ ${slot.optimalTime} #marketing/rotina #${slot.primaryEmotion} #${slot.primaryNiche}`;
         })
         .join("\n");
 
-      // Add to tasks state with calculated per-day dates
-      const newTasks: MarketingTask[] = weeklyRoutine.map((slot, index) => {
-        const slotDate = getSlotDate(slot.dayOfWeek);
+      const newTasks: MarketingTask[] = weeklyRoutine.map((slot) => {
+        const slotDate = dateForRoutineDay(slot.dayOfWeek, anchor);
         return {
-          id: `routine-task-${Date.now()}-${index}`,
+          id: stableRoutineTaskId(anchor, slot.id),
           title: `Publicar ${slot.dayOfWeek}: ${slot.focusTheme}`,
           description: `Formato: ${slot.recommendedFormat.toUpperCase()} | Emoção: ${slot.primaryEmotion} | Nicho: ${slot.primaryNiche}\nHook: "${slot.suggestedHookPattern}"`,
           channel: slot.recommendedFormat === "newsletter" ? "Email Newsletter" : slot.recommendedFormat === "carrossel" ? "LinkedIn" : "Instagram",
@@ -706,67 +669,71 @@ export default function App() {
         };
       });
 
-      setTasks((prev) => [...newTasks, ...prev]);
+      setTasks((prev) => upsertItemsById(prev, newTasks));
 
-      // Update or create daily note in 00_Inbox
-      const existingDaily = notes.find((n) => n.path === dailyPath);
-      if (existingDaily) {
-        const updatedContent = `${existingDaily.content}\n\n## 🗓️ Rotina Semanal de Conteúdo (Gatilhos Emocionais & Nichos)\n${routineTasksText}`;
-        setNotes((prev) =>
-          prev.map((n) => (n.id === existingDaily.id ? { ...n, content: updatedContent } : n))
-        );
-      } else {
-        const newDaily: ObsidianNote = {
-          id: `note-routine-${Date.now()}`,
-          path: dailyPath,
-          title: `Daily Note: ${today}`,
-          folder: "00_Inbox",
-          content: `# 📅 Daily Note: ${today}\n\n## 🗓️ Rotina Semanal de Conteúdo (Gatilhos Emocionais & Nichos)\n${routineTasksText}`,
-          frontmatter: {
-            id: `daily_${today}`,
-            tipo: "Daily Note",
-            status: "OFICIAL",
-            owner: "Gestor de Marketing Nisti Print",
-            created_at: today,
-            updated_at: today,
-            confidencialidade: "Interno",
-            produto: "Todos",
-            nicho: "Operações & Marketing",
-            canal: "Omnichannel",
-            projeto: "Rotina Diária",
-            tags: ["daily-note", "marketing-rotina"],
-            origem: "App Nisti PKM",
-            approved_by: "Gestor de Marketing",
-            hash: `routine_${Date.now()}`,
-          },
-          tags: ["daily-note", "marketing-rotina"],
-          wikilinks: ["01_Estrategia/Brand Voice & Posicionamento Nisti Print"],
-          lastModified: new Date().toISOString().replace("T", " ").slice(0, 16),
-        };
-        setNotes((prev) => [newDaily, ...prev]);
-      }
+      const remoteSuccess = await syncManagedDailySection(
+        sectionId,
+        "🗓️ Rotina Semanal de Conteúdo (Gatilhos Emocionais & Nichos)",
+        routineTasksText
+      );
 
-      await api.appendToDailyNote(apiConfig, routineTasksText).catch(() => {});
-
-      await StorageManager.getInstance().logAudit({
+      await storage.logAudit({
         action: "DAILY_NOTE_APPENDED",
         entityType: "NOTE",
         entityId: dailyPath,
-        details: `Rotina semanal de ${weeklyRoutine.length} dias sincronizada com sucesso para ${today}.`,
+        details: `Rotina da semana ${weekStart} sincronizada idempotentemente com ${weeklyRoutine.length} slots.`,
       });
 
       showToast(
-        "success",
-        "Rotina Sincronizada!",
-        `${weeklyRoutine.length} slots de rotina com datas distribuídas na semana e alarmes gravados em ${dailyPath}.`
+        remoteSuccess ? "success" : "info",
+        remoteSuccess ? "Rotina Sincronizada!" : "Rotina Atualizada Localmente",
+        `${weeklyRoutine.length} slots foram atualizados por ID estável, sem criar tarefas duplicadas.`
       );
-      confetti({ particleCount: 40, spread: 60 });
+      if (remoteSuccess) confetti({ particleCount: 40, spread: 60 });
+    } catch (err: any) {
+      showToast("warning", "Falha na Rotina", err.message || "Não foi possível sincronizar a rotina.");
     } finally {
       setIsSyncingDaily(false);
     }
   };
 
-  // 6. Test Obsidian Connection
+  const handleSyncNow = async () => {
+    setIsSyncing(true);
+    try {
+      const desktopNotes = await storage.readDesktopNotesForApp();
+      if (desktopNotes) {
+        setNotes((prev) => {
+          const merged = mergeByPath(prev, desktopNotes);
+          setSelectedNote((selected) => {
+            if (!selected) return merged[0] || null;
+            return merged.find((note) => note.path === selected.path) || selected;
+          });
+          return merged;
+        });
+      }
+
+      const remoteSuccess = await syncPendingTasksToDaily(true);
+      const syncedAt = new Date().toISOString();
+      setApiConfig((prev) => ({ ...prev, lastSyncTime: syncedAt }));
+
+      if (remoteSuccess) {
+        await storage.logAudit({
+          action: "VAULT_SYNCED",
+          entityType: "VAULT",
+          entityId: apiConfig.vaultName || "MarketingVault",
+          details: `Sincronização real concluída em ${syncedAt}. Notas do Electron atualizadas e tarefas reconciliadas na Daily Note.`,
+        });
+        showToast("success", "Sincronização Concluída", "Vault lido e Daily Note reconciliada sem duplicação.");
+      } else {
+        showToast("warning", "Sincronização Parcial", "Dados locais foram reconciliados, mas o Obsidian não confirmou a gravação remota.");
+      }
+    } catch (err: any) {
+      showToast("warning", "Erro de Sincronização", err.message || "Falha ao sincronizar com o Vault.");
+    } finally {
+      setIsSyncing(false);
+    }
+  };
+
   const handleTestConnection = async (cfg: ObsidianApiConfig) => {
     const res = await api.testObsidianConnection({
       endpoint: cfg.endpoint,
@@ -780,7 +747,6 @@ export default function App() {
     return res;
   };
 
-  // 7. Toggle Task Done Status
   const handleToggleTaskStatus = (taskId: string) => {
     setTasks((prev) =>
       prev.map((t) => {
@@ -803,13 +769,11 @@ export default function App() {
     );
   };
 
-  // 8. Delete Task
   const handleDeleteTask = (taskId: string) => {
     setTasks((prev) => prev.filter((t) => t.id !== taskId));
     showToast("info", "Tarefa Removida", "A tarefa foi removida da lista.");
   };
 
-  // 9. Automation Rule Toggle / Run
   const handleToggleRule = (ruleId: string) => {
     setAutomationRules((prev) =>
       prev.map((r) => (r.id === ruleId ? { ...r, enabled: !r.enabled } : r))
@@ -817,11 +781,9 @@ export default function App() {
   };
 
   const handleRunRuleNow = async (ruleId: string) => {
-    const today = new Date().toISOString().split("T")[0];
+    const today = localDateKey();
 
-    // 1. Execute actual business action based on rule
     if (ruleId === "rule-1") {
-      // Sync all campaigns to 04_Campanhas notes
       let syncedCount = 0;
       campaigns.forEach((camp) => {
         const expectedPath = camp.obsidianOutputNotePath || `04_Campanhas/${camp.title}.md`;
@@ -863,7 +825,7 @@ export default function App() {
         }
       });
 
-      await StorageManager.getInstance().logAudit({
+      await storage.logAudit({
         action: "AUTOMATION_TRIGGERED",
         entityType: "AUTOMATION",
         entityId: ruleId,
@@ -878,13 +840,12 @@ export default function App() {
           : "Todas as campanhas já estão sincronizadas em 04_Campanhas."
       );
     } else if (ruleId === "rule-2") {
-      // Triage 00_Inbox: find unapproved notes and generate triage task
       const inboxNotes = notes.filter(
         (n) => n.folder === "00_Inbox" && n.frontmatter?.status !== "OFICIAL"
       );
       if (inboxNotes.length > 0) {
         const triageTask: MarketingTask = {
-          id: `triage-task-${Date.now()}`,
+          id: `triage-task-${today}`,
           title: `Triagem Obrigatória: ${inboxNotes.length} notas pendentes em 00_Inbox`,
           description: `Notas aguardando revisão humana: ${inboxNotes.map((n) => n.title).join(", ")}`,
           channel: "Interno",
@@ -898,39 +859,40 @@ export default function App() {
           tags: ["curadoria", "inbox", "pkm"],
           isReminderActive: true,
         };
-        setTasks((prev) => [triageTask, ...prev]);
+        setTasks((prev) => upsertItemsById(prev, [triageTask]));
 
-        await StorageManager.getInstance().logAudit({
+        await storage.logAudit({
           action: "AUTOMATION_TRIGGERED",
           entityType: "AUTOMATION",
           entityId: ruleId,
-          details: `Gerada tarefa de triagem para ${inboxNotes.length} notas pendentes em 00_Inbox.`,
+          details: `Tarefa idempotente de triagem atualizada para ${inboxNotes.length} notas pendentes em 00_Inbox.`,
         });
 
         showToast(
           "success",
           "Triagem de Inbox Concluída!",
-          `Criada 1 tarefa de alta prioridade para revisar ${inboxNotes.length} notas pendentes.`
+          `Tarefa diária de triagem atualizada para ${inboxNotes.length} notas pendentes.`
         );
       } else {
         showToast("info", "Inbox em Dia!", "Nenhuma nota pendente de triagem em 00_Inbox.");
       }
     } else {
-      // Generic / Custom Rule Execution: Sync all pending tasks to Daily Note and log audit
       const pendingHighTasks = tasks.filter((t) => t.status !== "done" && t.priority === "high");
-      if (pendingHighTasks.length > 0) {
-        const taskLines = pendingHighTasks.map((t) => t.obsidianTaskString).join("\n");
-        await api.appendToDailyNote(apiConfig, taskLines).catch(() => {});
-      }
+      const taskLines = pendingHighTasks.map((t) => t.obsidianTaskString).join("\n");
+      await syncManagedDailySection(
+        AUTOMATION_HIGH_PRIORITY_SECTION_ID,
+        "⚡ Tarefas de Alta Prioridade",
+        taskLines
+      );
 
-      await StorageManager.getInstance().logAudit({
+      await storage.logAudit({
         action: "AUTOMATION_TRIGGERED",
         entityType: "AUTOMATION",
         entityId: ruleId,
-        details: "Regra executada com sucesso e sincronizada com a base do cofre.",
+        details: "Regra executada e seção de alta prioridade reconciliada de forma idempotente.",
       });
 
-      showToast("success", "Automação Executada!", "Regra processada com sucesso no cofre.");
+      showToast("success", "Automação Executada!", "Regra processada e reconciliada no cofre.");
     }
 
     setAutomationRules((prev) =>
@@ -947,33 +909,48 @@ export default function App() {
     confetti({ particleCount: 25 });
   };
 
-  // 10. Vault Export & Import (Strictly Stripping Secrets)
   const handleExportVault = () => {
-    const sanitizedApiConfig = { ...apiConfig };
-    delete (sanitizedApiConfig as any).apiKey;
+    const sanitizedApiConfig = { ...apiConfig } as Record<string, unknown>;
+    delete sanitizedApiConfig.apiKey;
 
-    const dataStr = JSON.stringify({ notes, campaigns, tasks, apiConfig: sanitizedApiConfig }, null, 2);
+    const dataStr = JSON.stringify(
+      {
+        version: APP_VERSION,
+        notes,
+        campaigns,
+        tasks,
+        apiConfig: sanitizedApiConfig,
+      },
+      null,
+      2
+    );
     const blob = new Blob([dataStr], { type: "application/json" });
     const url = URL.createObjectURL(blob);
     const link = document.createElement("a");
     link.href = url;
-    link.download = `obsidian-marketing-vault-${new Date().toISOString().split("T")[0]}.json`;
+    link.download = `obsidian-marketing-vault-v${APP_VERSION}-${localDateKey()}.json`;
     link.click();
     URL.revokeObjectURL(url);
-    showToast("success", "Backup Exportado", "Cofre exportado com sucesso (credenciais protegidas e omitidas).");
+    showToast("success", "Backup Exportado", `Backup v${APP_VERSION} exportado sem credenciais.`);
   };
 
   const handleImportVault = (file: File) => {
     const reader = new FileReader();
     reader.onload = (e) => {
       try {
-        const parsed = JSON.parse(e.target?.result as string);
-        if (parsed.notes) setNotes(parsed.notes);
-        if (parsed.campaigns) setCampaigns(parsed.campaigns);
-        if (parsed.tasks) setTasks(parsed.tasks);
-        showToast("success", "Cofre Importado!", "Sua base de conhecimento e tarefas foram restauradas.");
-      } catch {
-        showToast("warning", "Erro na Importação", "Arquivo JSON inválido.");
+        const raw = JSON.parse(e.target?.result as string) as unknown;
+        const parsed = parseWorkspaceImport(raw);
+        setNotes(parsed.notes as ObsidianNote[]);
+        setCampaigns(parsed.campaigns as MarketingCampaign[]);
+        setTasks(parsed.tasks as MarketingTask[]);
+        showToast(
+          "success",
+          "Cofre Importado!",
+          `Backup ${parsed.version ? `v${parsed.version}` : "legado"} validado com Zod e restaurado sem importar segredos.`
+        );
+      } catch (err: any) {
+        console.warn("Workspace import rejected:", err);
+        showToast("warning", "Importação Rejeitada", "O arquivo não corresponde ao schema esperado ou contém dados inválidos.");
       }
     };
     reader.readAsText(file);
@@ -981,7 +958,6 @@ export default function App() {
 
   return (
     <div className="min-h-screen bg-stone-100/40 text-stone-900 flex flex-col font-sans selection:bg-purple-200 selection:text-purple-900">
-      {/* Toast Notification Alert */}
       {toastMessage && (
         <div className="fixed bottom-6 right-6 z-50 animate-bounce duration-300">
           <div
@@ -1008,26 +984,19 @@ export default function App() {
         </div>
       )}
 
-      {/* Top Navbar */}
       <Navbar
         activeTab={activeTab}
         setActiveTab={setActiveTab}
         apiConfig={apiConfig}
         onOpenSettings={() => setIsSettingsOpen(true)}
-        onSyncNow={() => {
-          setIsSyncing(true);
-          setTimeout(() => {
-            setIsSyncing(false);
-            showToast("success", "Sincronização Concluída", "Base de notas e tarefas atualizadas.");
-          }, 800);
-        }}
+        onSyncNow={handleSyncNow}
         isSyncing={isSyncing}
         onQuickNewCampaign={() => {
           setActiveTab("campaigns");
         }}
         onQuickNewTask={() => setIsTaskModalOpen(true)}
         onQuickNewNote={() => setIsNoteModalOpen(true)}
-        hasApiKey={true}
+        hasApiKey={Boolean(apiConfig.apiKey.trim())}
         engineMode={engineMode}
         onToggleEngineMode={(mode) => {
           setEngineMode(mode);
@@ -1041,7 +1010,6 @@ export default function App() {
         }}
       />
 
-      {/* Main Content Body */}
       <main className="flex-1 w-full px-4 sm:px-6 lg:px-8 py-6 md:py-8 overflow-y-auto pb-24 md:pb-8">
         {activeTab === "dashboard" && (
           <DashboardView
@@ -1118,10 +1086,10 @@ export default function App() {
             onSaveCampaignToObsidian={(camp) => {
               if (camp.obsidianOutputNotePath) {
                 const note = notes.find((n) => n.path === camp.obsidianOutputNotePath);
-                if (note) handlePushNoteToObsidianApi(note);
+                if (note) void handlePushNoteToObsidianApi(note);
               }
             }}
-            onImportCampaignTasks={(camp) => {
+            onImportCampaignTasks={() => {
               showToast("success", "Tarefas Sincronizadas", "Tarefas da campanha ativas no quadro.");
               setActiveTab("tasks");
             }}
@@ -1221,7 +1189,6 @@ export default function App() {
         )}
       </main>
 
-      {/* Modals */}
       <ObsidianApiSettingsModal
         isOpen={isSettingsOpen}
         onClose={() => setIsSettingsOpen(false)}

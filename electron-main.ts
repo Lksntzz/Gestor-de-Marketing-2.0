@@ -6,7 +6,6 @@ import { existsSync } from "fs";
 let mainWindow: BrowserWindow | null = null;
 let selectedVaultPath: string | null = null;
 
-// Official 10 Obsidian vault folders
 const STANDARD_FOLDERS = [
   "00_Inbox",
   "01_Estrategia",
@@ -20,11 +19,9 @@ const STANDARD_FOLDERS = [
   "99_Templates"
 ];
 
-// Local Config Path
 const configDir = app.getPath("userData");
 const configFilePath = path.join(configDir, "nisti_config.json");
 
-// Load stored config on startup
 async function loadConfig() {
   try {
     if (existsSync(configFilePath)) {
@@ -39,7 +36,6 @@ async function loadConfig() {
   }
 }
 
-// Save config helper
 async function saveConfig(updates: any) {
   try {
     let currentConfig: any = {};
@@ -48,7 +44,6 @@ async function saveConfig(updates: any) {
       currentConfig = JSON.parse(data);
     }
 
-    // Strictly strip any secrets or API tokens from being stored in plain JSON config
     const safeUpdates = { ...updates };
     delete safeUpdates.apiKey;
     delete safeUpdates.geminiApiKey;
@@ -76,9 +71,6 @@ function requireSelectedVault(): string {
   return resolvedVault;
 }
 
-// P0 Security: strict path resolution preventing directory traversal and escape.
-// The vault root always comes from the trusted main-process selection/config,
-// never from renderer-controlled IPC payloads.
 function validateAndResolvePath(folder: string, filename: string): string {
   const resolvedVault = requireSelectedVault();
 
@@ -99,6 +91,30 @@ function validateAndResolvePath(folder: string, filename: string): string {
   }
 
   return targetFilePath;
+}
+
+function escapeRegExp(value: string): string {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
+function normalizeSectionId(value: string): string {
+  const normalized = value.toLowerCase().replace(/[^a-z0-9_-]/g, "-").replace(/-+/g, "-").replace(/^-|-$/g, "");
+  return normalized || "managed-section";
+}
+
+function upsertManagedBlock(rawContent: string, sectionId: string, heading: string, body: string): string {
+  const safeId = normalizeSectionId(sectionId);
+  const start = `<!-- nisti:start:${safeId} -->`;
+  const end = `<!-- nisti:end:${safeId} -->`;
+  const block = `${start}\n## ${heading}\n${body.trim()}\n${end}`;
+  const pattern = new RegExp(`${escapeRegExp(start)}[\\s\\S]*?${escapeRegExp(end)}`, "m");
+
+  if (pattern.test(rawContent)) {
+    return rawContent.replace(pattern, block);
+  }
+
+  const trimmed = rawContent.trimEnd();
+  return trimmed ? `${trimmed}\n\n${block}\n` : `${block}\n`;
 }
 
 function createWindow() {
@@ -144,7 +160,6 @@ app.on("window-all-closed", () => {
   }
 });
 
-// IPC Handler: Selection of Obsidian Vault
 ipcMain.handle("vault:select", async () => {
   if (!mainWindow) return null;
 
@@ -160,7 +175,6 @@ ipcMain.handle("vault:select", async () => {
   const vaultPath = path.resolve(result.filePaths[0]);
   selectedVaultPath = vaultPath;
 
-  // Auto-scaffold the 10 standard directories
   for (const folder of STANDARD_FOLDERS) {
     const fullFolderPath = path.join(vaultPath, folder);
     if (!existsSync(fullFolderPath)) {
@@ -178,7 +192,6 @@ ipcMain.handle("vault:select", async () => {
 
 ipcMain.handle("vault:get-path", () => selectedVaultPath);
 
-// IPC Handler: Read all Markdown files from the main-process selected vault only.
 ipcMain.handle("notes:read-all", async () => {
   let targetVault: string;
   try {
@@ -198,7 +211,6 @@ ipcMain.handle("notes:read-all", async () => {
         const relativePath = relativeDir ? path.join(relativeDir, entry.name) : entry.name;
 
         if (entry.isDirectory()) {
-          // Skip hidden folders (.obsidian, .git)
           if (!entry.name.startsWith(".")) {
             await scanDirectory(fullPath, relativePath);
           }
@@ -242,7 +254,6 @@ ipcMain.handle("notes:read-all", async () => {
   return notes;
 });
 
-// IPC Handler: Write Note with main-owned vault root and P0 path validation
 ipcMain.handle("notes:write", async (_, payload: { folder: string; title: string; content: string; frontmatter?: any }) => {
   try {
     const filename = payload.title.endsWith(".md") ? payload.title : `${payload.title}.md`;
@@ -277,7 +288,6 @@ ipcMain.handle("notes:write", async (_, payload: { folder: string; title: string
   }
 });
 
-// IPC Handler: Append to Note safely preserving existing content
 ipcMain.handle("notes:append", async (_, payload: { folder: string; title: string; contentToAppend: string }) => {
   try {
     const filename = payload.title.endsWith(".md") ? payload.title : `${payload.title}.md`;
@@ -303,7 +313,26 @@ ipcMain.handle("notes:append", async (_, payload: { folder: string; title: strin
   }
 });
 
-// IPC Handler: Delete Note safely from the selected vault only
+ipcMain.handle("notes:upsert-section", async (_, payload: { folder: string; title: string; sectionId: string; heading: string; content: string }) => {
+  try {
+    const filename = payload.title.endsWith(".md") ? payload.title : `${payload.title}.md`;
+    const resolvedPath = validateAndResolvePath(payload.folder, filename);
+    const dirPath = path.dirname(resolvedPath);
+
+    if (!existsSync(dirPath)) {
+      await fs.mkdir(dirPath, { recursive: true });
+    }
+
+    const existingContent = existsSync(resolvedPath) ? await fs.readFile(resolvedPath, "utf8") : "";
+    const updatedContent = upsertManagedBlock(existingContent, payload.sectionId, payload.heading, payload.content);
+    await fs.writeFile(resolvedPath, updatedContent, "utf8");
+
+    return { success: true, path: resolvedPath };
+  } catch (err: any) {
+    return { success: false, error: err.message };
+  }
+});
+
 ipcMain.handle("notes:delete", async (_, payload: { folder: string; title: string }) => {
   try {
     const filename = payload.title.endsWith(".md") ? payload.title : `${payload.title}.md`;
@@ -319,7 +348,6 @@ ipcMain.handle("notes:delete", async (_, payload: { folder: string; title: strin
   }
 });
 
-// IPC Handler: System Info
 ipcMain.handle("system:status", () => ({
   os: process.platform,
   vaultPath: selectedVaultPath,
