@@ -1,4 +1,4 @@
-import { app, BrowserWindow, ipcMain, dialog } from "electron";
+import { app, BrowserWindow, ipcMain, dialog, Menu } from "electron";
 import * as path from "path";
 import * as fs from "fs/promises";
 import { existsSync } from "fs";
@@ -125,7 +125,9 @@ function createWindow() {
   mainWindow = new BrowserWindow({
     width: 1360,
     height: 860,
-    title: "Nisti Print PKM Marketing Hub",
+    title: "Nisti Marketing",
+    autoHideMenuBar: true,
+    backgroundColor: "#ffffff",
     webPreferences: {
       preload: existsSync(preloadPath) ? preloadPath : undefined,
       contextIsolation: true,
@@ -133,6 +135,8 @@ function createWindow() {
       sandbox: true,
     }
   });
+
+  mainWindow.setMenuBarVisibility(false);
 
   if (process.env.NODE_ENV === "development") {
     mainWindow.loadURL("http://localhost:3000");
@@ -152,6 +156,7 @@ function createWindow() {
 }
 
 app.whenReady().then(async () => {
+  Menu.setApplicationMenu(null);
   await loadConfig();
   createWindow();
 
@@ -172,7 +177,7 @@ ipcMain.handle("vault:select", async () => {
   if (!mainWindow) return null;
 
   const result = await dialog.showOpenDialog(mainWindow, {
-    title: "Selecione o seu Vault do Obsidian (Nisti Print PKM)",
+    title: "Selecione a pasta raiz do Vault do Obsidian — Nisti Marketing",
     properties: ["openDirectory", "createDirectory"]
   });
 
@@ -358,6 +363,7 @@ ipcMain.handle("notes:delete", async (_, payload: { folder: string; title: strin
 
 ipcMain.handle("system:status", () => ({
   os: process.platform,
+  appName: "Nisti Marketing",
   vaultPath: selectedVaultPath,
   runtime: "electron",
   isDesktop: true,
