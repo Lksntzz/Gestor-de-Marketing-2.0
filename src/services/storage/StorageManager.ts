@@ -377,29 +377,39 @@ export class StorageManager implements IStorageService {
     localStorage.removeItem("obsidian_api_config");
 
     try {
-      const { apiKey, ...nonSecretConfig } = config;
+      const { apiKey, geminiApiKey, ...nonSecretConfig } = config;
 
       if (this.isDesktopRuntime() && window.electronAPI?.setSecret) {
-        await window.electronAPI.setSecret("obsidianApiKey", apiKey || "");
+        await Promise.all([
+          window.electronAPI.setSecret("obsidianApiKey", apiKey || ""),
+          window.electronAPI.setSecret("geminiApiKey", geminiApiKey || ""),
+        ]);
         localStorage.setItem(
           STORAGE_KEYS.API_CONFIG_SECURE,
-          JSON.stringify({ ...nonSecretConfig, apiKey: "" })
+          JSON.stringify({ ...nonSecretConfig, apiKey: "", geminiApiKey: "" })
         );
         return;
       }
 
-      const encryptedKey = await encryptSecret(apiKey || "");
+      const [encryptedObsidianKey, encryptedGeminiKey] = await Promise.all([
+        encryptSecret(apiKey || ""),
+        encryptSecret(geminiApiKey || ""),
+      ]);
       localStorage.setItem(
         STORAGE_KEYS.API_CONFIG_SECURE,
-        JSON.stringify({ ...nonSecretConfig, apiKey: encryptedKey })
+        JSON.stringify({
+          ...nonSecretConfig,
+          apiKey: encryptedObsidianKey,
+          geminiApiKey: encryptedGeminiKey,
+        })
       );
     } catch (e) {
-      const { apiKey: _apiKey, ...nonSecretConfig } = config;
+      const { apiKey: _apiKey, geminiApiKey: _geminiApiKey, ...nonSecretConfig } = config;
       localStorage.setItem(
         STORAGE_KEYS.API_CONFIG_SECURE,
-        JSON.stringify({ ...nonSecretConfig, apiKey: "" })
+        JSON.stringify({ ...nonSecretConfig, apiKey: "", geminiApiKey: "" })
       );
-      console.warn("Could not persist API credential securely; secret kept only in memory for this session.", e);
+      console.warn("Could not persist API credentials securely; secrets kept only in memory for this session.", e);
     } finally {
       localStorage.removeItem("obsidian_api_config");
     }
@@ -412,34 +422,47 @@ export class StorageManager implements IStorageService {
         const parsed = JSON.parse(rawSecure);
 
         if (this.isDesktopRuntime() && window.electronAPI?.getSecret) {
-          const secureKey = await window.electronAPI.getSecret("obsidianApiKey");
+          const [obsidianKey, geminiKey] = await Promise.all([
+            window.electronAPI.getSecret("obsidianApiKey"),
+            window.electronAPI.getSecret("geminiApiKey"),
+          ]);
           return {
             ...defaultConfig,
             ...parsed,
-            apiKey: secureKey || "",
+            apiKey: obsidianKey || "",
+            geminiApiKey: geminiKey || "",
           };
         }
 
-        const decryptedKey = await decryptSecret(parsed.apiKey || "");
+        const [decryptedObsidianKey, decryptedGeminiKey] = await Promise.all([
+          decryptSecret(parsed.apiKey || ""),
+          decryptSecret(parsed.geminiApiKey || ""),
+        ]);
         return {
           ...defaultConfig,
           ...parsed,
-          apiKey: decryptedKey,
+          apiKey: decryptedObsidianKey,
+          geminiApiKey: decryptedGeminiKey,
         };
       }
 
       const legacyRaw = localStorage.getItem("obsidian_api_config");
       if (legacyRaw) {
-        const legacyParsed = JSON.parse(legacyRaw);
+        const legacyParsed = JSON.parse(legacyRaw) as ObsidianApiConfig;
         localStorage.removeItem("obsidian_api_config");
         await this.saveApiConfig(legacyParsed);
-        return legacyParsed;
+        return {
+          ...defaultConfig,
+          ...legacyParsed,
+          apiKey: legacyParsed.apiKey || "",
+          geminiApiKey: legacyParsed.geminiApiKey || "",
+        };
       }
     } catch (e) {
-      console.warn("Could not load API config securely, using defaults without persisted secret:", e);
+      console.warn("Could not load API config securely, using defaults without persisted secrets:", e);
     }
 
-    return { ...defaultConfig, apiKey: "" };
+    return { ...defaultConfig, apiKey: "", geminiApiKey: "" };
   }
 
   // ==========================================
@@ -496,8 +519,18 @@ export class StorageManager implements IStorageService {
         localStorage.clear();
       }
 
-      if (this.isDesktopRuntime() && window.electronAPI?.setSecret) {
-        await window.electronAPI.setSecret("obsidianApiKey", "");
+      if (this.isDesktopRuntime() && window.electronAPI) {
+        if (window.electronAPI.deleteSecret) {
+          await Promise.all([
+            window.electronAPI.deleteSecret("obsidianApiKey"),
+            window.electronAPI.deleteSecret("geminiApiKey"),
+          ]);
+        } else if (window.electronAPI.setSecret) {
+          await Promise.all([
+            window.electronAPI.setSecret("obsidianApiKey", ""),
+            window.electronAPI.setSecret("geminiApiKey", ""),
+          ]);
+        }
       }
     } catch (e) {
       console.error("Error during factory reset:", e);
