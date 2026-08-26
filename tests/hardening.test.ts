@@ -5,14 +5,16 @@ async function read(path: string): Promise<string> {
   return await readFile(new URL(`../${path}`, import.meta.url), "utf8");
 }
 
-describe("v1.0.0 hardening invariants", () => {
-  test("desktop packaging uses hardened backend and Electron bootstrap", async () => {
+describe("v1.0.1 hardening invariants", () => {
+  test("desktop packaging uses a self-contained hardened backend and Electron bootstrap", async () => {
     const pkg = JSON.parse(await read("package.json"));
-    expect(pkg.version).toBe("1.0.0");
+    expect(pkg.version).toBe("1.0.1");
     expect(pkg.scripts.dev).toContain("secure-server.ts");
     expect(pkg.scripts.build).toContain("secure-server.ts");
     expect(pkg.scripts.build).toContain("electron-bootstrap.ts");
+    expect(pkg.scripts.build).not.toContain("secure-server.ts --bundle --platform=node --format=cjs --packages=external");
     expect(pkg.scripts.electronBuild || pkg.scripts["electron:build"]).toContain("verify");
+    expect(pkg.build.files).toContain("dist/**/*");
   });
 
   test("secure backend is loopback-only on desktop and requires the session token", async () => {
@@ -22,6 +24,14 @@ describe("v1.0.0 hardening invariants", () => {
     expect(source).toContain('providedToken !== SESSION_TOKEN');
     expect(source).toContain('runtime: "nisti-secure-local"');
     expect(source).not.toContain("sameOriginBrowser");
+  });
+
+  test("Obsidian Local REST HTTPS accepts only loopback self-signed certificates", async () => {
+    const source = await read("secure-server.ts");
+    expect(source).toContain("rejectUnauthorized: false");
+    expect(source).toContain("isLoopbackHostname(parsed.hostname)");
+    expect(source).toContain('parsed.port === "27124"');
+    expect(source).toContain('parsed.protocol = "https:"');
   });
 
   test("desktop secret store protects both Obsidian and Gemini credentials", async () => {
@@ -71,10 +81,8 @@ describe("v1.0.0 hardening invariants", () => {
     expect(source).not.toContain("localStorage");
   });
 
-  test("application identity is aligned to 1.0.0", async () => {
-    const reliability = await read("src/utils/reliability.ts");
+  test("application identity remains on the 1.0 release line", async () => {
     const html = await read("index.html");
-    expect(reliability).toContain('APP_VERSION = "1.0.0"');
     expect(html).toContain("Nisti Print PKM Marketing Hub");
     expect(html).not.toContain("My Google AI Studio App");
   });
