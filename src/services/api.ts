@@ -1,9 +1,23 @@
 import { ObsidianApiConfig } from "../types";
 import { localDateKey, upsertManagedSection } from "../utils/reliability";
+import { StorageManager } from "./storage/StorageManager";
 
 let cachedSessionToken: string | null = null;
+const storage = StorageManager.getInstance();
 
-async function getSessionHeaders(): Promise<Record<string, string>> {
+const DEFAULT_API_CONFIG: ObsidianApiConfig = {
+  endpoint: "http://127.0.0.1:27124",
+  apiKey: "",
+  geminiApiKey: "",
+  vaultName: "MarketingVault",
+  useHttps: false,
+  autoSync: true,
+  syncIntervalSeconds: 60,
+  connectionStatus: "disconnected",
+  allowSelfSignedCerts: true,
+};
+
+async function getSessionHeaders(geminiApiKeyOverride?: string): Promise<Record<string, string>> {
   if (!cachedSessionToken) {
     try {
       const res = await fetch("/api/auth/session", { cache: "no-store" });
@@ -23,17 +37,15 @@ async function getSessionHeaders(): Promise<Record<string, string>> {
     headers["x-app-session-token"] = cachedSessionToken;
   }
 
-  // Load custom Gemini API key from localStorage under "obsidian_api_config"
   try {
-    const savedConfig = localStorage.getItem("obsidian_api_config");
-    if (savedConfig) {
-      const configObj = JSON.parse(savedConfig);
-      if (configObj.geminiApiKey) {
-        headers["x-gemini-api-key"] = configObj.geminiApiKey;
-      }
+    const configuredKey = geminiApiKeyOverride?.trim()
+      ? geminiApiKeyOverride.trim()
+      : (await storage.loadApiConfig(DEFAULT_API_CONFIG)).geminiApiKey?.trim();
+    if (configuredKey) {
+      headers["x-gemini-api-key"] = configuredKey;
     }
   } catch (e) {
-    console.error("Failed to parse obsidian_api_config for Gemini API Key", e);
+    console.warn("Could not load Gemini credential from secure storage.", e);
   }
 
   return headers;
@@ -83,10 +95,56 @@ export interface ExtractTasksPayload {
 export const api = {
   async checkHealth() {
     try {
-      const res = await fetch("/api/health", { cache: "no-store" });
-      return await res.json();
+      const [res, config] = await Promise.all([
+        fetch("/api/health", { cache: "no-store" }),
+        storage.loadApiConfig(DEFAULT_API_CONFIG),
+      ]);
+      const health = await res.json();
+      return {
+        ...health,
+        hasApiKey: Boolean(health?.hasApiKey || config.geminiApiKey?.trim()),
+      };
     } catch {
       return { status: "offline", hasApiKey: false };
+    }
+  },
+
+  async testGeminiConnection(geminiApiKey: string): Promise<{ success: boolean; message: string; model?: string }> {
+    const cleanKey = geminiApiKey.trim();
+    if (!cleanKey) {
+      return { success: false, message: "Informe a chave API do Gemini antes de testar a conexão." };
+    }
+
+    try {
+      const headers = await getSessionHeaders(cleanKey);
+      const res = await fetch("/api/gemini/analyze-vault", {
+        method: "POST",
+        headers,
+        body: JSON.stringify({ vaultNotesOverview: [], engineMode: "ai" }),
+      });
+      const data = await res.json().catch(() => ({}));
+
+      if (!res.ok) {
+        return { success: false, message: data.error || `Gemini retornou HTTP ${res.status}.` };
+      }
+
+      if (data?.success && data?.wasFallback === false) {
+        return {
+          success: true,
+          message: `Conexão com Gemini confirmada${data.usedModel ? ` usando ${data.usedModel}` : ""}.`,
+          model: data.usedModel,
+        };
+      }
+
+      return {
+        success: false,
+        message: "A chave não foi validada pela IA. Verifique a API key, a cota e os modelos habilitados no Google AI Studio.",
+      };
+    } catch (err: any) {
+      return {
+        success: false,
+        message: err.message || "Não foi possível conectar ao Gemini.",
+      };
     }
   },
 
