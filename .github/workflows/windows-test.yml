@@ -1,0 +1,45 @@
+name: Windows 1.0.0 Test Build
+
+on:
+  push:
+    branches:
+      - "build/v1.0.0-windows-test"
+
+permissions:
+  contents: read
+
+jobs:
+  build-windows-test:
+    runs-on: windows-latest
+    timeout-minutes: 30
+
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: latest
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Install Dependencies
+        run: bun install --frozen-lockfile
+
+      - name: Verify TypeScript, Tests and Production Build
+        run: bun run verify
+
+      - name: Build Windows NSIS & Portable Installer
+        env:
+          CSC_IDENTITY_AUTO_DISCOVERY: "false"
+        run: bunx electron-builder@26.0.12 --win --x64 --publish never
+
+      - name: Upload Windows Test Installers
+        uses: actions/upload-artifact@v4
+        with:
+          name: Nisti-Marketing-Hub-1.0.0-Windows-Test
+          path: dist-electron/*.exe
