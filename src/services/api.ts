@@ -126,7 +126,7 @@ export const api = {
             title = pathParts.slice(1).join("/").replace(/\.md$/, "");
           }
 
-          const writeRes = await window.electronAPI.writeNote(vaultPath, folder, title, markdownContent);
+          const writeRes = await window.electronAPI.writeNote(folder, title, markdownContent);
           if (writeRes.success) {
             return { success: true, message: "Nota gravada diretamente via Electron" };
           }
@@ -160,7 +160,6 @@ export const api = {
         if (vaultPath) {
           const today = new Date().toISOString().split("T")[0];
           const appendRes = await window.electronAPI.appendNote(
-            vaultPath,
             "00_Inbox",
             `Daily-${today}`,
             `\n${contentToAppend}`

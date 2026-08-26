@@ -33,20 +33,20 @@ export interface Frontmatter {
 
 export interface ObsidianNote {
   id: string;
-  path: string; // e.g. "01_Estrategia/Brand Voice & Posicionamento.md"
+  path: string;
   title: string;
   folder: string;
   content: string;
   frontmatter: Frontmatter;
   tags: string[];
-  wikilinks: string[]; // Links like [[Persona - Tech Lead]]
+  wikilinks: string[];
   lastModified: string;
   sizeBytes?: number;
   syncedWithApi?: boolean;
 }
 
 export interface MarketingChannelContent {
-  channel: string; // "LinkedIn" | "Instagram" | "Email Newsletter" | "Blog SEO" | "Twitter / X" | "TikTok / Reels" | "Google Ads"
+  channel: string;
   title: string;
   copy: string;
   callToAction: string;
@@ -64,7 +64,7 @@ export interface MarketingCampaign {
   status: "draft" | "scheduled" | "active" | "completed";
   channels: string[];
   channelsContent: MarketingChannelContent[];
-  linkedNotePaths: string[]; // Source notes from Obsidian vault
+  linkedNotePaths: string[];
   obsidianOutputNotePath?: string;
   summary: string;
   strategy: string;
@@ -83,12 +83,12 @@ export interface MarketingTask {
   channel?: string;
   priority: TaskPriority;
   status: TaskStatus;
-  dueDate: string; // YYYY-MM-DD
-  dueTime?: string; // HH:mm
-  reminderDate?: string; // YYYY-MM-DD
-  reminderTime?: string; // HH:mm
-  obsidianTaskString: string; // "- [ ] Task title 📅 YYYY-MM-DD ⏰ HH:mm #marketing"
-  obsidianFilePath?: string; // e.g. "Daily Notes/2026-08-25.md" or "03 - Campanhas/Q3 Growth.md"
+  dueDate: string;
+  dueTime?: string;
+  reminderDate?: string;
+  reminderTime?: string;
+  obsidianTaskString: string;
+  obsidianFilePath?: string;
   linkedCampaignId?: string;
   tags: string[];
   isReminderActive: boolean;
@@ -100,8 +100,8 @@ export interface MarketingReminder {
   taskId: string;
   taskTitle: string;
   channel?: string;
-  triggerDate: string; // YYYY-MM-DD
-  triggerTime: string; // HH:mm
+  triggerDate: string;
+  triggerTime: string;
   status: "pending" | "triggered" | "dismissed";
   obsidianReminderString: string;
   obsidianFilePath?: string;
@@ -112,7 +112,7 @@ export interface AutomationRule {
   name: string;
   description: string;
   trigger: "on_campaign_created" | "daily_schedule" | "on_note_tagged" | "reminder_triggered";
-  conditionParam?: string; // e.g. "#campaign-ready"
+  conditionParam?: string;
   action: "create_tasks_in_daily_note" | "schedule_reminders" | "push_to_obsidian_api" | "generate_status_report";
   enabled: boolean;
   lastRun?: string;
@@ -120,7 +120,7 @@ export interface AutomationRule {
 }
 
 export interface ObsidianApiConfig {
-  endpoint: string; // e.g. "http://127.0.0.1:27124"
+  endpoint: string;
   apiKey: string;
   vaultName: string;
   useHttps: boolean;
@@ -241,9 +241,9 @@ export interface PostHistoryItem {
   title: string;
   channel: string;
   format: "carrossel" | "reels_video" | "artigo_blog" | "newsletter" | "thread_post";
-  publishedAt: string; // YYYY-MM-DD
+  publishedAt: string;
   dayOfWeek: string;
-  timeSlot: string; // e.g. "08:30"
+  timeSlot: string;
   targetNiche: NicheSegmentKey;
   emotionalDriver: EmotionalDriverKey;
   hookUsed: string;
@@ -258,7 +258,7 @@ export interface PostHistoryItem {
     ctrPercent: number;
     conversionRatePercent: number;
   };
-  performanceScore: number; // 0-100
+  performanceScore: number;
   learnings: string;
   whatWorked: string[];
   whatToAvoid: string[];
@@ -287,7 +287,7 @@ export interface DailyRoutineSlot {
   primaryEmotion: EmotionalDriverKey;
   primaryNiche: NicheSegmentKey;
   recommendedFormat: "carrossel" | "reels_video" | "artigo_blog" | "newsletter" | "thread_post";
-  optimalTime: string; // e.g. "08:30"
+  optimalTime: string;
   suggestedHookPattern: string;
   plannedAction: string;
   status: "planejando" | "em-producao" | "agendado" | "publicado";
@@ -302,14 +302,16 @@ declare global {
       isElectron: () => boolean;
       selectVault: () => Promise<{ vaultPath: string; foldersCreated: string[] } | null>;
       getVaultPath: () => Promise<string | null>;
-      readNotes: (vaultPath: string) => Promise<any[]>;
-      writeNote: (vaultPath: string, folder: string, title: string, content: string, frontmatter?: any) => Promise<{ success: boolean; path?: string; error?: string }>;
-      appendNote?: (vaultPath: string, folder: string, title: string, contentToAppend: string) => Promise<{ success: boolean; path?: string; error?: string }>;
-      deleteNote: (vaultPath: string, folder: string, title: string) => Promise<{ success: boolean; error?: string }>;
+      readNotes: () => Promise<any[]>;
+      writeNote: (folder: string, title: string, content: string, frontmatter?: any) => Promise<{ success: boolean; path?: string; error?: string }>;
+      appendNote: (folder: string, title: string, contentToAppend: string) => Promise<{ success: boolean; path?: string; error?: string }>;
+      deleteNote: (folder: string, title: string) => Promise<{ success: boolean; error?: string }>;
+      setSecret: (name: string, value: string) => Promise<{ success: boolean }>;
+      getSecret: (name: string) => Promise<string>;
+      deleteSecret: (name: string) => Promise<{ success: boolean }>;
       processKnowledgeLocal: (payload: any) => Promise<any>;
       generateCampaignLocal: (payload: any) => Promise<any>;
       getSystemStatus: () => Promise<any>;
     };
   }
 }
-

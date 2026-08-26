@@ -31,7 +31,7 @@ async function loadConfig() {
       const data = await fs.readFile(configFilePath, "utf8");
       const config = JSON.parse(data);
       if (config.vaultPath && existsSync(config.vaultPath)) {
-        selectedVaultPath = config.vaultPath;
+        selectedVaultPath = path.resolve(config.vaultPath);
       }
     }
   } catch (err) {
@@ -47,6 +47,7 @@ async function saveConfig(updates: any) {
       const data = await fs.readFile(configFilePath, "utf8");
       currentConfig = JSON.parse(data);
     }
+
     // Strictly strip any secrets or API tokens from being stored in plain JSON config
     const safeUpdates = { ...updates };
     delete safeUpdates.apiKey;
@@ -61,11 +62,25 @@ async function saveConfig(updates: any) {
   }
 }
 
-// P0 Security: Strict path resolution preventing directory traversal and escape
-function validateAndResolvePath(vaultPath: string, folder: string, filename: string): string {
-  if (!vaultPath || typeof vaultPath !== "string") {
-    throw new Error("Caminho do Vault inválido ou não configurado.");
+function requireSelectedVault(): string {
+  if (!selectedVaultPath) {
+    throw new Error("Vault do Obsidian não selecionado.");
   }
+
+  const resolvedVault = path.resolve(selectedVaultPath);
+  if (!existsSync(resolvedVault)) {
+    selectedVaultPath = null;
+    throw new Error("Vault configurado não existe mais ou não está acessível.");
+  }
+
+  return resolvedVault;
+}
+
+// P0 Security: strict path resolution preventing directory traversal and escape.
+// The vault root always comes from the trusted main-process selection/config,
+// never from renderer-controlled IPC payloads.
+function validateAndResolvePath(folder: string, filename: string): string {
+  const resolvedVault = requireSelectedVault();
 
   const cleanFilename = filename
     .replace(/[<>:"/\\|?*\x00-\x1F]/g, "_")
@@ -77,12 +92,10 @@ function validateAndResolvePath(vaultPath: string, folder: string, filename: str
   }
 
   const cleanFolder = STANDARD_FOLDERS.includes(folder) ? folder : "00_Inbox";
-  const resolvedVault = path.resolve(vaultPath);
   const targetFilePath = path.resolve(resolvedVault, cleanFolder, cleanFilename);
 
-  // Strict boundary check: target must be inside resolvedVault
-  if (!targetFilePath.startsWith(resolvedVault + path.sep) && targetFilePath !== resolvedVault) {
-    throw new Error("Violação de segurança: Tentativa de acesso fora do limite do Vault Obsidian.");
+  if (!targetFilePath.startsWith(resolvedVault + path.sep)) {
+    throw new Error("Violação de segurança: tentativa de acesso fora do limite do Vault Obsidian.");
   }
 
   return targetFilePath;
@@ -144,7 +157,7 @@ ipcMain.handle("vault:select", async () => {
     return null;
   }
 
-  const vaultPath = result.filePaths[0];
+  const vaultPath = path.resolve(result.filePaths[0]);
   selectedVaultPath = vaultPath;
 
   // Auto-scaffold the 10 standard directories
@@ -163,14 +176,14 @@ ipcMain.handle("vault:select", async () => {
   };
 });
 
-ipcMain.handle("vault:get-path", () => {
-  return selectedVaultPath;
-});
+ipcMain.handle("vault:get-path", () => selectedVaultPath);
 
-// IPC Handler: Read all Markdown files safely
-ipcMain.handle("notes:read-all", async (_, vaultPath: string) => {
-  const targetVault = vaultPath || selectedVaultPath;
-  if (!targetVault || !existsSync(targetVault)) {
+// IPC Handler: Read all Markdown files from the main-process selected vault only.
+ipcMain.handle("notes:read-all", async () => {
+  let targetVault: string;
+  try {
+    targetVault = requireSelectedVault();
+  } catch {
     return [];
   }
 
@@ -196,7 +209,7 @@ ipcMain.handle("notes:read-all", async (_, vaultPath: string) => {
           let frontmatter: any = {};
           let body = content;
           const fmMatch = content.match(/^---\r?\n([\s\S]*?)\r?\n---/);
-          
+
           if (fmMatch) {
             body = content.slice(fmMatch[0].length).trim();
             const fmLines = fmMatch[1].split("\n");
@@ -229,14 +242,11 @@ ipcMain.handle("notes:read-all", async (_, vaultPath: string) => {
   return notes;
 });
 
-// IPC Handler: Write Note with P0 Path Validation
-ipcMain.handle("notes:write", async (_, payload: { vaultPath?: string; folder: string; title: string; content: string; frontmatter?: any }) => {
+// IPC Handler: Write Note with main-owned vault root and P0 path validation
+ipcMain.handle("notes:write", async (_, payload: { folder: string; title: string; content: string; frontmatter?: any }) => {
   try {
-    const vault = payload.vaultPath || selectedVaultPath;
-    if (!vault) throw new Error("Vault path is missing.");
-
     const filename = payload.title.endsWith(".md") ? payload.title : `${payload.title}.md`;
-    const resolvedPath = validateAndResolvePath(vault, payload.folder, filename);
+    const resolvedPath = validateAndResolvePath(payload.folder, filename);
 
     const dirPath = path.dirname(resolvedPath);
     if (!existsSync(dirPath)) {
@@ -268,13 +278,10 @@ ipcMain.handle("notes:write", async (_, payload: { vaultPath?: string; folder: s
 });
 
 // IPC Handler: Append to Note safely preserving existing content
-ipcMain.handle("notes:append", async (_, payload: { vaultPath?: string; folder: string; title: string; contentToAppend: string }) => {
+ipcMain.handle("notes:append", async (_, payload: { folder: string; title: string; contentToAppend: string }) => {
   try {
-    const vault = payload.vaultPath || selectedVaultPath;
-    if (!vault) throw new Error("Vault path is missing.");
-
     const filename = payload.title.endsWith(".md") ? payload.title : `${payload.title}.md`;
-    const resolvedPath = validateAndResolvePath(vault, payload.folder, filename);
+    const resolvedPath = validateAndResolvePath(payload.folder, filename);
 
     const dirPath = path.dirname(resolvedPath);
     if (!existsSync(dirPath)) {
@@ -296,14 +303,11 @@ ipcMain.handle("notes:append", async (_, payload: { vaultPath?: string; folder: 
   }
 });
 
-// IPC Handler: Delete Note safely
-ipcMain.handle("notes:delete", async (_, payload: { vaultPath?: string; folder: string; title: string }) => {
+// IPC Handler: Delete Note safely from the selected vault only
+ipcMain.handle("notes:delete", async (_, payload: { folder: string; title: string }) => {
   try {
-    const vault = payload.vaultPath || selectedVaultPath;
-    if (!vault) throw new Error("Vault path is missing.");
-
     const filename = payload.title.endsWith(".md") ? payload.title : `${payload.title}.md`;
-    const resolvedPath = validateAndResolvePath(vault, payload.folder, filename);
+    const resolvedPath = validateAndResolvePath(payload.folder, filename);
 
     if (existsSync(resolvedPath)) {
       await fs.unlink(resolvedPath);
@@ -316,11 +320,9 @@ ipcMain.handle("notes:delete", async (_, payload: { vaultPath?: string; folder: 
 });
 
 // IPC Handler: System Info
-ipcMain.handle("system:status", () => {
-  return {
-    os: process.platform,
-    vaultPath: selectedVaultPath,
-    runtime: "electron",
-    isDesktop: true,
-  };
-});
+ipcMain.handle("system:status", () => ({
+  os: process.platform,
+  vaultPath: selectedVaultPath,
+  runtime: "electron",
+  isDesktop: true,
+}));

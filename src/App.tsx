@@ -131,7 +131,7 @@ export default function App() {
 
   const [apiConfig, setApiConfig] = useState<ObsidianApiConfig>({
     endpoint: "http://127.0.0.1:27124",
-    apiKey: "obsidian_marketing_token",
+    apiKey: "",
     vaultName: "MarketingVault",
     useHttps: false,
     autoSync: true,
@@ -139,20 +139,24 @@ export default function App() {
     connectionStatus: "disconnected",
     allowSelfSignedCerts: true,
   });
+  const [isApiConfigLoaded, setIsApiConfigLoaded] = useState(false);
 
-  // Load API config with AES-GCM decryption on mount
+  // Load/migrate API config before enabling persistence, avoiding a race that
+  // could overwrite a previously stored credential with defaults on startup.
   useEffect(() => {
     StorageManager.getInstance()
       .loadApiConfig(apiConfig)
       .then((loaded) => {
         if (loaded) setApiConfig(loaded);
-      });
+      })
+      .finally(() => setIsApiConfigLoaded(true));
   }, []);
 
-  // Save encrypted API config on changes (omitting plaintext from legacy localStorage)
+  // Persist only through StorageManager (safeStorage on Electron, AES-GCM on web).
   useEffect(() => {
-    StorageManager.getInstance().saveApiConfig(apiConfig);
-  }, [apiConfig]);
+    if (!isApiConfigLoaded) return;
+    void StorageManager.getInstance().saveApiConfig(apiConfig);
+  }, [apiConfig, isApiConfigLoaded]);
 
   // Selected Note & Audit State
   const [selectedNote, setSelectedNote] = useState<ObsidianNote | null>(notes[0] || null);
@@ -231,10 +235,6 @@ export default function App() {
   useEffect(() => {
     localStorage.setItem("obsidian_weekly_routine", JSON.stringify(weeklyRoutine));
   }, [weeklyRoutine]);
-
-  useEffect(() => {
-    localStorage.setItem("obsidian_api_config", JSON.stringify(apiConfig));
-  }, [apiConfig]);
 
   useEffect(() => {
     localStorage.setItem("obsidian_engine_mode", engineMode);
