@@ -45,6 +45,15 @@ describe("v1.0.0 hardening invariants", () => {
     expect(source).not.toContain('localStorage.getItem("obsidian_api_config")');
   });
 
+  test("local engine keeps unsupported business claims pending", async () => {
+    const source = await read("src/utils/localEngine.ts");
+    expect(source).toContain("CONFIRMADO, HIPÓTESE ou PENDENTE");
+    expect(source).toContain("não deve inventar preços, prazos, métricas");
+    expect(source).not.toContain("Margem de até 150%");
+    expect(source).not.toContain("Produção ágil em até 5 dias úteis");
+    expect(source).not.toContain("a partir de 10 unidades");
+  });
+
   test("credential crypto has no deterministic key or reversible fallback", async () => {
     const source = await read("src/utils/crypto.ts");
     expect(source).toContain("enc_v3:");
