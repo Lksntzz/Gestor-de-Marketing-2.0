@@ -2,12 +2,11 @@ import { app, BrowserWindow, ipcMain, dialog } from "electron";
 import * as path from "path";
 import * as fs from "fs/promises";
 import { existsSync } from "fs";
-import { GoogleGenAI } from "@google/genai";
 
 let mainWindow: BrowserWindow | null = null;
 let selectedVaultPath: string | null = null;
 
-// Standard Obsidian vault folders from the prompt
+// Official 10 Obsidian vault folders
 const STANDARD_FOLDERS = [
   "00_Inbox",
   "01_Estrategia",
@@ -21,7 +20,7 @@ const STANDARD_FOLDERS = [
   "99_Templates"
 ];
 
-// Local Config Path to persist vault selection and settings offline
+// Local Config Path
 const configDir = app.getPath("userData");
 const configFilePath = path.join(configDir, "nisti_config.json");
 
@@ -33,7 +32,6 @@ async function loadConfig() {
       const config = JSON.parse(data);
       if (config.vaultPath && existsSync(config.vaultPath)) {
         selectedVaultPath = config.vaultPath;
-        console.log("Vault path loaded from config:", selectedVaultPath);
       }
     }
   } catch (err) {
@@ -49,42 +47,62 @@ async function saveConfig(updates: any) {
       const data = await fs.readFile(configFilePath, "utf8");
       currentConfig = JSON.parse(data);
     }
-    const finalConfig = { ...currentConfig, ...updates };
+    // Strictly strip any secrets or API tokens from being stored in plain JSON config
+    const safeUpdates = { ...updates };
+    delete safeUpdates.apiKey;
+    delete safeUpdates.geminiApiKey;
+    delete safeUpdates.token;
+    delete safeUpdates.authorization;
+
+    const finalConfig = { ...currentConfig, ...safeUpdates };
     await fs.writeFile(configFilePath, JSON.stringify(finalConfig, null, 2), "utf8");
   } catch (err) {
     console.error("Failed to save config:", err);
   }
 }
 
-// Security sandbox helper to prevent path traversal
+// P0 Security: Strict path resolution preventing directory traversal and escape
 function validateAndResolvePath(vaultPath: string, folder: string, filename: string): string {
-  // Clean elements and resolve
-  const resolvedVault = path.resolve(vaultPath);
-  const targetFilePath = path.resolve(resolvedVault, folder, filename);
-
-  // Strictly check if the resulting path stays within the authorized vault directory
-  if (!targetFilePath.startsWith(resolvedVault)) {
-    throw new Error("Acesso de arquivo não autorizado: Fora do limite do Vault do Obsidian.");
+  if (!vaultPath || typeof vaultPath !== "string") {
+    throw new Error("Caminho do Vault inválido ou não configurado.");
   }
+
+  const cleanFilename = filename
+    .replace(/[<>:"/\\|?*\x00-\x1F]/g, "_")
+    .replace(/\.\.+/g, "_")
+    .trim();
+
+  if (!cleanFilename) {
+    throw new Error("Nome de arquivo inválido.");
+  }
+
+  const cleanFolder = STANDARD_FOLDERS.includes(folder) ? folder : "00_Inbox";
+  const resolvedVault = path.resolve(vaultPath);
+  const targetFilePath = path.resolve(resolvedVault, cleanFolder, cleanFilename);
+
+  // Strict boundary check: target must be inside resolvedVault
+  if (!targetFilePath.startsWith(resolvedVault + path.sep) && targetFilePath !== resolvedVault) {
+    throw new Error("Violação de segurança: Tentativa de acesso fora do limite do Vault Obsidian.");
+  }
+
   return targetFilePath;
 }
 
 function createWindow() {
   mainWindow = new BrowserWindow({
-    width: 1280,
-    height: 800,
-    title: "Nisti Marketing Local-First Desktop",
+    width: 1360,
+    height: 860,
+    title: "Nisti Print PKM Marketing Hub (Desktop Local-First)",
     webPreferences: {
       preload: path.join(__dirname, "dist", "preload.cjs"),
       contextIsolation: true,
-      nodeIntegration: false
+      nodeIntegration: false,
+      sandbox: true,
     }
   });
 
-  // Load from local build or dev server
   if (process.env.NODE_ENV === "development") {
     mainWindow.loadURL("http://localhost:3000");
-    mainWindow.webContents.openDevTools();
   } else {
     mainWindow.loadFile(path.join(__dirname, "dist", "index.html"));
   }
@@ -94,7 +112,6 @@ function createWindow() {
   });
 }
 
-// Initialize Electron app
 app.whenReady().then(async () => {
   await loadConfig();
   createWindow();
@@ -117,7 +134,7 @@ ipcMain.handle("vault:select", async () => {
   if (!mainWindow) return null;
 
   const result = await dialog.showOpenDialog(mainWindow, {
-    title: "Selecione o seu Vault do Obsidian",
+    title: "Selecione o seu Vault do Obsidian (Nisti Print PKM)",
     properties: ["openDirectory", "createDirectory"]
   });
 
@@ -128,7 +145,7 @@ ipcMain.handle("vault:select", async () => {
   const vaultPath = result.filePaths[0];
   selectedVaultPath = vaultPath;
 
-  // Scaffold the standard directories as requested if they don't already exist
+  // Auto-scaffold the 10 standard directories
   for (const folder of STANDARD_FOLDERS) {
     const fullFolderPath = path.join(vaultPath, folder);
     if (!existsSync(fullFolderPath)) {
@@ -136,7 +153,6 @@ ipcMain.handle("vault:select", async () => {
     }
   }
 
-  // Persist the vault path in local storage
   await saveConfig({ vaultPath });
 
   return {
@@ -149,9 +165,10 @@ ipcMain.handle("vault:get-path", () => {
   return selectedVaultPath;
 });
 
-// IPC Handler: Read all Markdown files from Vault
+// IPC Handler: Read all Markdown files safely
 ipcMain.handle("notes:read-all", async (_, vaultPath: string) => {
-  if (!vaultPath || !existsSync(vaultPath)) {
+  const targetVault = vaultPath || selectedVaultPath;
+  if (!targetVault || !existsSync(targetVault)) {
     return [];
   }
 
@@ -163,16 +180,17 @@ ipcMain.handle("notes:read-all", async (_, vaultPath: string) => {
 
       for (const entry of entries) {
         const fullPath = path.join(currentDir, entry.name);
-        const relativePath = path.join(relativeDir, entry.name);
+        const relativePath = relativeDir ? path.join(relativeDir, entry.name) : entry.name;
 
         if (entry.isDirectory()) {
-          // Recursively read markdown vaults
-          await scanDirectory(fullPath, relativePath);
+          // Skip hidden folders (.obsidian, .git)
+          if (!entry.name.startsWith(".")) {
+            await scanDirectory(fullPath, relativePath);
+          }
         } else if (entry.isFile() && entry.name.endsWith(".md")) {
           const content = await fs.readFile(fullPath, "utf8");
           const stats = await fs.stat(fullPath);
 
-          // Simple Frontmatter Parser for local indexing without dependencies
           let frontmatter: any = {};
           let body = content;
           const fmMatch = content.match(/^---\r?\n([\s\S]*?)\r?\n---/);
@@ -191,7 +209,7 @@ ipcMain.handle("notes:read-all", async (_, vaultPath: string) => {
           }
 
           notes.push({
-            title: entry.name.replace(".md", ""),
+            title: entry.name.replace(/\.md$/, ""),
             folder: relativeDir || "00_Inbox",
             content: body,
             frontmatter,
@@ -201,68 +219,77 @@ ipcMain.handle("notes:read-all", async (_, vaultPath: string) => {
         }
       }
     } catch (err) {
-      console.error("Error scanning directory:", currentDir, err);
+      console.error("Error scanning vault directory:", err);
     }
   }
 
-  await scanDirectory(vaultPath);
+  await scanDirectory(targetVault);
   return notes;
 });
 
-// IPC Handler: Write Note
-ipcMain.handle("notes:write", async (_, { vaultPath, folder, title, content, frontmatter }) => {
+// IPC Handler: Write Note with P0 Path Validation
+ipcMain.handle("notes:write", async (_, payload: { vaultPath?: string; folder: string; title: string; content: string; frontmatter?: any }) => {
   try {
-    const filename = `${title}.md`;
-    const resolvedPath = validateAndResolvePath(vaultPath, folder, filename);
+    const vault = payload.vaultPath || selectedVaultPath;
+    if (!vault) throw new Error("Vault path is missing.");
 
-    // Create target directory if it doesn't exist
+    const filename = payload.title.endsWith(".md") ? payload.title : `${payload.title}.md`;
+    const resolvedPath = validateAndResolvePath(vault, payload.folder, filename);
+
     const dirPath = path.dirname(resolvedPath);
     if (!existsSync(dirPath)) {
       await fs.mkdir(dirPath, { recursive: true });
     }
 
-    // Build frontmatter block
     let fileContent = "";
-    if (frontmatter && Object.keys(frontmatter).length > 0) {
+    if (payload.frontmatter && Object.keys(payload.frontmatter).length > 0) {
       fileContent += "---\n";
-      for (const [key, value] of Object.entries(frontmatter)) {
-        fileContent += `${key}: "${value}"\n`;
+      for (const [key, value] of Object.entries(payload.frontmatter)) {
+        if (Array.isArray(value)) {
+          fileContent += `${key}:\n`;
+          for (const item of value) {
+            fileContent += `  - "${item}"\n`;
+          }
+        } else {
+          fileContent += `${key}: "${value}"\n`;
+        }
       }
       fileContent += "---\n\n";
     }
-    fileContent += content;
+    fileContent += payload.content;
 
     await fs.writeFile(resolvedPath, fileContent, "utf8");
     return { success: true, path: resolvedPath };
   } catch (err: any) {
-    console.error("Failed to write note:", err);
     return { success: false, error: err.message };
   }
 });
 
-// IPC Handler: Delete Note
-ipcMain.handle("notes:delete", async (_, { vaultPath, folder, title }) => {
+// IPC Handler: Delete Note safely
+ipcMain.handle("notes:delete", async (_, payload: { vaultPath?: string; folder: string; title: string }) => {
   try {
-    const filename = `${title}.md`;
-    const resolvedPath = validateAndResolvePath(vaultPath, folder, filename);
+    const vault = payload.vaultPath || selectedVaultPath;
+    if (!vault) throw new Error("Vault path is missing.");
+
+    const filename = payload.title.endsWith(".md") ? payload.title : `${payload.title}.md`;
+    const resolvedPath = validateAndResolvePath(vault, payload.folder, filename);
 
     if (existsSync(resolvedPath)) {
       await fs.unlink(resolvedPath);
       return { success: true };
     }
-    return { success: false, error: "Nota não encontrada" };
+    return { success: false, error: "Nota não encontrada." };
   } catch (err: any) {
-    console.error("Failed to delete note:", err);
     return { success: false, error: err.message };
   }
 });
 
-// IPC Handler: System and Online/Offline state status
+// IPC Handler: System Info
 ipcMain.handle("system:status", () => {
   return {
-    isOffline: false, // Can check network interface, defaults to false
     os: process.platform,
-    configDir,
-    configFilePath
+    vaultPath: selectedVaultPath,
+    runtime: "electron",
+    isDesktop: true,
   };
 });
