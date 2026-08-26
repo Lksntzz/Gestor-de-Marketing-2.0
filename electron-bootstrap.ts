@@ -131,7 +131,9 @@ async function startBackend(): Promise<void> {
   appUrl = `http://${LOOPBACK_HOST}:${port}`;
 
   const serverPath = path.join(__dirname, "server.cjs");
+  const appRoot = path.dirname(__dirname);
   backendProcess = spawn(process.execPath, [serverPath], {
+    cwd: appRoot,
     env: {
       ...process.env,
       NODE_ENV: "production",
