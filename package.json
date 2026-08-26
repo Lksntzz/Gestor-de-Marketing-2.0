@@ -13,6 +13,7 @@
     "electron:start": "electron dist/electron-main.cjs",
     "electron:dev": "bun run build && electron dist/electron-main.cjs",
     "electron:build": "bun run verify && bunx electron-builder@26.0.12 --win --x64",
+    "electron:build:signed": "bun run verify && bunx electron-builder@26.0.12 --win --x64 --config.win.forceCodeSigning=true",
     "electron:build:all": "bun run verify && bunx electron-builder@26.0.12 --win --mac --linux",
     "dist": "bun run verify && bunx electron-builder@26.0.12",
     "preview": "vite preview",
@@ -46,7 +47,8 @@
       ],
       "requestedExecutionLevel": "asInvoker",
       "legalTrademarks": "Nisti Print Solutions",
-      "signAndEditExecutable": false,
+      "publisherName": ["Nisti Print Solutions"],
+      "signAndEditExecutable": true,
       "forceCodeSigning": false
     },
     "nsis": {
@@ -60,7 +62,8 @@
       "deleteAppDataOnUninstall": false,
       "installerLanguages": ["pt_BR", "en_US"],
       "displayLanguageSelector": false,
-      "uninstallDisplayName": "Nisti Marketing"
+      "uninstallDisplayName": "Nisti Marketing",
+      "useZip": true
     },
     "mac": {
       "target": ["dmg", "zip"],
