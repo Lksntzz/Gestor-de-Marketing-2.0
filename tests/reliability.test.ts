@@ -33,7 +33,7 @@ describe("reliability utilities", () => {
   });
 
   test("maps the routine week using the actual DailyRoutineSlot day names", () => {
-    const anchor = new Date(2026, 7, 26, 12, 0, 0); // Wednesday
+    const anchor = new Date(2026, 7, 26, 12, 0, 0);
     expect(dateForRoutineDay("Segunda", anchor)).toBe("2026-08-24");
     expect(dateForRoutineDay("Terça", anchor)).toBe("2026-08-25");
     expect(dateForRoutineDay("Quarta", anchor)).toBe("2026-08-26");
@@ -50,15 +50,28 @@ describe("reliability utilities", () => {
     expect(updated.match(/nisti:end:tasks/g)?.length).toBe(1);
   });
 
-  test("creates stable routine IDs and replaces the same logical task", () => {
+  test("creates stable routine IDs and refreshes metadata without resetting completion", () => {
     const anchor = new Date(2026, 7, 26, 12, 0, 0);
     const id = stableRoutineTaskId(anchor, "slot-segunda");
-    const first = task({ id, title: "Primeira versão" });
-    const second = task({ id, title: "Versão atualizada" });
+    const first = task({
+      id,
+      title: "Primeira versão",
+      status: "done",
+      completedAt: "2026-08-26T10:00:00.000Z",
+    });
+    const second = task({
+      id,
+      title: "Versão atualizada",
+      status: "todo",
+      dueTime: "15:30",
+    });
 
     const result = upsertItemsById([first], [second]);
     expect(result).toHaveLength(1);
     expect(result[0].title).toBe("Versão atualizada");
+    expect(result[0].dueTime).toBe("15:30");
+    expect(result[0].status).toBe("done");
+    expect(result[0].completedAt).toBe("2026-08-26T10:00:00.000Z");
   });
 
   test("fires a reminder only inside the grace window and exposes a stable event key", () => {
