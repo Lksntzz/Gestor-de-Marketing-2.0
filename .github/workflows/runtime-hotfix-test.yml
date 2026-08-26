@@ -14,22 +14,71 @@ jobs:
     steps:
       - name: Checkout Code
         uses: actions/checkout@v4
+
       - name: Setup Bun
         uses: oven-sh/setup-bun@v2
         with:
           bun-version: latest
+
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
           node-version: 20
+
       - name: Install Dependencies
         run: bun install --frozen-lockfile
+
       - name: Verify TypeScript, Tests and Production Build
         run: bun run verify
+
+      - name: Smoke-test Self-contained Backend Runtime
+        shell: pwsh
+        run: |
+          $runtimeRoot = Join-Path $env:RUNNER_TEMP "nisti-runtime-smoke"
+          $runtimeDist = Join-Path $runtimeRoot "dist"
+          New-Item -ItemType Directory -Force -Path $runtimeDist | Out-Null
+          Copy-Item -Path "dist\*" -Destination $runtimeDist -Recurse -Force
+
+          $env:NODE_ENV = "production"
+          $env:ELECTRON_RUN_AS_NODE = "1"
+          $env:NISTI_APP_PORT = "32123"
+          $env:NISTI_INSTANCE_ID = "ci-runtime-smoke"
+
+          $stdout = Join-Path $runtimeRoot "backend.stdout.log"
+          $stderr = Join-Path $runtimeRoot "backend.stderr.log"
+          $server = Start-Process node -ArgumentList (Join-Path $runtimeDist "server.cjs") -WorkingDirectory $runtimeRoot -PassThru -WindowStyle Hidden -RedirectStandardOutput $stdout -RedirectStandardError $stderr
+
+          try {
+            $healthy = $false
+            for ($i = 0; $i -lt 30; $i++) {
+              Start-Sleep -Milliseconds 250
+              try {
+                $health = Invoke-RestMethod -Uri "http://127.0.0.1:32123/api/health" -TimeoutSec 2
+                if ($health.runtime -eq "nisti-secure-local" -and $health.instanceId -eq "ci-runtime-smoke") {
+                  $healthy = $true
+                  break
+                }
+              } catch {
+                if ($server.HasExited) { break }
+              }
+            }
+
+            if (-not $healthy) {
+              Write-Host "--- backend stdout ---"
+              if (Test-Path $stdout) { Get-Content $stdout }
+              Write-Host "--- backend stderr ---"
+              if (Test-Path $stderr) { Get-Content $stderr }
+              throw "Packaged backend failed the self-contained runtime smoke test."
+            }
+          } finally {
+            if (-not $server.HasExited) { Stop-Process -Id $server.Id -Force }
+          }
+
       - name: Build Windows NSIS & Portable Installer
         env:
           CSC_IDENTITY_AUTO_DISCOVERY: "false"
         run: bunx electron-builder@26.0.12 --win --x64 --publish never
+
       - name: Upload Windows Test Installers
         uses: actions/upload-artifact@v4
         with:
