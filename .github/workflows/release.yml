@@ -7,9 +7,9 @@ on:
   workflow_dispatch:
     inputs:
       version:
-        description: "Versão do Release (ex: v0.1.7)"
-        required: false
-        default: "v0.1.7"
+        description: "Versão do Release (ex: v1.0.0)"
+        required: true
+        default: "v1.0.0"
 
 permissions:
   contents: write
@@ -34,10 +34,10 @@ jobs:
           node-version: 20
 
       - name: Install Dependencies
-        run: bun install
+        run: bun install --frozen-lockfile
 
-      - name: Build Application
-        run: bun run build
+      - name: Verify TypeScript, Tests and Production Build
+        run: bun run verify
 
       - name: Build Windows NSIS & Portable Installer
         env:
@@ -48,15 +48,14 @@ jobs:
       - name: Upload Artifacts to GitHub Actions
         uses: actions/upload-artifact@v4
         with:
-          name: Nisti-Print-PKM-Windows-Installer
+          name: Nisti-Print-PKM-Windows-Installer-v1
           path: dist-electron/*.exe
 
       - name: Create GitHub Release and Attach Installers
-        if: startsWith(github.ref, 'refs/tags/') || github.event_name == 'workflow_dispatch'
         uses: softprops/action-gh-release@v2
         with:
-          name: Nisti Print PKM Marketing Hub ${{ github.ref_name || inputs.version }}
-          tag_name: ${{ github.ref_name || inputs.version }}
+          name: Nisti Print PKM Marketing Hub ${{ github.event_name == 'workflow_dispatch' && inputs.version || github.ref_name }}
+          tag_name: ${{ github.event_name == 'workflow_dispatch' && inputs.version || github.ref_name }}
           files: |
             dist-electron/*.exe
             dist-electron/*.zip

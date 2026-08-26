@@ -18,6 +18,7 @@ import {
   UserCheck,
 } from "lucide-react";
 import { ObsidianApiConfig } from "../types";
+import { api } from "../services/api";
 import { googleDriveService } from "../services/googleDriveService";
 
 interface ObsidianApiSettingsModalProps {
@@ -45,24 +46,24 @@ export const ObsidianApiSettingsModal: React.FC<ObsidianApiSettingsModalProps> =
 }) => {
   const [activeTab, setActiveTab] = useState<SettingsTab>("ai");
   const [formData, setFormData] = useState<ObsidianApiConfig>({ ...config });
-  
-  // Obsidian Connection Testing State
+
+  const [isTestingAi, setIsTestingAi] = useState(false);
+  const [aiTestResult, setAiTestResult] = useState<{ success: boolean; message: string } | null>(null);
+
   const [isTesting, setIsTesting] = useState(false);
   const [testResult, setTestResult] = useState<{ success: boolean; message: string } | null>(null);
-  
-  // Google Drive Login/Connection State
+
   const [isDriveConnected, setIsDriveConnected] = useState<boolean>(googleDriveService.isAuthenticated());
   const [driveLoading, setDriveLoading] = useState<boolean>(false);
   const [driveError, setDriveError] = useState<string | null>(null);
-  
-  // System State
+
   const [confirmClear, setConfirmClear] = useState(false);
 
-  // Keep state updated when modal opens/config changes
   useEffect(() => {
     if (isOpen) {
       setFormData({ ...config });
       setIsDriveConnected(googleDriveService.isAuthenticated());
+      setAiTestResult(null);
       setTestResult(null);
       setConfirmClear(false);
     }
@@ -70,17 +71,54 @@ export const ObsidianApiSettingsModal: React.FC<ObsidianApiSettingsModalProps> =
 
   if (!isOpen) return null;
 
+  const handleTestGemini = async () => {
+    setIsTestingAi(true);
+    setAiTestResult(null);
+    try {
+      const result = await api.testGeminiConnection(formData.geminiApiKey || "");
+      setAiTestResult(result);
+      if (result.success) {
+        onSaveConfig({ ...formData });
+      }
+    } catch (err: any) {
+      setAiTestResult({
+        success: false,
+        message: err.message || "Erro desconhecido ao testar o Gemini.",
+      });
+    } finally {
+      setIsTestingAi(false);
+    }
+  };
+
   const handleTestObsidian = async () => {
     setIsTesting(true);
     setTestResult(null);
     try {
       const res = await onTestConnection(formData);
       setTestResult(res);
+      if (res.success) {
+        const connectedConfig: ObsidianApiConfig = {
+          ...formData,
+          connectionStatus: "connected",
+          errorMessage: undefined,
+        };
+        setFormData(connectedConfig);
+        onSaveConfig(connectedConfig);
+      } else {
+        setFormData((current) => ({
+          ...current,
+          connectionStatus: "error",
+          errorMessage: res.message,
+        }));
+      }
     } catch (err: any) {
-      setTestResult({
-        success: false,
-        message: err.message || "Erro desconhecido ao testar conexão",
-      });
+      const message = err.message || "Erro desconhecido ao testar conexão";
+      setTestResult({ success: false, message });
+      setFormData((current) => ({
+        ...current,
+        connectionStatus: "error",
+        errorMessage: message,
+      }));
     } finally {
       setIsTesting(false);
     }
@@ -117,20 +155,14 @@ export const ObsidianApiSettingsModal: React.FC<ObsidianApiSettingsModalProps> =
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-stone-900/65 backdrop-blur-xs">
       <div className="bg-white rounded-2xl border border-stone-200/80 shadow-2xl max-w-xl w-full overflow-hidden flex flex-col max-h-[90vh]">
-        
-        {/* Modal Header */}
         <div className="p-5 border-b border-stone-100 flex items-center justify-between bg-stone-50/70">
           <div className="flex items-center gap-2.5">
             <div className="w-8 h-8 rounded-lg bg-stone-900 text-white flex items-center justify-center font-bold">
               <Settings className="w-4 h-4 text-stone-100" />
             </div>
             <div>
-              <h2 className="text-base font-black uppercase tracking-wider text-stone-900">
-                CONFIGURAÇÃO
-              </h2>
-              <p className="text-xs text-stone-500">
-                Gerencie IA, conexões locais de cofre e integrações em nuvem
-              </p>
+              <h2 className="text-base font-black uppercase tracking-wider text-stone-900">CONFIGURAÇÃO</h2>
+              <p className="text-xs text-stone-500">Gerencie IA, conexões locais de cofre e integrações em nuvem</p>
             </div>
           </div>
           <button
@@ -141,15 +173,12 @@ export const ObsidianApiSettingsModal: React.FC<ObsidianApiSettingsModalProps> =
           </button>
         </div>
 
-        {/* Custom Tab Switcher */}
         <div className="flex border-b border-stone-100 bg-stone-50/30 p-2 gap-1 overflow-x-auto">
           <button
             type="button"
             onClick={() => setActiveTab("ai")}
             className={`flex items-center gap-2 px-3.5 py-2 rounded-lg text-xs font-bold transition-all shrink-0 cursor-pointer ${
-              activeTab === "ai"
-                ? "bg-purple-600 text-white shadow-xs"
-                : "text-stone-600 hover:text-stone-900 hover:bg-stone-100"
+              activeTab === "ai" ? "bg-purple-600 text-white shadow-xs" : "text-stone-600 hover:text-stone-900 hover:bg-stone-100"
             }`}
           >
             <Brain className="w-3.5 h-3.5" />
@@ -160,9 +189,7 @@ export const ObsidianApiSettingsModal: React.FC<ObsidianApiSettingsModalProps> =
             type="button"
             onClick={() => setActiveTab("obsidian")}
             className={`flex items-center gap-2 px-3.5 py-2 rounded-lg text-xs font-bold transition-all shrink-0 cursor-pointer ${
-              activeTab === "obsidian"
-                ? "bg-purple-600 text-white shadow-xs"
-                : "text-stone-600 hover:text-stone-900 hover:bg-stone-100"
+              activeTab === "obsidian" ? "bg-purple-600 text-white shadow-xs" : "text-stone-600 hover:text-stone-900 hover:bg-stone-100"
             }`}
           >
             <FolderOpen className="w-3.5 h-3.5" />
@@ -173,9 +200,7 @@ export const ObsidianApiSettingsModal: React.FC<ObsidianApiSettingsModalProps> =
             type="button"
             onClick={() => setActiveTab("drive")}
             className={`flex items-center gap-2 px-3.5 py-2 rounded-lg text-xs font-bold transition-all shrink-0 cursor-pointer ${
-              activeTab === "drive"
-                ? "bg-purple-600 text-white shadow-xs"
-                : "text-stone-600 hover:text-stone-900 hover:bg-stone-100"
+              activeTab === "drive" ? "bg-purple-600 text-white shadow-xs" : "text-stone-600 hover:text-stone-900 hover:bg-stone-100"
             }`}
           >
             <Cloud className="w-3.5 h-3.5" />
@@ -186,9 +211,7 @@ export const ObsidianApiSettingsModal: React.FC<ObsidianApiSettingsModalProps> =
             type="button"
             onClick={() => setActiveTab("system")}
             className={`flex items-center gap-2 px-3.5 py-2 rounded-lg text-xs font-bold transition-all shrink-0 cursor-pointer ${
-              activeTab === "system"
-                ? "bg-purple-600 text-white shadow-xs"
-                : "text-stone-600 hover:text-stone-900 hover:bg-stone-100"
+              activeTab === "system" ? "bg-purple-600 text-white shadow-xs" : "text-stone-600 hover:text-stone-900 hover:bg-stone-100"
             }`}
           >
             <Settings className="w-3.5 h-3.5" />
@@ -196,10 +219,7 @@ export const ObsidianApiSettingsModal: React.FC<ObsidianApiSettingsModalProps> =
           </button>
         </div>
 
-        {/* Modal Body */}
         <div className="p-6 overflow-y-auto flex-1 min-h-[340px] max-h-[50vh] space-y-5">
-          
-          {/* TAB 1: INTELIGENCIA ARTIFICIAL */}
           {activeTab === "ai" && (
             <div className="space-y-4 animate-fadeIn">
               <div className="space-y-1.5">
@@ -208,7 +228,7 @@ export const ObsidianApiSettingsModal: React.FC<ObsidianApiSettingsModalProps> =
                   <span>Configuração da IA</span>
                 </h3>
                 <p className="text-xs text-stone-500 leading-normal">
-                  Insira sua chave de acesso pessoal para habilitar todos os recursos de IA generativa (Geração de Campanhas, Extração de Tarefas, Sugestão de Ideias e Auditoria de Notas).
+                  Cole sua chave do Gemini, teste a conexão e o sistema passa a usar essa credencial automaticamente nas funções de IA.
                 </p>
               </div>
 
@@ -221,23 +241,55 @@ export const ObsidianApiSettingsModal: React.FC<ObsidianApiSettingsModalProps> =
                   <input
                     type="password"
                     value={formData.geminiApiKey || ""}
-                    onChange={(e) => setFormData({ ...formData, geminiApiKey: e.target.value })}
+                    onChange={(e) => {
+                      setFormData({ ...formData, geminiApiKey: e.target.value });
+                      setAiTestResult(null);
+                    }}
                     className="w-full px-3 py-2.5 bg-white border border-purple-250 rounded-lg text-xs font-mono focus:outline-none focus:ring-1 focus:ring-purple-500 focus:border-purple-500 transition-shadow"
                     placeholder="Cole sua API Key do Google AI Studio (AIzaSy...)"
                   />
                 </div>
-                
+
+                <button
+                  type="button"
+                  onClick={handleTestGemini}
+                  disabled={isTestingAi || !(formData.geminiApiKey || "").trim()}
+                  className="w-full py-2.5 bg-purple-600 hover:bg-purple-700 disabled:opacity-50 disabled:cursor-not-allowed text-white text-xs font-semibold rounded-lg transition-colors flex items-center justify-center gap-2 cursor-pointer"
+                >
+                  <RefreshCw className={`w-3.5 h-3.5 ${isTestingAi ? "animate-spin" : ""}`} />
+                  <span>{isTestingAi ? "Validando chave com Gemini..." : "Testar e Ativar Gemini"}</span>
+                </button>
+
+                {aiTestResult && (
+                  <div
+                    className={`p-3 rounded-lg border text-xs flex items-start gap-2 ${
+                      aiTestResult.success
+                        ? "bg-emerald-50 text-emerald-800 border-emerald-200"
+                        : "bg-amber-50 text-amber-900 border-amber-200"
+                    }`}
+                  >
+                    {aiTestResult.success ? (
+                      <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0 mt-0.5" />
+                    ) : (
+                      <AlertCircle className="w-4 h-4 text-amber-600 shrink-0 mt-0.5" />
+                    )}
+                    <div className="text-[11px] leading-relaxed">{aiTestResult.message}</div>
+                  </div>
+                )}
+
                 <div className="text-[11px] text-purple-950/80 leading-relaxed bg-purple-50/80 p-3 rounded-lg border border-purple-100/50">
-                  <p className="font-bold mb-1">💡 Como obter uma chave de API gratuita?</p>
+                  <p className="font-bold mb-1">🔐 Armazenamento da chave</p>
                   <p>
-                    Acesse o <a href="https://aistudio.google.com/" target="_blank" rel="noreferrer" className="text-purple-700 hover:text-purple-900 underline font-semibold">Google AI Studio</a> com sua conta do Google e clique em <strong>"Get API Key"</strong>. Ela é gratuita e fica salva apenas localmente no seu navegador.
+                    No aplicativo desktop, a chave é protegida pelo armazenamento seguro do sistema operacional. No modo web local, ela é criptografada antes de ser persistida.
+                  </p>
+                  <p className="mt-2">
+                    Para obter uma chave, acesse o <a href="https://aistudio.google.com/" target="_blank" rel="noreferrer" className="text-purple-700 hover:text-purple-900 underline font-semibold">Google AI Studio</a> e use a opção <strong>Get API Key</strong>.
                   </p>
                 </div>
               </div>
             </div>
           )}
 
-          {/* TAB 2: CONFIGURAÇÃO OBSIDIAN */}
           {activeTab === "obsidian" && (
             <div className="space-y-4 animate-fadeIn">
               <div className="space-y-1.5">
@@ -246,7 +298,7 @@ export const ObsidianApiSettingsModal: React.FC<ObsidianApiSettingsModalProps> =
                   <span>Conexão com o Obsidian</span>
                 </h3>
                 <p className="text-xs text-stone-500 leading-normal">
-                  O sistema pode sincronizar diretamente com o seu cofre local de notas do Obsidian utilizando os plugins REST API ou Advanced URI.
+                  Informe o endpoint e o token do Local REST API. Ao validar, o sistema salva a configuração e passa a sincronizar usando essa conexão.
                 </p>
               </div>
 
@@ -260,7 +312,10 @@ export const ObsidianApiSettingsModal: React.FC<ObsidianApiSettingsModalProps> =
                     <input
                       type="text"
                       value={formData.endpoint}
-                      onChange={(e) => setFormData({ ...formData, endpoint: e.target.value })}
+                      onChange={(e) => {
+                        setFormData({ ...formData, endpoint: e.target.value, connectionStatus: "disconnected" });
+                        setTestResult(null);
+                      }}
                       className="w-full px-3 py-2 bg-stone-50 border border-stone-300 rounded-lg text-xs font-mono focus:outline-none focus:border-purple-500"
                       placeholder="http://127.0.0.1:27124"
                     />
@@ -289,7 +344,10 @@ export const ObsidianApiSettingsModal: React.FC<ObsidianApiSettingsModalProps> =
                   <input
                     type="password"
                     value={formData.apiKey}
-                    onChange={(e) => setFormData({ ...formData, apiKey: e.target.value })}
+                    onChange={(e) => {
+                      setFormData({ ...formData, apiKey: e.target.value, connectionStatus: "disconnected" });
+                      setTestResult(null);
+                    }}
                     className="w-full px-3 py-2 bg-stone-50 border border-stone-300 rounded-lg text-xs font-mono focus:outline-none focus:border-purple-500"
                     placeholder="Cole o Bearer Token gerado pelo plugin"
                   />
@@ -300,16 +358,15 @@ export const ObsidianApiSettingsModal: React.FC<ObsidianApiSettingsModalProps> =
                   <span>Instale o plugin <strong>Local REST API</strong> no Obsidian Community Plugins para sincronizar de forma nativa e segura.</span>
                 </div>
 
-                {/* Test Connection Button & Status */}
                 <div className="pt-1">
                   <button
                     type="button"
                     onClick={handleTestObsidian}
-                    disabled={isTesting}
-                    className="w-full py-2.5 bg-stone-100 hover:bg-stone-200 text-stone-800 text-xs font-semibold rounded-lg border border-stone-300 transition-colors flex items-center justify-center gap-2 cursor-pointer"
+                    disabled={isTesting || !formData.endpoint.trim() || !formData.apiKey.trim()}
+                    className="w-full py-2.5 bg-stone-100 hover:bg-stone-200 disabled:opacity-50 disabled:cursor-not-allowed text-stone-800 text-xs font-semibold rounded-lg border border-stone-300 transition-colors flex items-center justify-center gap-2 cursor-pointer"
                   >
                     <RefreshCw className={`w-3.5 h-3.5 ${isTesting ? "animate-spin text-purple-600" : ""}`} />
-                    <span>{isTesting ? "Testando Conexão..." : "Testar Conexão com REST API"}</span>
+                    <span>{isTesting ? "Testando Conexão..." : "Testar, Conectar e Salvar Obsidian"}</span>
                   </button>
 
                   {testResult && (
@@ -333,7 +390,6 @@ export const ObsidianApiSettingsModal: React.FC<ObsidianApiSettingsModalProps> =
             </div>
           )}
 
-          {/* TAB 3: CONFIGURAÇÃO GOOGLE DRIVE COMO LOGIN */}
           {activeTab === "drive" && (
             <div className="space-y-4 animate-fadeIn">
               <div className="space-y-1.5">
@@ -388,11 +444,7 @@ export const ObsidianApiSettingsModal: React.FC<ObsidianApiSettingsModalProps> =
                     disabled={driveLoading}
                     className="px-5 py-2.5 bg-blue-600 hover:bg-blue-700 text-white text-xs font-bold rounded-lg shadow-sm transition-all flex items-center gap-2 mx-auto cursor-pointer disabled:opacity-50"
                   >
-                    {driveLoading ? (
-                      <Loader2 className="w-3.5 h-3.5 animate-spin" />
-                    ) : (
-                      <Cloud className="w-3.5 h-3.5" />
-                    )}
+                    {driveLoading ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Cloud className="w-3.5 h-3.5" />}
                     <span>Conectar Google Drive</span>
                   </button>
                 </div>
@@ -400,7 +452,6 @@ export const ObsidianApiSettingsModal: React.FC<ObsidianApiSettingsModalProps> =
             </div>
           )}
 
-          {/* TAB 4: SISTEMA & DADOS */}
           {activeTab === "system" && (
             <div className="space-y-5 animate-fadeIn">
               <div className="space-y-1.5">
@@ -413,7 +464,6 @@ export const ObsidianApiSettingsModal: React.FC<ObsidianApiSettingsModalProps> =
                 </p>
               </div>
 
-              {/* Backup Section */}
               <div className="p-4 bg-stone-50 border border-stone-200 rounded-xl space-y-3">
                 <h4 className="text-xs font-bold text-stone-800 uppercase tracking-wider">Backup e Cópia de Segurança</h4>
                 <div className="flex flex-wrap gap-2">
@@ -443,7 +493,6 @@ export const ObsidianApiSettingsModal: React.FC<ObsidianApiSettingsModalProps> =
                 </div>
               </div>
 
-              {/* Reset Section */}
               {onClearAllData && (
                 <div className="p-4 border border-rose-200/80 bg-rose-50/30 rounded-xl flex items-center justify-between gap-4">
                   <div className="space-y-1">
@@ -487,10 +536,8 @@ export const ObsidianApiSettingsModal: React.FC<ObsidianApiSettingsModalProps> =
               )}
             </div>
           )}
-
         </div>
 
-        {/* Modal Footer */}
         <div className="p-4 border-t border-stone-100 bg-stone-50 flex items-center justify-end gap-2">
           <button
             type="button"
@@ -507,7 +554,6 @@ export const ObsidianApiSettingsModal: React.FC<ObsidianApiSettingsModalProps> =
             Salvar Configurações
           </button>
         </div>
-
       </div>
     </div>
   );
