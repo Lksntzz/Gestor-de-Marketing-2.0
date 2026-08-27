@@ -115,14 +115,14 @@ export const VaultView: React.FC<VaultViewProps> = ({
   useEffect(() => {
     if (!isConnected || !window.electronAPI) return;
     void window.electronAPI.listVaultFolders().then((folders) => {
-      if (Array.isArray(folders)) setVaultFolders(folders);
+      if (Array.isArray(folders)) setVaultFolders(folders as string[]);
     }).catch(() => setVaultFolders([]));
   }, [notes, isConnected]);
 
   const folders = useMemo(() => {
-    const set = new Set(vaultFolders);
+    const set = new Set<string>(vaultFolders);
     notes.forEach((note) => set.add(note.folder || "00_Inbox"));
-    return Array.from(set).filter(Boolean).sort((a, b) => a.localeCompare(b, "pt-BR"));
+    return Array.from(set).filter((value): value is string => Boolean(value)).sort((a, b) => a.localeCompare(b, "pt-BR"));
   }, [vaultFolders, notes]);
 
   const filteredNotes = useMemo(() => {
@@ -268,13 +268,13 @@ export const VaultView: React.FC<VaultViewProps> = ({
                   <div className="w-9 h-9 rounded-xl bg-purple-50 flex items-center justify-center shrink-0"><CurrentIcon className="w-4 h-4 text-purple-700" /></div>
                   <div className="min-w-0">
                     <h2 className="text-sm font-black text-stone-950 truncate">{current.title}</h2>
-                    <div className="text-[10px] text-stone-500 truncate mt-0.5">{current.path}</div>
+                    <div className="text-[10px] text-stone-500 truncate mt-0.5">{String(current.frontmatter?.asset_path || current.path)}</div>
                   </div>
                 </div>
                 <div className="flex items-center gap-1 shrink-0">
                   <button onClick={() => { navigator.clipboard.writeText(current.content); setCopied(true); setTimeout(() => setCopied(false), 1500); }} className="w-8 h-8 rounded-lg border border-stone-200 flex items-center justify-center" title="Copiar"><Copy className="w-3.5 h-3.5 text-stone-500" /></button>
                   {current.frontmatter?.source_type !== "vault_asset" && <button onClick={openEdit} className="w-8 h-8 rounded-lg border border-stone-200 flex items-center justify-center" title="Editar"><Edit3 className="w-3.5 h-3.5 text-stone-500" /></button>}
-                  <a href={buildObsidianOpenUri(apiConfig.vaultName, current.path)} className="w-8 h-8 rounded-lg border border-stone-200 flex items-center justify-center" title="Abrir no Obsidian"><ExternalLink className="w-3.5 h-3.5 text-stone-500" /></a>
+                  <a href={buildObsidianOpenUri(apiConfig.vaultName, String(current.frontmatter?.asset_path || current.path))} className="w-8 h-8 rounded-lg border border-stone-200 flex items-center justify-center" title="Abrir no Obsidian"><ExternalLink className="w-3.5 h-3.5 text-stone-500" /></a>
                 </div>
               </div>
 
