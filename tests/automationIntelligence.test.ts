@@ -203,7 +203,7 @@ describe("automações fundamentadas v2 etapa 7", () => {
     expect(runtime).toContain("api.isObsidianSessionVerified()");
     expect(runtime).toContain("if (!result.success) return false");
     expect(runtime.indexOf("if (!result.success) return false")).toBeLessThan(
-      runtime.indexOf("updateSuccessfulRun")
+      runtime.lastIndexOf("updateSuccessfulRun(")
     );
     expect(runtime).toContain("setInterval");
   });
