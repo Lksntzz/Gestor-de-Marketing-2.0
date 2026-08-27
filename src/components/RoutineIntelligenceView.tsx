@@ -1,4 +1,4 @@
-import React, { useMemo, useState } from "react";
+import React, { useEffect, useMemo, useState } from "react";
 import {
   AlertTriangle,
   BarChart3,
@@ -29,6 +29,9 @@ import type {
   ObsidianNote,
   PostHistoryItem,
 } from "../types";
+import { APP_STATE_CHANGED_EVENT } from "../hooks/usePersistentState";
+import { AppStateSchemas } from "../domain/appStateSchemas";
+import { APP_STATE_KEYS, StorageManager } from "../services/storage/StorageManager";
 import { buildObsidianOpenUri } from "../utils/obsidianUri";
 import { buildPlanningSnapshot } from "../utils/planningIntelligence";
 
@@ -38,8 +41,6 @@ interface RoutineIntelligenceViewProps {
   postHistory: PostHistoryItem[];
   learnings: LearningInsight[];
   weeklyRoutine: DailyRoutineSlot[];
-  tasks: MarketingTask[];
-  campaigns: MarketingCampaign[];
   apiConfig: ObsidianApiConfig;
   engineMode: EngineMode;
   notes: ObsidianNote[];
@@ -58,6 +59,7 @@ interface RoutineIntelligenceViewProps {
   showToast: (type: "success" | "warning" | "info", title: string, message: string) => void;
 }
 
+const storage = StorageManager.getInstance();
 const DAY_ORDER: DailyRoutineSlot["dayOfWeek"][] = [
   "Segunda",
   "Terça",
@@ -79,18 +81,19 @@ function formatDateTime(value?: string): string {
   return date.toLocaleString("pt-BR", { dateStyle: "short", timeStyle: "short" });
 }
 
-function campaignStatusLabel(status: MarketingCampaign["status"]): string {
-  if (status === "active") return "Ativa";
-  if (status === "scheduled") return "Agendada";
-  if (status === "completed") return "Concluída";
-  return "Rascunho";
-}
-
 function routineStatusLabel(status: DailyRoutineSlot["status"]): string {
   if (status === "publicado") return "Publicado";
   if (status === "agendado") return "Agendado";
   if (status === "em-producao") return "Em produção";
   return "Planejando";
+}
+
+function loadTasks(): MarketingTask[] {
+  return storage.loadAppState(APP_STATE_KEYS.TASKS, [], AppStateSchemas.tasks);
+}
+
+function loadCampaigns(): MarketingCampaign[] {
+  return storage.loadAppState(APP_STATE_KEYS.CAMPAIGNS, [], AppStateSchemas.campaigns);
 }
 
 export const RoutineIntelligenceView: React.FC<RoutineIntelligenceViewProps> = ({
@@ -99,8 +102,6 @@ export const RoutineIntelligenceView: React.FC<RoutineIntelligenceViewProps> = (
   postHistory = [],
   learnings = [],
   weeklyRoutine = [],
-  tasks = [],
-  campaigns = [],
   apiConfig,
   engineMode,
   notes = [],
@@ -111,6 +112,8 @@ export const RoutineIntelligenceView: React.FC<RoutineIntelligenceViewProps> = (
   onSyncRoutineToDailyNotes,
   showToast,
 }) => {
+  const [liveTasks, setLiveTasks] = useState<MarketingTask[]>(() => loadTasks());
+  const [liveCampaigns, setLiveCampaigns] = useState<MarketingCampaign[]>(() => loadCampaigns());
   const [isSyncingPlan, setIsSyncingPlan] = useState(false);
   const [isAddLearningOpen, setIsAddLearningOpen] = useState(false);
   const [isAddSlotOpen, setIsAddSlotOpen] = useState(false);
@@ -131,9 +134,28 @@ export const RoutineIntelligenceView: React.FC<RoutineIntelligenceViewProps> = (
   const [slotHook, setSlotHook] = useState("");
   const [slotAction, setSlotAction] = useState("");
 
+  useEffect(() => {
+    const refresh = (event?: Event) => {
+      const key = (event as CustomEvent<{ key?: string }> | undefined)?.detail?.key;
+      if (!key || key === APP_STATE_KEYS.TASKS) setLiveTasks(loadTasks());
+      if (!key || key === APP_STATE_KEYS.CAMPAIGNS) setLiveCampaigns(loadCampaigns());
+    };
+
+    refresh();
+    window.addEventListener(APP_STATE_CHANGED_EVENT, refresh as EventListener);
+    return () => window.removeEventListener(APP_STATE_CHANGED_EVENT, refresh as EventListener);
+  }, []);
+
   const snapshot = useMemo(
-    () => buildPlanningSnapshot({ tasks, campaigns, weeklyRoutine, notes, postHistory, learnings }),
-    [tasks, campaigns, weeklyRoutine, notes, postHistory, learnings]
+    () => buildPlanningSnapshot({
+      tasks: liveTasks,
+      campaigns: liveCampaigns,
+      weeklyRoutine,
+      notes,
+      postHistory,
+      learnings,
+    }),
+    [liveTasks, liveCampaigns, weeklyRoutine, notes, postHistory, learnings]
   );
 
   const orderedRoutine = useMemo(
@@ -142,7 +164,6 @@ export const RoutineIntelligenceView: React.FC<RoutineIntelligenceViewProps> = (
   );
 
   const nicheName = (id: NicheSegmentKey) => niches.find((item) => item.id === id)?.name || id;
-  const emotionName = (id: EmotionalDriverKey) => emotionalDrivers.find((item) => item.id === id)?.name || id;
 
   const handleToggleRoutineStatus = (slot: DailyRoutineSlot) => {
     const nextStatus = slot.status === "publicado" ? "planejando" : "publicado";
@@ -222,7 +243,7 @@ export const RoutineIntelligenceView: React.FC<RoutineIntelligenceViewProps> = (
     setSlotHook("");
     setSlotAction("");
     setIsAddSlotOpen(false);
-    showToast("success", "Pauta adicionada", "A pauta entrou na semana apenas com os campos que foram informados.");
+    showToast("success", "Pauta adicionada", "A pauta entrou na semana apenas com os campos informados.");
   };
 
   const planningReadyForSlot = niches.length > 0 && emotionalDrivers.length > 0;
@@ -394,6 +415,30 @@ export const RoutineIntelligenceView: React.FC<RoutineIntelligenceViewProps> = (
             </p>
           </section>
 
+          {snapshot.openCampaigns.length > 0 && (
+            <section className="bg-surface-card border border-outline-border rounded-xl p-5 shrink-0">
+              <div className="flex items-center gap-2 mb-3">
+                <Target className="w-4 h-4 text-pink-400" />
+                <h2 className="text-sm font-black text-text-primary">Campanhas abertas</h2>
+              </div>
+              <div className="space-y-2 max-h-32 overflow-y-auto no-scrollbar">
+                {snapshot.openCampaigns.slice(0, 4).map((campaign) => (
+                  <div key={campaign.id} className="rounded-xl border border-outline-border bg-surface-container-low p-3">
+                    <div className="flex items-center justify-between gap-2">
+                      <strong className="text-xs text-text-primary truncate">{campaign.title}</strong>
+                      <span className="text-[9px] text-text-secondary uppercase">{campaign.status}</span>
+                    </div>
+                    {(campaign.startDate || campaign.endDate) && (
+                      <p className="text-[10px] text-text-secondary mt-1">
+                        {campaign.startDate || "Sem início"}{campaign.endDate ? ` → ${campaign.endDate}` : ""}
+                      </p>
+                    )}
+                  </div>
+                ))}
+              </div>
+            </section>
+          )}
+
           <section className="bg-surface-card border border-outline-border rounded-xl p-5 shrink-0">
             <div className="flex items-center gap-2 mb-4">
               <BarChart3 className="w-4 h-4 text-pink-400" />
@@ -410,7 +455,7 @@ export const RoutineIntelligenceView: React.FC<RoutineIntelligenceViewProps> = (
             </div>
           </section>
 
-          <section className="bg-surface-card border border-outline-border rounded-xl p-5 flex-1 min-h-[260px] overflow-hidden flex flex-col">
+          <section className="bg-surface-card border border-outline-border rounded-xl p-5 flex-1 min-h-[240px] overflow-hidden flex flex-col">
             <div className="flex items-center justify-between gap-3 mb-4 shrink-0">
               <div className="flex items-center gap-2">
                 <Lightbulb className="w-4 h-4 text-amber-400" />
