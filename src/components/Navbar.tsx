@@ -18,7 +18,7 @@ import {
   Search,
   Bell,
 } from "lucide-react";
-import { ObsidianApiConfig, EngineMode } from "../types";
+import { ObsidianApiConfig, EngineMode, MarketingTask } from "../types";
 
 interface NavbarProps {
   activeTab: "dashboard" | "vault" | "campaigns" | "tasks" | "automations" | "routine" | "knowledge";
@@ -34,6 +34,7 @@ interface NavbarProps {
   hasApiKey: boolean;
   engineMode: EngineMode;
   onToggleEngineMode: (mode: EngineMode) => void;
+  tasks?: MarketingTask[];
 }
 
 export const Navbar: React.FC<NavbarProps> = ({
@@ -49,8 +50,11 @@ export const Navbar: React.FC<NavbarProps> = ({
   onQuickNewIdea,
   engineMode,
   onToggleEngineMode,
+  tasks = [],
 }) => {
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
+  const [isNotificationsOpen, setIsNotificationsOpen] = useState(false);
+  const notifications = tasks.filter(t => t.priority === "urgent" && t.status !== "done");
   const [isCreateDropdownOpen, setIsCreateDropdownOpen] = useState(false);
   const createDropdownRef = useRef<HTMLDivElement>(null);
 
@@ -150,7 +154,7 @@ export const Navbar: React.FC<NavbarProps> = ({
   };
 
   return (
-    <header className="sticky top-0 z-20 w-full bg-white border-b border-stone-200 select-none">
+    <header className="sticky top-0 z-20 w-full bg-surface border-b border-outline-border select-none">
       <div className="w-full px-4 sm:px-6 lg:px-8">
         <div className="flex items-center justify-between h-16 gap-4">
           
@@ -188,11 +192,11 @@ export const Navbar: React.FC<NavbarProps> = ({
 
             {/* Desktop Unified Search Bar inside the Header */}
             <div className="hidden lg:flex items-center relative w-full max-w-md">
-              <Search className="w-4 h-4 text-stone-400 absolute left-3.5 pointer-events-none" />
+              <Search className="w-4 h-4 text-text-secondary absolute left-3.5 pointer-events-none" />
               <input
                 type="text"
                 placeholder="Buscar conhecimento, campanhas, tarefas, notas... ⌘ K"
-                className="w-full pl-10 pr-4 py-2 bg-[#F5F6F8] hover:bg-stone-100 text-xs font-medium text-stone-850 placeholder-stone-450 rounded-2xl border border-stone-200/60 focus:outline-none focus:ring-1 focus:ring-purple-500/50 focus:border-purple-500 focus:bg-white transition-all"
+                className="w-full pl-10 pr-4 py-2 bg-surface-container-low hover:bg-surface-variant text-xs font-medium text-text-primary placeholder-text-secondary rounded-2xl border border-outline-border focus:outline-none focus:ring-1 focus:ring-motor-info focus:border-motor-info transition-all"
               />
             </div>
           </div>
@@ -206,12 +210,12 @@ export const Navbar: React.FC<NavbarProps> = ({
                 onClick={() => onToggleEngineMode(engineMode === "local" ? "gemini" : "local")}
                 className={`px-3 py-1.5 rounded-xl text-xs font-bold border transition-all flex items-center gap-1.5 cursor-pointer shadow-3xs ${
                   engineMode === "local"
-                    ? "bg-[#F5F6F8] text-stone-700 border-stone-200 hover:bg-stone-100"
-                    : "bg-pink-50 text-pink-950 border-pink-100 hover:bg-pink-100"
+                    ? "bg-surface-container-low text-text-primary border-outline-border hover:bg-surface-variant"
+                    : "bg-pink-950/40 text-pink-200 border-pink-900/50 hover:bg-pink-900/30"
                 }`}
                 title="Alternar entre Motor Local (0 tokens) e Gemini AI"
               >
-                <Cpu className="w-3.5 h-3.5 text-stone-600" />
+                <Cpu className="w-3.5 h-3.5 text-text-secondary" />
                 <span>{engineMode === "local" ? "Motor Local" : "IA"}</span>
                 <span className="w-1.5 h-1.5 rounded-full bg-emerald-500" />
               </button>
@@ -220,33 +224,95 @@ export const Navbar: React.FC<NavbarProps> = ({
             </div>
 
             {/* Notification Bell with Badge */}
-            <button className="p-2 bg-[#F5F6F8] hover:bg-stone-100 text-stone-600 hover:text-stone-900 rounded-xl transition-all border border-stone-200/60 cursor-pointer relative">
-              <Bell className="w-4 h-4" />
-              <span className="absolute -top-1 -right-1 w-4 h-4 rounded-full bg-red-500 text-[9px] font-bold text-white flex items-center justify-center border border-white">
-                3
-              </span>
-            </button>
+            <div className="relative">
+              <button 
+                onClick={() => setIsNotificationsOpen(!isNotificationsOpen)}
+                className="p-2 bg-surface-container-low hover:bg-surface-variant text-text-secondary hover:text-text-primary rounded-xl transition-all border border-outline-border cursor-pointer relative"
+              >
+                <Bell className="w-4 h-4" />
+                {notifications.length > 0 && (
+                  <span className="absolute -top-1 -right-1 w-4 h-4 rounded-full bg-error-sober text-[9px] font-bold text-white flex items-center justify-center border border-background">
+                    {notifications.length > 9 ? "9+" : notifications.length}
+                  </span>
+                )}
+              </button>
+              
+              {isNotificationsOpen && (
+                <div className="absolute right-0 top-full mt-2 w-80 bg-surface-card border border-outline-border rounded-xl shadow-lg z-50 overflow-hidden flex flex-col">
+                  <div className="px-4 py-3 border-b border-outline-border bg-surface-container-low">
+                    <span className="text-xs font-bold text-text-primary uppercase tracking-wider">
+                      Notificações
+                    </span>
+                  </div>
+                  <div className="max-h-64 overflow-y-auto no-scrollbar flex flex-col p-2">
+                    {notifications.length === 0 ? (
+                      <div className="p-4 text-center text-text-secondary text-xs">
+                        Nenhuma notificação nova.
+                      </div>
+                    ) : (
+                      notifications.map(notif => (
+                        <div key={notif.id} className="p-3 hover:bg-surface-elevated rounded-lg transition-colors cursor-pointer border-b border-outline-border/30 last:border-0 flex items-start gap-3">
+                          <div className="w-8 h-8 rounded-full bg-error-sober/10 flex items-center justify-center shrink-0">
+                            <Bell className="w-4 h-4 text-error-sober" />
+                          </div>
+                          <div className="flex flex-col gap-0.5">
+                            <span className="text-xs font-bold text-text-primary leading-tight">
+                              Tarefa Urgente
+                            </span>
+                            <span className="text-[11px] text-text-secondary leading-snug">
+                              {notif.title}
+                            </span>
+                          </div>
+                        </div>
+                      ))
+                    )}
+                  </div>
+                </div>
+              )}
+            </div>
 
             {/* Sync Now Button */}
             <button
               onClick={onSyncNow}
               disabled={isSyncing}
-              className="px-3 py-1.5 bg-[#F5F6F8] hover:bg-stone-100 text-stone-700 hover:text-stone-900 rounded-xl transition-all border border-stone-200/60 cursor-pointer disabled:opacity-50 flex items-center gap-1.5"
+              className="px-3 py-1.5 bg-surface-container-low hover:bg-surface-variant text-text-secondary hover:text-text-primary rounded-xl transition-all border border-outline-border cursor-pointer disabled:opacity-50 flex items-center gap-1.5"
               title="Sincronizar Cofre Markdown"
             >
-              <RefreshCw className={`w-3.5 h-3.5 ${isSyncing ? "animate-spin text-pink-600" : "text-stone-500"}`} />
+              <RefreshCw className={`w-3.5 h-3.5 ${isSyncing ? "animate-spin text-pink-600" : "text-text-secondary"}`} />
               <span className="text-xs font-bold hidden md:inline">Sincronizar</span>
             </button>
 
             {/* UNIFIED "+ CRIAR" BUTTON WITH DROPDOWN */}
             <div className="relative" ref={createDropdownRef}>
               <button
-                onClick={() => setIsCreateDropdownOpen(!isCreateDropdownOpen)}
-                className="px-4 py-2 bg-pink-600 hover:bg-pink-500 text-white text-xs font-bold rounded-xl shadow-sm transition-all flex items-center gap-1.5 cursor-pointer"
+                onClick={() => {
+                  if (apiConfig.connectionStatus !== "connected") {
+                    onQuickNewNote(); // Triggers the offline warning and opens settings via App.tsx handlers
+                    return;
+                  }
+                  setIsCreateDropdownOpen(!isCreateDropdownOpen);
+                }}
+                className={`px-4 py-2 ${
+                  apiConfig.connectionStatus === "connected"
+                    ? "bg-pink-600 hover:bg-pink-500 text-white"
+                    : "bg-stone-200 text-stone-600 hover:bg-stone-300"
+                } text-xs font-bold rounded-xl shadow-sm transition-all flex items-center gap-1.5 cursor-pointer`}
               >
-                <Plus className="w-3.5 h-3.5 text-white" />
-                <span>Criar</span>
-                <ChevronDown className="w-3 h-3 text-white/80" />
+                {apiConfig.connectionStatus === "connected" ? (
+                  <>
+                    <Plus className="w-3.5 h-3.5 text-white" />
+                    <span>Criar</span>
+                    <ChevronDown className="w-3 h-3 text-white/80" />
+                  </>
+                ) : (
+                  <>
+                    <svg className="w-3.5 h-3.5 text-stone-500" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2.5">
+                      <rect x="3" y="11" width="18" height="11" rx="2" ry="2" />
+                      <path d="M7 11V7a5 5 0 0 1 10 0v4" />
+                    </svg>
+                    <span>Criar Bloqueado</span>
+                  </>
+                )}
               </button>
 
               {isCreateDropdownOpen && (

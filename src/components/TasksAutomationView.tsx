@@ -16,12 +16,8 @@ import {
   ListFilter,
   Check,
   Search,
-  Sparkles,
-  CheckCheck,
-  Compass,
-  ArrowRight,
-  ShieldCheck,
-  FolderOpen,
+  Bell,
+  Trash,
 } from "lucide-react";
 import { MarketingTask, AutomationRule, ObsidianApiConfig } from "../types";
 import { buildObsidianOpenUri } from "../utils/obsidianUri";
@@ -31,6 +27,7 @@ interface TasksAutomationViewProps {
   tasks: MarketingTask[];
   automationRules: AutomationRule[];
   onToggleTaskStatus: (taskId: string) => void;
+  onUpdateTask?: (task: MarketingTask) => void;
   onDeleteTask: (taskId: string) => void;
   onOpenNewTaskModal: () => void;
   onToggleRule: (ruleId: string) => void;
@@ -45,6 +42,7 @@ export const TasksAutomationView: React.FC<TasksAutomationViewProps> = ({
   tasks = [],
   automationRules = [],
   onToggleTaskStatus,
+  onUpdateTask,
   onDeleteTask,
   onOpenNewTaskModal,
   onToggleRule,
@@ -62,6 +60,52 @@ export const TasksAutomationView: React.FC<TasksAutomationViewProps> = ({
   const [searchQuery, setSearchQuery] = useState("");
   const [copiedTaskId, setCopiedTaskId] = useState<string | null>(null);
   const [copiedAll, setCopiedAll] = useState(false);
+
+  // Selected task for the spotlight sidebar (defaults to null, which resolves to the first high-priority pending task)
+  const [selectedTaskId, setSelectedTaskId] = useState<string | null>(null);
+
+  // Editable local Quick Notes that persist across sessions
+  const [quickNotes, setQuickNotes] = useState<string>(
+    () =>
+      localStorage.getItem("nisti_pkm_quick_notes") ||
+      `> Verificar taxa de conversão esperada.\n> Alinhar com time de tráfego sobre o delay na aprovação.\n_`
+  );
+
+  const handleNotesChange = (e: React.ChangeEvent<HTMLTextAreaElement>) => {
+    const val = e.target.value;
+    setQuickNotes(val);
+    localStorage.setItem("nisti_pkm_quick_notes", val);
+  };
+
+  // Helper function to format due dates nicely in Portuguese
+  const formatDueDate = (dateStr?: string, timeStr?: string) => {
+    if (!dateStr) return "Sem prazo";
+    const today = "2026-08-26";
+    const tomorrow = "2026-08-27";
+    const friday = "2026-08-28";
+
+    if (dateStr === today) {
+      return `Hoje${timeStr ? `, ${timeStr}` : ""}`;
+    }
+    if (dateStr === tomorrow) {
+      return `Amanhã${timeStr ? `, ${timeStr}` : ""}`;
+    }
+    if (dateStr === friday) {
+      return `Sexta${timeStr ? `, ${timeStr}` : ""}`;
+    }
+
+    // Format YYYY-MM-DD into a nicer Portuguese date
+    const parts = dateStr.split("-");
+    if (parts.length === 3) {
+      const day = parts[2];
+      const month = parts[1];
+      const months = ["Jan", "Fev", "Mar", "Abr", "Mai", "Jun", "Jul", "Ago", "Set", "Out", "Nov", "Dez"];
+      const monthIndex = parseInt(month, 10) - 1;
+      const monthName = months[monthIndex] || month;
+      return `${day} de ${monthName}${timeStr ? `, ${timeStr}` : ""}`;
+    }
+    return `${dateStr}${timeStr ? `, ${timeStr}` : ""}`;
+  };
 
   // Filter tasks based on search & quick pills
   const filteredTasks = useMemo(() => {
@@ -93,17 +137,20 @@ export const TasksAutomationView: React.FC<TasksAutomationViewProps> = ({
     });
   }, [tasks, filterMode, searchQuery]);
 
-  // Counts
+  // Real data calculations (Calculos de Dados Reais)
   const pendingTasks = useMemo(() => tasks.filter((t) => t.status !== "done"), [tasks]);
   const completedTasks = useMemo(() => tasks.filter((t) => t.status === "done"), [tasks]);
-  const urgentCount = useMemo(
-    () => tasks.filter((t) => t.status !== "done" && (t.priority === "urgent" || t.priority === "high")).length,
+  const urgentTasks = useMemo(
+    () => tasks.filter((t) => t.status !== "done" && (t.priority === "urgent" || t.priority === "high")),
     [tasks]
   );
-  const remindersCount = useMemo(
-    () => tasks.filter((t) => t.isReminderActive || !!t.reminderTime).length,
+  const reminderTasks = useMemo(
+    () => tasks.filter((t) => t.status !== "done" && (t.isReminderActive || !!t.reminderTime)),
     [tasks]
   );
+
+  const urgentCount = urgentTasks.length;
+  const remindersCount = reminderTasks.length;
 
   // Next Action (Single most urgent / prioritized pending task)
   const nextActionTask = useMemo(() => {
@@ -117,7 +164,16 @@ export const TasksAutomationView: React.FC<TasksAutomationViewProps> = ({
     return pendingTasks[0];
   }, [pendingTasks]);
 
-  // Kanban buckets
+  // Spotlight active task (selectedTaskId if found, else nextActionTask)
+  const activeSpotlightTask = useMemo(() => {
+    if (selectedTaskId) {
+      const found = tasks.find((t) => t.id === selectedTaskId);
+      if (found) return found;
+    }
+    return nextActionTask;
+  }, [tasks, selectedTaskId, nextActionTask]);
+
+  // Kanban buckets based on current real tasks list
   const todoList = useMemo(() => filteredTasks.filter((t) => t.status === "todo"), [filteredTasks]);
   const inProgressList = useMemo(() => filteredTasks.filter((t) => t.status === "in-progress"), [filteredTasks]);
   const doneList = useMemo(() => filteredTasks.filter((t) => t.status === "done"), [filteredTasks]);
@@ -129,7 +185,18 @@ export const TasksAutomationView: React.FC<TasksAutomationViewProps> = ({
       particleCount: 28,
       spread: 45,
       origin: { y: 0.8 },
-      colors: ["#7c3aed", "#10b981", "#3b82f6"],
+      colors: ["#2563eb", "#10b981", "#3b82f6"],
+    });
+  };
+
+  // Defer active task to tomorrow
+  const handleDeferTaskToTomorrow = (task: MarketingTask) => {
+    if (!onUpdateTask) return;
+    const tomorrowStr = new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString().split("T")[0];
+    onUpdateTask({
+      ...task,
+      dueDate: tomorrowStr,
+      obsidianTaskString: (task.obsidianTaskString || "").replace(/\d{4}-\d{2}-\d{2}/, tomorrowStr),
     });
   };
 
@@ -156,7 +223,7 @@ export const TasksAutomationView: React.FC<TasksAutomationViewProps> = ({
       result: "Envia automaticamente todas as tarefas do dia para o seu arquivo Daily Notes/YYYY-MM-DD.md no Obsidian.",
       frequency: "Ao clicar ou diariamente",
       tag: "Rotina Diária",
-      color: "border-purple-200 bg-purple-50/40 text-purple-800",
+      color: "border-purple-600/30 bg-purple-600/10 text-purple-300",
     },
     {
       id: "rule_auto_tasks",
@@ -164,7 +231,7 @@ export const TasksAutomationView: React.FC<TasksAutomationViewProps> = ({
       result: "Cria automaticamente tarefas de copy, design de criativo e agendamento assim que uma campanha é sintetizada.",
       frequency: "Automático no disparo",
       tag: "Planejamento",
-      color: "border-emerald-200 bg-emerald-50/40 text-emerald-800",
+      color: "border-emerald-500/30 bg-emerald-500/10 text-emerald-400",
     },
     {
       id: "rule_vault_audit",
@@ -172,28 +239,27 @@ export const TasksAutomationView: React.FC<TasksAutomationViewProps> = ({
       result: "Mapeia diretrizes de tom e personas no cofre para que o Motor Local gere conteúdos sem consumir tokens.",
       frequency: "A cada alteração no cofre",
       tag: "Conhecimento PKM",
-      color: "border-amber-200 bg-amber-50/40 text-amber-800",
+      color: "border-amber-500/30 bg-amber-500/10 text-amber-400",
     },
   ];
 
   return (
-    <div className="w-full px-4 md:px-8 lg:px-12 space-y-7 pb-20 animate-fadeIn">
-      
+    <div className="w-full h-full flex flex-col gap-4 animate-fadeIn font-sans min-h-0">
       {/* 1. HEADER: CENTRO DE EXECUÇÃO */}
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 pb-4 border-b border-stone-200/60">
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 pb-3 shrink-0 border-b border-outline-border">
         <div>
           <div className="flex items-center gap-2">
-            <span className="text-[10px] font-bold text-stone-700 bg-stone-100 px-2 py-0.5 rounded-md border border-stone-200 uppercase tracking-wider">
+            <span className="text-[10px] font-bold text-text-primary bg-primary-container/15 px-2 py-0.5 rounded border border-primary-container/30 uppercase tracking-wider">
               {pendingTasks.length} Pendentes • {completedTasks.length} Concluídas
             </span>
-            <span className="text-xs text-stone-400 font-medium">
+            <span className="text-xs text-text-secondary font-medium">
               Sincronizado com Obsidian Tasks
             </span>
           </div>
-          <h1 className="text-xl font-black text-stone-900 tracking-tight mt-1">
+          <h1 className="text-2xl font-black text-text-primary tracking-tight mt-1.5">
             {activeTab === "automations" ? "Modelos de Automação" : "Centro de Execução"}
           </h1>
-          <p className="text-xs text-stone-500">
+          <p className="text-xs text-text-secondary">
             {activeTab === "automations"
               ? "Regras simplificadas para manter seu cofre e rotinas sincronizados com zero atrito."
               : "Foco no que importa agora com sincronização bidirecional em Markdown."}
@@ -205,146 +271,73 @@ export const TasksAutomationView: React.FC<TasksAutomationViewProps> = ({
           <button
             onClick={onSyncDailyNote}
             disabled={isSyncingDaily}
-            className="px-3.5 py-2 bg-stone-100 hover:bg-stone-200 text-stone-800 text-xs font-semibold rounded-xl transition-all border border-stone-200/80 flex items-center gap-1.5 cursor-pointer disabled:opacity-50"
+            className="px-3.5 py-2 bg-surface-card hover:bg-surface-elevated text-text-primary text-xs font-semibold rounded-xl transition-all border border-outline-border flex items-center gap-1.5 cursor-pointer disabled:opacity-50"
             title="Insere todas as tarefas pendentes na Daily Note de hoje"
           >
-            <Send className="w-3.5 h-3.5 text-stone-500" />
+            <Send className="w-3.5 h-3.5 text-primary-fixed-dim" />
             <span>{isSyncingDaily ? "Sincronizando..." : "Sincronizar Daily Note"}</span>
           </button>
 
           <button
             onClick={onOpenNewTaskModal}
-            className="px-4 py-2 bg-stone-900 hover:bg-stone-850 text-white text-xs font-bold rounded-xl shadow-xs transition-all flex items-center gap-1.5 cursor-pointer"
+            className="px-4 py-2 bg-primary-container hover:bg-blue-600 text-white text-xs font-bold rounded-xl shadow-xs transition-all flex items-center gap-1.5 cursor-pointer"
           >
-            <Plus className="w-3.5 h-3.5 text-purple-400" />
+            <Plus className="w-3.5 h-3.5 text-white" />
             <span>+ Nova Tarefa</span>
           </button>
         </div>
       </div>
 
-      {/* 2. CARD DE "PRÓXIMA AÇÃO" (SPOTLIGHT / THINGS 3 INSPIRATION) */}
-      {activeTab !== "automations" && (
-        nextActionTask ? (
-          <div className="bg-white rounded-3xl border border-stone-200/80 p-6 sm:p-7 shadow-xs relative overflow-hidden space-y-4">
-            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
-              <div className="flex items-center gap-2">
-                <span className="w-2 h-2 rounded-full bg-purple-600 animate-pulse" />
-                <span className="text-[11px] font-bold uppercase tracking-wider text-purple-700">
-                  Próxima Ação Prioritária
-                </span>
-              </div>
-
-              <div className="flex items-center gap-2 text-xs">
-                {nextActionTask.dueDate && (
-                  <span className="text-stone-500 bg-stone-50 px-2 py-0.5 rounded-md border border-stone-200 font-mono text-[11px]">
-                    📅 {nextActionTask.dueDate} {nextActionTask.dueTime ? `às ${nextActionTask.dueTime}` : ""}
-                  </span>
-                )}
-                {nextActionTask.channel && (
-                  <span className="text-purple-700 bg-purple-50 px-2 py-0.5 rounded-md border border-purple-150 font-medium text-[11px]">
-                    #{nextActionTask.channel}
-                  </span>
-                )}
-              </div>
-            </div>
-
-            <div className="flex items-start gap-4 pt-1">
-              <button
-                onClick={() => handleTaskCheck(nextActionTask.id)}
-                className="mt-0.5 w-6 h-6 rounded-lg border-2 border-stone-300 hover:border-purple-600 bg-white hover:bg-purple-50 text-transparent hover:text-purple-600 flex items-center justify-center transition-all cursor-pointer shrink-0"
-                title="Concluir tarefa agora"
-              >
-                <Check className="w-4 h-4" />
-              </button>
-
-              <div className="space-y-1.5 flex-1 min-w-0">
-                <h2 className="text-base sm:text-lg font-bold text-stone-900 leading-snug">
-                  {nextActionTask.title}
-                </h2>
-                {nextActionTask.description && (
-                  <p className="text-xs text-stone-600 leading-relaxed font-sans">
-                    {nextActionTask.description}
-                  </p>
-                )}
-              </div>
-            </div>
-
-            {/* Quick Actions for Next Action */}
-            <div className="pt-3 border-t border-stone-100 flex flex-wrap items-center justify-between gap-3 text-xs">
-              <div className="flex items-center gap-2">
-                <button
-                  onClick={() => handleTaskCheck(nextActionTask.id)}
-                  className="px-3.5 py-1.5 bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-bold rounded-lg transition-all flex items-center gap-1.5 cursor-pointer shadow-3xs"
-                >
-                  <Check className="w-3.5 h-3.5" />
-                  <span>Concluir Agora</span>
-                </button>
-
-                <button
-                  onClick={() => handleCopyTaskSyntax(nextActionTask.obsidianTaskString, nextActionTask.id)}
-                  className="px-3 py-1.5 bg-stone-50 hover:bg-stone-100 text-stone-700 text-xs font-medium rounded-lg border border-stone-200 transition-all flex items-center gap-1 cursor-pointer font-mono"
-                >
-                  <Copy className="w-3 h-3 text-stone-400" />
-                  <span>{copiedTaskId === nextActionTask.id ? "Copiado!" : "Copiar .md"}</span>
-                </button>
-              </div>
-
-              {nextActionTask.obsidianFilePath && (
-                <a
-                  href={buildObsidianOpenUri(apiConfig.vaultName, nextActionTask.obsidianFilePath)}
-                  className="text-stone-500 hover:text-stone-900 transition-colors flex items-center gap-1 text-[11px]"
-                  title="Abrir nota de origem no Obsidian"
-                >
-                  <span>Abrir no Obsidian</span>
-                  <ExternalLink className="w-3 h-3" />
-                </a>
-              )}
-            </div>
+      {/* 2. REAL METRIC CARDS (CARD DE MÉTRICAS REAIS) */}
+      <div className="grid grid-cols-2 md:grid-cols-4 gap-4 shrink-0">
+        {/* Card 1: Pendentes */}
+        <div className="bg-surface-card border border-outline-border p-4 rounded-xl flex flex-col justify-between">
+          <span className="text-[11px] font-bold text-text-secondary uppercase tracking-wider">Pendentes</span>
+          <div className="flex items-end justify-between mt-2">
+            <span className="text-3xl font-black text-text-primary font-mono">{pendingTasks.length}</span>
+            <CheckSquare className="w-5 h-5 text-text-secondary" />
           </div>
-        ) : (
-          /* ESTADO VAZIO PROPOSITIVO & AMIGÁVEL */
-          <div className="bg-white rounded-3xl border border-stone-200/80 p-8 text-center space-y-4 shadow-3xs">
-            <div className="w-12 h-12 rounded-2xl bg-emerald-50 text-emerald-600 flex items-center justify-center mx-auto border border-emerald-200/60">
-              <CheckCheck className="w-6 h-6" />
-            </div>
-            <div className="space-y-1 max-w-md mx-auto">
-              <h3 className="text-base font-bold text-stone-900">
-                Tudo em dia! ✨
-              </h3>
-              <p className="text-xs text-stone-500 leading-relaxed">
-                Você não possui tarefas pendentes no momento. Que tal sintetizar uma nova campanha de marketing ou sincronizar suas Daily Notes?
-              </p>
-            </div>
+        </div>
 
-            <div className="flex flex-wrap items-center justify-center gap-2 pt-2">
-              <button
-                onClick={onOpenNewTaskModal}
-                className="px-4 py-2 bg-stone-900 hover:bg-stone-850 text-white text-xs font-bold rounded-xl transition-all shadow-3xs cursor-pointer"
-              >
-                + Criar Nova Tarefa
-              </button>
-              <button
-                onClick={onSyncDailyNote}
-                className="px-4 py-2 bg-stone-100 hover:bg-stone-200 text-stone-800 text-xs font-bold rounded-xl border border-stone-200 transition-all cursor-pointer"
-              >
-                Sincronizar Daily Note
-              </button>
-            </div>
+        {/* Card 2: Concluídas */}
+        <div className="bg-surface-card border border-outline-border p-4 rounded-xl flex flex-col justify-between">
+          <span className="text-[11px] font-bold text-text-secondary uppercase tracking-wider">Concluídas</span>
+          <div className="flex items-end justify-between mt-2">
+            <span className="text-3xl font-black text-success-sober font-mono">{completedTasks.length}</span>
+            <CheckCircle2 className="w-5 h-5 text-success-sober" />
           </div>
-        )
-      )}
+        </div>
+
+        {/* Card 3: Urgentes */}
+        <div className="bg-surface-card border border-outline-border p-4 rounded-xl flex flex-col justify-between">
+          <span className="text-[11px] font-bold text-text-secondary uppercase tracking-wider">Urgentes</span>
+          <div className="flex items-end justify-between mt-2">
+            <span className="text-3xl font-black text-error-sober font-mono">{urgentCount}</span>
+            <AlertTriangle className="w-5 h-5 text-error-sober" />
+          </div>
+        </div>
+
+        {/* Card 4: Lembretes */}
+        <div className="bg-surface-card border border-outline-border p-4 rounded-xl flex flex-col justify-between">
+          <span className="text-[11px] font-bold text-text-secondary uppercase tracking-wider">Lembretes</span>
+          <div className="flex items-end justify-between mt-2">
+            <span className="text-3xl font-black text-warning-sober font-mono">{remindersCount}</span>
+            <Bell className="w-5 h-5 text-warning-sober" />
+          </div>
+        </div>
+      </div>
 
       {/* 3. VIEW SWITCHER & QUICK FILTERS */}
-      <div className="space-y-3">
+      <div className="flex flex-col gap-3 shrink-0">
         {/* Main View Tabs */}
-        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
-          <div className="flex items-center bg-stone-100/80 p-1 rounded-xl border border-stone-200/80 self-start">
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 shrink-0">
+          <div className="flex items-center bg-[#1c2028] p-1 rounded-xl border border-outline-border self-start">
             <button
               onClick={() => setActiveTab("list")}
-              className={`px-3 py-1.5 text-xs font-bold rounded-lg transition-all flex items-center gap-1.5 cursor-pointer ${
+              className={`px-3.5 py-1.5 text-xs font-bold rounded-lg transition-all flex items-center gap-1.5 cursor-pointer ${
                 activeTab === "list"
-                  ? "bg-white text-stone-900 shadow-3xs"
-                  : "text-stone-600 hover:text-stone-900"
+                  ? "bg-primary-container text-white shadow-sm"
+                  : "text-text-secondary hover:text-text-primary"
               }`}
             >
               <ListFilter className="w-3.5 h-3.5" />
@@ -352,10 +345,10 @@ export const TasksAutomationView: React.FC<TasksAutomationViewProps> = ({
             </button>
             <button
               onClick={() => setActiveTab("kanban")}
-              className={`px-3 py-1.5 text-xs font-bold rounded-lg transition-all flex items-center gap-1.5 cursor-pointer ${
+              className={`px-3.5 py-1.5 text-xs font-bold rounded-lg transition-all flex items-center gap-1.5 cursor-pointer ${
                 activeTab === "kanban"
-                  ? "bg-white text-stone-900 shadow-3xs"
-                  : "text-stone-600 hover:text-stone-900"
+                  ? "bg-primary-container text-white shadow-sm"
+                  : "text-text-secondary hover:text-text-primary"
               }`}
             >
               <Kanban className="w-3.5 h-3.5" />
@@ -363,14 +356,14 @@ export const TasksAutomationView: React.FC<TasksAutomationViewProps> = ({
             </button>
             <button
               onClick={() => setActiveTab("automations")}
-              className={`px-3 py-1.5 text-xs font-bold rounded-lg transition-all flex items-center gap-1.5 cursor-pointer ${
+              className={`px-3.5 py-1.5 text-xs font-bold rounded-lg transition-all flex items-center gap-1.5 cursor-pointer ${
                 activeTab === "automations"
-                  ? "bg-white text-stone-900 shadow-3xs"
-                  : "text-stone-600 hover:text-stone-900"
+                  ? "bg-primary-container text-white shadow-sm"
+                  : "text-text-secondary hover:text-text-primary"
               }`}
             >
-              <Zap className="w-3.5 h-3.5 text-purple-600" />
-              <span>Modelos de Automação ({automationRules.length})</span>
+              <Zap className="w-3.5 h-3.5" />
+              <span>Automações ({automationRules.length})</span>
             </button>
           </div>
 
@@ -378,22 +371,22 @@ export const TasksAutomationView: React.FC<TasksAutomationViewProps> = ({
           {activeTab !== "automations" && (
             <div className="flex items-center gap-2">
               <div className="relative">
-                <Search className="w-3.5 h-3.5 text-stone-400 absolute left-3 top-1/2 -translate-y-1/2" />
+                <Search className="w-3.5 h-3.5 text-text-secondary absolute left-3 top-1/2 -translate-y-1/2" />
                 <input
                   type="text"
                   placeholder="Buscar tarefas..."
                   value={searchQuery}
                   onChange={(e) => setSearchQuery(e.target.value)}
-                  className="pl-8 pr-3 py-1.5 bg-white border border-stone-200 rounded-xl text-xs text-stone-900 placeholder:text-stone-400 focus:outline-none focus:border-purple-500 w-44 sm:w-56"
+                  className="pl-8 pr-3 py-1.5 bg-surface-card border border-outline-border rounded-xl text-xs text-text-primary placeholder:text-text-secondary focus:outline-none focus:border-primary-container w-44 sm:w-56"
                 />
               </div>
 
               <button
                 onClick={handleCopyAllMarkdown}
-                className="p-2 bg-white hover:bg-stone-50 text-stone-600 hover:text-stone-900 border border-stone-200 rounded-xl transition-all cursor-pointer"
-                title="Copiar todas as tarefas em formato Markdown do Obsidian"
+                className="p-2 bg-surface-card hover:bg-surface-elevated text-text-secondary hover:text-text-primary border border-outline-border rounded-xl transition-all cursor-pointer"
+                title="Copiar todas as tarefas em formato Markdown"
               >
-                {copiedAll ? <Check className="w-3.5 h-3.5 text-emerald-600" /> : <Copy className="w-3.5 h-3.5" />}
+                {copiedAll ? <Check className="w-3.5 h-3.5 text-success-sober" /> : <Copy className="w-3.5 h-3.5" />}
               </button>
             </div>
           )}
@@ -406,8 +399,8 @@ export const TasksAutomationView: React.FC<TasksAutomationViewProps> = ({
               onClick={() => setFilterMode("all")}
               className={`px-2.5 py-1 text-[11px] font-semibold rounded-lg transition-all cursor-pointer ${
                 filterMode === "all"
-                  ? "bg-stone-900 text-white"
-                  : "bg-white text-stone-600 border border-stone-200/80 hover:bg-stone-50"
+                  ? "bg-text-primary text-[#0f131c]"
+                  : "bg-surface-card text-text-secondary border border-outline-border hover:bg-surface-elevated"
               }`}
             >
               Todas ({tasks.length})
@@ -416,19 +409,19 @@ export const TasksAutomationView: React.FC<TasksAutomationViewProps> = ({
               onClick={() => setFilterMode("high_urgent")}
               className={`px-2.5 py-1 text-[11px] font-semibold rounded-lg transition-all flex items-center gap-1 cursor-pointer ${
                 filterMode === "high_urgent"
-                  ? "bg-rose-600 text-white"
-                  : "bg-white text-stone-600 border border-stone-200/80 hover:bg-stone-50"
+                  ? "bg-error-sober text-white"
+                  : "bg-surface-card text-text-secondary border border-outline-border hover:bg-surface-elevated"
               }`}
             >
-              <AlertTriangle className="w-3 h-3 text-rose-500" />
+              <AlertTriangle className="w-3 h-3 text-error-sober" />
               <span>Alta / Urgente ({urgentCount})</span>
             </button>
             <button
               onClick={() => setFilterMode("in_progress")}
               className={`px-2.5 py-1 text-[11px] font-semibold rounded-lg transition-all cursor-pointer ${
                 filterMode === "in_progress"
-                  ? "bg-purple-600 text-white"
-                  : "bg-white text-stone-600 border border-stone-200/80 hover:bg-stone-50"
+                  ? "bg-primary-container text-white"
+                  : "bg-surface-card text-text-secondary border border-outline-border hover:bg-surface-elevated"
               }`}
             >
               Em Andamento ({inProgressList.length})
@@ -437,19 +430,19 @@ export const TasksAutomationView: React.FC<TasksAutomationViewProps> = ({
               onClick={() => setFilterMode("reminders")}
               className={`px-2.5 py-1 text-[11px] font-semibold rounded-lg transition-all flex items-center gap-1 cursor-pointer ${
                 filterMode === "reminders"
-                  ? "bg-amber-600 text-white"
-                  : "bg-white text-stone-600 border border-stone-200/80 hover:bg-stone-50"
+                  ? "bg-warning-sober text-white"
+                  : "bg-surface-card text-text-secondary border border-outline-border hover:bg-surface-elevated"
               }`}
             >
-              <Clock className="w-3 h-3 text-amber-500" />
+              <Clock className="w-3 h-3 text-warning-sober" />
               <span>Lembretes ({remindersCount})</span>
             </button>
             <button
               onClick={() => setFilterMode("done")}
               className={`px-2.5 py-1 text-[11px] font-semibold rounded-lg transition-all cursor-pointer ${
                 filterMode === "done"
-                  ? "bg-emerald-600 text-white"
-                  : "bg-white text-stone-600 border border-stone-200/80 hover:bg-stone-50"
+                  ? "bg-success-sober text-white"
+                  : "bg-surface-card text-text-secondary border border-outline-border hover:bg-surface-elevated"
               }`}
             >
               Concluídas ({completedTasks.length})
@@ -458,315 +451,498 @@ export const TasksAutomationView: React.FC<TasksAutomationViewProps> = ({
         )}
       </div>
 
-      {/* 4. MAIN CONTENT VIEWS */}
+      {/* 4. MASTER GRID LAYOUT (LISTS + SPOTLIGHT) */}
+      <div className="grid grid-cols-1 xl:grid-cols-3 gap-4 flex-1 min-h-0">
+        {/* Left Area: Tasks (List or Kanban) */}
+        <div className="xl:col-span-2 flex flex-col min-h-0">
+          {/* A) LIST VIEW */}
+          {activeTab === "list" && (
+            <div className="bg-surface-card border border-outline-border rounded-xl overflow-hidden flex flex-col flex-1 min-h-0">
+              {/* List Header */}
+              <div className="px-4 py-3 border-b border-outline-border bg-surface-container-low flex items-center justify-between">
+                <span className="text-xs font-bold text-text-primary uppercase tracking-wider">Fila de Execução</span>
+                <span className="text-[11px] font-medium text-text-secondary">
+                  Mostrando {filteredTasks.length} tarefas
+                </span>
+              </div>
 
-      {/* A) LIST VIEW */}
-      {activeTab === "list" && (
-        <div className="bg-white rounded-3xl border border-stone-200/80 shadow-3xs divide-y divide-stone-100 overflow-hidden">
-          {filteredTasks.map((task) => {
-            const isDone = task.status === "done";
-            const isUrgent = task.priority === "urgent";
-            const isHigh = task.priority === "high";
+              {/* List Content */}
+              <div className="divide-y divide-outline-border/40 overflow-y-auto no-scrollbar flex-1 min-h-0">
+                {filteredTasks.map((task) => {
+                  const isDone = task.status === "done";
+                  const isUrgent = task.priority === "urgent";
+                  const isHigh = task.priority === "high";
 
-            return (
-              <div
-                key={task.id}
-                className={`p-4 sm:px-6 flex items-center justify-between gap-3 group transition-colors ${
-                  isDone ? "bg-stone-50/40 opacity-70" : "hover:bg-stone-50/60"
-                }`}
-              >
-                <div className="flex items-center gap-3.5 flex-1 min-w-0">
-                  {/* Custom Checkbox */}
-                  <button
-                    onClick={() => handleTaskCheck(task.id)}
-                    className={`w-5 h-5 rounded-md border transition-all flex items-center justify-center shrink-0 cursor-pointer ${
-                      isDone
-                        ? "bg-emerald-600 border-emerald-600 text-white"
-                        : "border-stone-300 hover:border-purple-600 bg-white"
-                    }`}
-                  >
-                    {isDone && <Check className="w-3.5 h-3.5" />}
-                  </button>
+                  // Color bar accent based on priority
+                  let accentColor = "bg-[#334155]";
+                  if (isUrgent) accentColor = "bg-error-sober";
+                  else if (isHigh) accentColor = "bg-warning-sober";
+                  else if (task.priority === "medium") accentColor = "bg-primary-container";
 
-                  {/* Task Info */}
-                  <div className="flex-1 min-w-0">
-                    <div className="flex items-center gap-2">
-                      <span
-                        className={`text-xs sm:text-sm font-semibold truncate ${
-                          isDone ? "line-through text-stone-400" : "text-stone-900"
-                        }`}
-                      >
-                        {task.title}
-                      </span>
+                  return (
+                    <div
+                      key={task.id}
+                      onClick={() => setSelectedTaskId(task.id)}
+                      className={`relative pl-5 pr-4 py-3.5 flex items-center justify-between gap-4 cursor-pointer transition-all hover:bg-surface-elevated/40 ${
+                        isDone ? "opacity-60" : ""
+                      } ${activeSpotlightTask?.id === task.id ? "bg-surface-elevated/20" : ""}`}
+                    >
+                      {/* Left accent color bar */}
+                      <div className={`absolute left-0 top-0 bottom-0 w-1 ${accentColor}`} />
 
-                      {/* Priority Dot/Pill */}
-                      {isUrgent && (
-                        <span className="text-[10px] font-bold text-rose-700 bg-rose-50 border border-rose-200 px-1.5 py-0.2 rounded shrink-0">
-                          Urgente
+                      <div className="flex items-center gap-3.5 flex-1 min-w-0">
+                        {/* Checkbox */}
+                        <button
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            handleTaskCheck(task.id);
+                          }}
+                          className={`w-5 h-5 rounded border transition-all flex items-center justify-center shrink-0 cursor-pointer ${
+                            isDone
+                              ? "bg-success-sober border-success-sober text-[#0f131c]"
+                              : "border-outline-border hover:border-primary-container bg-surface-container-low"
+                          }`}
+                        >
+                          {isDone && <Check className="w-3.5 h-3.5 font-black" />}
+                        </button>
+
+                        {/* Labels & Title */}
+                        <div className="flex-1 min-w-0">
+                          <div className="flex flex-wrap items-center gap-2">
+                            {/* Priority Badge */}
+                            {isUrgent && (
+                              <span className="px-1.5 py-0.2 rounded text-[9px] font-black uppercase tracking-wider bg-error-sober/15 text-error-sober border border-error-sober/20">
+                                Urgente
+                              </span>
+                            )}
+                            {isHigh && (
+                              <span className="px-1.5 py-0.2 rounded text-[9px] font-black uppercase tracking-wider bg-warning-sober/15 text-warning-sober border border-warning-sober/20">
+                                Alta
+                              </span>
+                            )}
+                            {!isUrgent && !isHigh && (
+                              <span className="px-1.5 py-0.2 rounded text-[9px] font-bold uppercase tracking-wider bg-outline-border/45 text-text-secondary border border-outline-border/30">
+                                {task.priority === "medium" ? "Média" : "Baixa"}
+                              </span>
+                            )}
+
+                            {/* Channel tag */}
+                            {task.channel && (
+                              <span className="px-1.5 py-0.2 rounded text-[9px] font-black uppercase tracking-wider bg-[#31353e] text-[#c3c6d7] border border-outline-border">
+                                {task.channel}
+                              </span>
+                            )}
+
+                            {/* Linked note indicator */}
+                            {task.obsidianFilePath && (
+                              <span className="text-[10px] text-primary-fixed-dim/80 font-mono">
+                                📑 {task.obsidianFilePath.split("/").pop()?.replace(".md", "")}
+                              </span>
+                            )}
+                          </div>
+
+                          {/* Task Title */}
+                          <p
+                            className={`text-xs sm:text-sm font-semibold mt-1 truncate ${
+                              isDone ? "line-through text-text-secondary" : "text-text-primary"
+                            }`}
+                          >
+                            {task.title}
+                          </p>
+                        </div>
+                      </div>
+
+                      {/* Right Meta Info & Quick Actions */}
+                      <div className="flex items-center gap-4 shrink-0">
+                        <span className="font-mono text-[11px] text-text-secondary">
+                          {formatDueDate(task.dueDate, task.dueTime)}
                         </span>
-                      )}
-                      {isHigh && (
-                        <span className="text-[10px] font-bold text-amber-700 bg-amber-50 border border-amber-200 px-1.5 py-0.2 rounded shrink-0">
-                          Alta
-                        </span>
-                      )}
+
+                        <div className="flex items-center gap-1.5">
+                          {/* Copy syntax */}
+                          <button
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              handleCopyTaskSyntax(task.obsidianTaskString, task.id);
+                            }}
+                            className="p-1.5 text-text-secondary hover:text-text-primary hover:bg-surface-elevated rounded-lg transition-colors cursor-pointer"
+                            title="Copiar sintaxe do Obsidian"
+                          >
+                            {copiedTaskId === task.id ? (
+                              <span className="text-[9px] font-bold text-success-sober">Copiado</span>
+                            ) : (
+                              <Copy className="w-3.5 h-3.5" />
+                            )}
+                          </button>
+
+                          {/* Open Note in Obsidian */}
+                          {task.obsidianFilePath && (
+                            <a
+                              href={buildObsidianOpenUri(apiConfig.vaultName, task.obsidianFilePath)}
+                              onClick={(e) => e.stopPropagation()}
+                              className="p-1.5 text-text-secondary hover:text-primary-fixed-dim hover:bg-surface-elevated rounded-lg transition-colors"
+                              title="Abrir no Obsidian"
+                            >
+                              <ExternalLink className="w-3.5 h-3.5" />
+                            </a>
+                          )}
+
+                          {/* Delete task */}
+                          <button
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              onDeleteTask(task.id);
+                            }}
+                            className="p-1.5 text-[#334155] hover:text-error-sober hover:bg-surface-elevated rounded-lg transition-colors cursor-pointer"
+                            title="Excluir tarefa"
+                          >
+                            <Trash2 className="w-3.5 h-3.5" />
+                          </button>
+                        </div>
+                      </div>
                     </div>
+                  );
+                })}
 
-                    {/* Metadata Subline */}
-                    <div className="flex items-center gap-3 text-[11px] text-stone-400 mt-0.5">
-                      {task.dueDate && (
-                        <span className="flex items-center gap-1 font-mono text-stone-500">
-                          <Calendar className="w-3 h-3 text-stone-400" />
-                          <span>{task.dueDate}</span>
-                        </span>
-                      )}
-                      {task.reminderTime && (
-                        <span className="flex items-center gap-1 font-mono text-amber-700 bg-amber-50 px-1.5 py-0.2 rounded border border-amber-200">
-                          <Clock className="w-2.5 h-2.5 text-amber-600" />
-                          <span>{task.reminderTime}</span>
-                        </span>
-                      )}
-                      {task.channel && (
-                        <span className="text-stone-500 font-medium">#{task.channel}</span>
-                      )}
+                {filteredTasks.length === 0 && (
+                  <div className="py-16 text-center text-text-secondary space-y-3">
+                    <CheckSquare className="w-10 h-10 text-outline-border/80 mx-auto" />
+                    <div>
+                      <p className="text-xs font-bold text-text-primary">Nenhuma tarefa por aqui!</p>
+                      <p className="text-[11px] text-text-secondary mt-1">Crie uma nova tarefa ou tente outro filtro.</p>
                     </div>
                   </div>
+                )}
+              </div>
+            </div>
+          )}
+
+          {/* B) KANBAN VIEW */}
+          {activeTab === "kanban" && (
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-4 flex-1 min-h-0">
+              {/* Column: Todo */}
+              <div className="bg-[#1c2028] rounded-xl p-4 border border-outline-border flex flex-col gap-3 min-h-0">
+                <div className="flex items-center justify-between pb-1.5 border-b border-outline-border/45 shrink-0">
+                  <span className="text-[11px] font-bold text-text-secondary uppercase tracking-wider">
+                    A Fazer ({todoList.length})
+                  </span>
                 </div>
-
-                {/* Action Buttons */}
-                <div className="flex items-center gap-1.5 shrink-0">
-                  <button
-                    onClick={() => handleCopyTaskSyntax(task.obsidianTaskString, task.id)}
-                    className="p-1.5 text-stone-400 hover:text-stone-900 bg-transparent hover:bg-stone-100 rounded-lg transition-colors cursor-pointer"
-                    title="Copiar sintaxe Markdown do Obsidian"
-                  >
-                    {copiedTaskId === task.id ? (
-                      <span className="text-[10px] font-mono text-purple-700 font-bold">Copiado!</span>
-                    ) : (
-                      <Copy className="w-3.5 h-3.5" />
-                    )}
-                  </button>
-
-                  {task.obsidianFilePath && (
-                    <a
-                      href={buildObsidianOpenUri(apiConfig.vaultName, task.obsidianFilePath)}
-                      className="p-1.5 text-stone-400 hover:text-purple-600 rounded-lg transition-colors"
-                      title="Abrir nota vinculada no Obsidian"
+                <div className="space-y-2 flex-1 min-h-0 overflow-y-auto no-scrollbar pr-1">
+                  {todoList.map((task) => (
+                    <div
+                      key={task.id}
+                      onClick={() => setSelectedTaskId(task.id)}
+                      className={`bg-surface-card p-3.5 rounded-xl border cursor-pointer transition-all hover:border-primary-container ${
+                        activeSpotlightTask?.id === task.id ? "border-primary-container ring-1 ring-primary-container/20" : "border-outline-border"
+                      } space-y-2.5`}
                     >
-                      <ExternalLink className="w-3.5 h-3.5" />
-                    </a>
+                      <div className="flex items-start gap-2.5">
+                        <button
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            handleTaskCheck(task.id);
+                          }}
+                          className="mt-0.5 w-4 h-4 rounded border border-outline-border hover:border-primary-container bg-surface-container-low flex items-center justify-center shrink-0 cursor-pointer"
+                        >
+                          <Check className="w-2.5 h-2.5 text-transparent hover:text-primary-container" />
+                        </button>
+                        <span className="text-xs font-bold text-text-primary leading-snug">
+                          {task.title}
+                        </span>
+                      </div>
+                      <div className="flex items-center justify-between text-[10px] text-text-secondary pt-1.5 border-t border-outline-border/40">
+                        <span className="font-mono">{formatDueDate(task.dueDate)}</span>
+                        {task.channel && (
+                          <span className="font-semibold uppercase text-primary-fixed-dim">#{task.channel}</span>
+                        )}
+                      </div>
+                    </div>
+                  ))}
+                  {todoList.length === 0 && (
+                    <p className="text-center py-8 text-[11px] text-text-secondary">Nenhuma tarefa pendente.</p>
                   )}
-
-                  <button
-                    onClick={() => onDeleteTask(task.id)}
-                    className="p-1.5 text-stone-300 hover:text-rose-600 rounded-lg transition-colors cursor-pointer opacity-0 group-hover:opacity-100"
-                    title="Excluir tarefa"
-                  >
-                    <Trash2 className="w-3.5 h-3.5" />
-                  </button>
                 </div>
               </div>
-            );
-          })}
 
-          {filteredTasks.length === 0 && (
-            <div className="py-12 text-center text-stone-400 space-y-2">
-              <CheckSquare className="w-7 h-7 text-stone-300 mx-auto" />
-              <p className="text-xs font-medium text-stone-600">Nenhuma tarefa encontrada neste filtro.</p>
+              {/* Column: In Progress */}
+              <div className="bg-[#1c2028] rounded-xl p-4 border border-outline-border flex flex-col gap-3 min-h-0">
+                <div className="flex items-center justify-between pb-1.5 border-b border-outline-border/45 shrink-0">
+                  <span className="text-[11px] font-bold text-primary-fixed-dim uppercase tracking-wider">
+                    Em Andamento ({inProgressList.length})
+                  </span>
+                </div>
+                <div className="space-y-2 flex-1 min-h-0 overflow-y-auto no-scrollbar pr-1">
+                  {inProgressList.map((task) => (
+                    <div
+                      key={task.id}
+                      onClick={() => setSelectedTaskId(task.id)}
+                      className={`bg-surface-card p-3.5 rounded-xl border cursor-pointer transition-all hover:border-primary-container ${
+                        activeSpotlightTask?.id === task.id ? "border-primary-container ring-1 ring-primary-container/20" : "border-outline-border"
+                      } space-y-2.5`}
+                    >
+                      <div className="flex items-start gap-2.5">
+                        <button
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            handleTaskCheck(task.id);
+                          }}
+                          className="mt-0.5 w-4 h-4 rounded border border-primary-container/50 bg-primary-container/10 flex items-center justify-center shrink-0 cursor-pointer"
+                        >
+                          <Check className="w-2.5 h-2.5 text-primary-fixed-dim" />
+                        </button>
+                        <span className="text-xs font-bold text-text-primary leading-snug">
+                          {task.title}
+                        </span>
+                      </div>
+                      <div className="flex items-center justify-between text-[10px] text-text-secondary pt-1.5 border-t border-outline-border/40">
+                        <span className="font-mono">{formatDueDate(task.dueDate)}</span>
+                        {task.channel && (
+                          <span className="font-semibold uppercase text-primary-fixed-dim">#{task.channel}</span>
+                        )}
+                      </div>
+                    </div>
+                  ))}
+                  {inProgressList.length === 0 && (
+                    <p className="text-center py-8 text-[11px] text-text-secondary">Nenhuma em andamento.</p>
+                  )}
+                </div>
+              </div>
+
+              {/* Column: Done */}
+              <div className="bg-[#1c2028] rounded-xl p-4 border border-outline-border flex flex-col gap-3 min-h-0">
+                <div className="flex items-center justify-between pb-1.5 border-b border-outline-border/45 shrink-0">
+                  <span className="text-[11px] font-bold text-success-sober uppercase tracking-wider">
+                    Concluídas ({doneList.length})
+                  </span>
+                </div>
+                <div className="space-y-2 flex-1 min-h-0 overflow-y-auto no-scrollbar pr-1">
+                  {doneList.map((task) => (
+                    <div
+                      key={task.id}
+                      onClick={() => setSelectedTaskId(task.id)}
+                      className="bg-surface-card/60 p-3.5 rounded-xl border border-outline-border/30 opacity-60 space-y-2.5 cursor-pointer"
+                    >
+                      <div className="flex items-start gap-2.5">
+                        <div className="mt-0.5 w-4 h-4 rounded bg-success-sober text-[#0f131c] flex items-center justify-center shrink-0">
+                          <Check className="w-2.5 h-2.5 font-bold" />
+                        </div>
+                        <span className="text-xs font-medium text-text-secondary line-through leading-snug">
+                          {task.title}
+                        </span>
+                      </div>
+                    </div>
+                  ))}
+                  {doneList.length === 0 && (
+                    <p className="text-center py-8 text-[11px] text-text-secondary">Nenhuma concluída.</p>
+                  )}
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* C) AUTOMAÇÕES VIEW */}
+          {activeTab === "automations" && (
+            <div className="space-y-6">
+              <div className="bg-surface-card border border-outline-border p-6 sm:p-7 rounded-xl space-y-5">
+                <div>
+                  <h2 className="text-base font-bold text-text-primary flex items-center gap-2">
+                    <Zap className="w-4 h-4 text-primary-fixed-dim" />
+                    <span>Modelos de Automação do Cofre</span>
+                  </h2>
+                  <p className="text-xs text-text-secondary mt-1">
+                    Ative as regras inteligentes que automatizam o fluxo de marketing no seu Obsidian em segundo plano.
+                  </p>
+                </div>
+
+                <div className="grid grid-cols-1 md:grid-cols-3 gap-4 flex-1 min-h-0">
+                  {friendlyAutomationTemplates.map((template, idx) => {
+                    const rule = automationRules.find(r => r.id === template.id) || {
+                      id: template.id,
+                      name: template.name,
+                      enabled: true,
+                      executionCount: 12 + idx * 5,
+                    };
+
+                    return (
+                      <div
+                        key={template.id}
+                        className="p-5 rounded-xl border border-outline-border bg-[#1c2028] flex flex-col justify-between space-y-4 hover:border-primary-container/60 transition-all"
+                      >
+                        <div className="space-y-2.5">
+                          <div className="flex items-center justify-between">
+                            <span className={`text-[9px] font-bold px-2 py-0.5 rounded border ${template.color}`}>
+                              {template.tag}
+                            </span>
+
+                            {/* Toggle Switch */}
+                            <label className="relative inline-flex items-center cursor-pointer">
+                              <input
+                                type="checkbox"
+                                checked={rule.enabled !== false}
+                                onChange={() => onToggleRule(rule.id)}
+                                className="sr-only peer"
+                              />
+                              <div className="w-7 h-3.5 bg-outline-border peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[1px] after:left-[1px] after:bg-[#0f131c] after:rounded-full after:h-3 after:w-3 after:transition-all peer-checked:bg-primary-container"></div>
+                            </label>
+                          </div>
+
+                          <h3 className="text-xs font-bold text-text-primary leading-snug">
+                            {template.name}
+                          </h3>
+
+                          <p className="text-[11px] text-text-secondary leading-relaxed">
+                            {template.result}
+                          </p>
+                        </div>
+
+                        <div className="pt-3 border-t border-outline-border/40 flex items-center justify-between text-[11px] text-text-secondary">
+                          <span className="text-[10px] font-mono">{template.frequency}</span>
+                          <button
+                            onClick={() => onRunRuleNow(rule.id)}
+                            disabled={apiConfig.connectionStatus !== "connected"}
+                            className="px-2.5 py-1 bg-surface-card hover:bg-surface-elevated text-text-primary font-bold rounded-lg transition-all flex items-center gap-1 cursor-pointer border border-outline-border disabled:opacity-50 disabled:cursor-not-allowed"
+                            title={apiConfig.connectionStatus !== "connected" ? "Conecte o cofre do Obsidian para executar" : "Executar agora"}
+                          >
+                            <Play className="w-2.5 h-2.5 text-primary-fixed-dim" />
+                            <span>Executar</span>
+                          </button>
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
             </div>
           )}
         </div>
-      )}
 
-      {/* B) KANBAN VIEW */}
-      {activeTab === "kanban" && (
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-          {/* Column: Todo */}
-          <div className="bg-stone-50/60 rounded-3xl p-4 border border-stone-200/80 space-y-3">
-            <div className="flex items-center justify-between pb-2 border-b border-stone-200/60">
-              <span className="text-[11px] font-bold text-stone-700 uppercase tracking-wider">
-                A Fazer ({todoList.length})
-              </span>
-            </div>
-            <div className="space-y-2">
-              {todoList.map((task) => (
-                <div
-                  key={task.id}
-                  className="bg-white p-3.5 rounded-2xl border border-stone-200/80 shadow-3xs space-y-2 hover:border-purple-300 transition-colors"
-                >
-                  <div className="flex items-start gap-2">
-                    <button
-                      onClick={() => handleTaskCheck(task.id)}
-                      className="mt-0.5 w-4 h-4 rounded border border-stone-300 hover:border-purple-600 bg-white flex items-center justify-center shrink-0 cursor-pointer"
-                    >
-                      <Check className="w-2.5 h-2.5 text-transparent hover:text-purple-600" />
-                    </button>
-                    <span className="text-xs font-semibold text-stone-900 leading-snug">
-                      {task.title}
+        {/* Right Area: Spotlight & Notes */}
+        {activeTab !== "automations" && (
+          <div className="xl:col-span-1 flex flex-col gap-4">
+            {/* Spotlight Card */}
+            {activeSpotlightTask ? (
+              <div className="bg-surface-card border border-outline-border rounded-xl overflow-hidden relative shadow-md">
+                {/* Accent Header Bar based on priority */}
+                {(() => {
+                  let barColor = "bg-[#334155]";
+                  if (activeSpotlightTask.priority === "urgent") barColor = "bg-error-sober";
+                  else if (activeSpotlightTask.priority === "high") barColor = "bg-warning-sober";
+                  else if (activeSpotlightTask.priority === "medium") barColor = "bg-primary-container";
+
+                  return <div className={`h-1.5 w-full ${barColor}`} />;
+                })()}
+
+                <div className="p-5">
+                  <div className="flex items-center gap-2 mb-4">
+                    <span className="w-2 h-2 rounded-full bg-primary-container animate-pulse" />
+                    <span className="font-semibold text-[10px] uppercase tracking-wider text-text-secondary">
+                      Spotlight: Próxima Ação
                     </span>
                   </div>
-                  <div className="flex items-center justify-between text-[10px] text-stone-400 pt-1 border-t border-stone-100">
-                    <span>{task.dueDate || "Sem data"}</span>
-                    <button
-                      onClick={() => handleCopyTaskSyntax(task.obsidianTaskString, task.id)}
-                      className="text-purple-700 hover:underline font-mono"
-                    >
-                      {copiedTaskId === task.id ? "Copiado!" : "Copiar .md"}
-                    </button>
-                  </div>
-                </div>
-              ))}
-              {todoList.length === 0 && (
-                <p className="text-center py-6 text-[11px] text-stone-400">Sem tarefas pendentes.</p>
-              )}
-            </div>
-          </div>
 
-          {/* Column: In Progress */}
-          <div className="bg-stone-50/60 rounded-3xl p-4 border border-stone-200/80 space-y-3">
-            <div className="flex items-center justify-between pb-2 border-b border-stone-200/60">
-              <span className="text-[11px] font-bold text-purple-700 uppercase tracking-wider">
-                Em Andamento ({inProgressList.length})
-              </span>
-            </div>
-            <div className="space-y-2">
-              {inProgressList.map((task) => (
-                <div
-                  key={task.id}
-                  className="bg-white p-3.5 rounded-2xl border border-purple-200/80 shadow-3xs space-y-2"
-                >
-                  <div className="flex items-start gap-2">
-                    <button
-                      onClick={() => handleTaskCheck(task.id)}
-                      className="mt-0.5 w-4 h-4 rounded border border-purple-400 bg-purple-50 flex items-center justify-center shrink-0 cursor-pointer"
-                    >
-                      <Check className="w-2.5 h-2.5 text-purple-700" />
-                    </button>
-                    <span className="text-xs font-semibold text-stone-900 leading-snug">
-                      {task.title}
-                    </span>
-                  </div>
-                  <div className="flex items-center justify-between text-[10px] text-stone-400 pt-1 border-t border-stone-100">
-                    <span>{task.dueDate || "Hoje"}</span>
-                    <button
-                      onClick={() => handleCopyTaskSyntax(task.obsidianTaskString, task.id)}
-                      className="text-purple-700 hover:underline font-mono"
-                    >
-                      {copiedTaskId === task.id ? "Copiado!" : "Copiar .md"}
-                    </button>
-                  </div>
-                </div>
-              ))}
-              {inProgressList.length === 0 && (
-                <p className="text-center py-6 text-[11px] text-stone-400">Nenhuma em andamento.</p>
-              )}
-            </div>
-          </div>
+                  <h3 className="text-base font-black text-text-primary mb-2.5 leading-snug">
+                    {activeSpotlightTask.title}
+                  </h3>
 
-          {/* Column: Done */}
-          <div className="bg-stone-50/60 rounded-3xl p-4 border border-stone-200/80 space-y-3">
-            <div className="flex items-center justify-between pb-2 border-b border-stone-200/60">
-              <span className="text-[11px] font-bold text-emerald-700 uppercase tracking-wider">
-                Concluído ({doneList.length})
-              </span>
-            </div>
-            <div className="space-y-2">
-              {doneList.map((task) => (
-                <div
-                  key={task.id}
-                  className="bg-white/80 p-3.5 rounded-2xl border border-stone-200/60 opacity-70 space-y-2"
-                >
-                  <div className="flex items-start gap-2">
-                    <div className="mt-0.5 w-4 h-4 rounded bg-emerald-600 text-white flex items-center justify-center shrink-0">
-                      <Check className="w-2.5 h-2.5" />
+                  <p className="text-xs text-text-secondary mb-6 leading-relaxed">
+                    {activeSpotlightTask.description ||
+                      "Esta tarefa foi sincronizada do seu cofre Obsidian e está pronta para execução tática rápida."}
+                  </p>
+
+                  {/* Context Details Block */}
+                  <div className="bg-[#1c2028] border border-outline-border rounded-xl p-3.5 mb-6 space-y-2.5 text-xs">
+                    <div className="flex justify-between items-center">
+                      <span className="text-text-secondary font-medium">Projeto / Canal</span>
+                      <span className="text-text-primary font-bold">
+                        {activeSpotlightTask.channel || "Geral"}
+                      </span>
                     </div>
-                    <span className="text-xs font-medium text-stone-500 line-through leading-snug">
-                      {task.title}
-                    </span>
+
+                    <div className="flex justify-between items-center">
+                      <span className="text-text-secondary font-medium">Prazo</span>
+                      <span className="text-text-primary font-mono font-bold">
+                        {formatDueDate(activeSpotlightTask.dueDate, activeSpotlightTask.dueTime)}
+                      </span>
+                    </div>
+
+                    <div className="flex justify-between items-center pt-2 border-t border-outline-border/40">
+                      <span className="text-text-secondary font-medium">Fonte PKM</span>
+                      {activeSpotlightTask.obsidianFilePath ? (
+                        <a
+                          href={buildObsidianOpenUri(apiConfig.vaultName, activeSpotlightTask.obsidianFilePath)}
+                          className="font-mono text-primary-fixed-dim hover:underline flex items-center gap-1 text-[11px]"
+                        >
+                          [[{activeSpotlightTask.obsidianFilePath.split("/").pop()?.replace(".md", "")}]]
+                          <ExternalLink className="w-3 h-3 text-primary-fixed-dim" />
+                        </a>
+                      ) : (
+                        <span className="text-text-secondary font-mono italic">[[Inbox/Notas]]</span>
+                      )}
+                    </div>
                   </div>
-                </div>
-              ))}
-              {doneList.length === 0 && (
-                <p className="text-center py-6 text-[11px] text-stone-400">Nenhuma concluída.</p>
-              )}
-            </div>
-          </div>
-        </div>
-      )}
 
-      {/* C) AUTOMAÇÕES: MODELOS AMIGÁVEIS E RESULTADO CLARO (NO JARGON) */}
-      {activeTab === "automations" && (
-        <div className="space-y-6">
-          <div className="bg-white rounded-3xl border border-stone-200/80 p-6 sm:p-7 shadow-3xs space-y-5">
-            <div>
-              <h2 className="text-base font-bold text-stone-900 flex items-center gap-2">
-                <Zap className="w-4 h-4 text-purple-600" />
-                <span>Modelos de Automação Inteligentes</span>
-              </h2>
-              <p className="text-xs text-stone-500 mt-0.5">
-                Escolha os fluxos que devem rodar em segundo plano no seu cofre Obsidian com total segurança.
-              </p>
-            </div>
+                  {/* Actions */}
+                  <div className="flex flex-col gap-2">
+                    {activeSpotlightTask.status !== "done" ? (
+                      <>
+                        <button
+                          onClick={() => handleTaskCheck(activeSpotlightTask.id)}
+                          className="w-full bg-primary-container hover:bg-blue-600 text-white font-bold py-2.5 rounded-lg transition-colors flex justify-center items-center gap-2 cursor-pointer text-xs"
+                        >
+                          <CheckCircle2 className="w-4 h-4" />
+                          <span>Concluir Agora</span>
+                        </button>
 
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-              {friendlyAutomationTemplates.map((template, idx) => {
-                const rule = automationRules[idx] || {
-                  id: template.id,
-                  name: template.name,
-                  enabled: true,
-                  executionCount: 12 + idx * 5,
-                };
-
-                return (
-                  <div
-                    key={template.id}
-                    className="p-5 rounded-2xl border border-stone-200/80 bg-white shadow-3xs flex flex-col justify-between space-y-4 hover:border-purple-300 transition-all"
-                  >
-                    <div className="space-y-2.5">
-                      <div className="flex items-center justify-between">
-                        <span className={`text-[10px] font-bold px-2 py-0.5 rounded border ${template.color}`}>
-                          {template.tag}
+                        <button
+                          onClick={() => handleDeferTaskToTomorrow(activeSpotlightTask)}
+                          className="w-full bg-transparent border border-outline-border text-text-secondary hover:text-text-primary hover:bg-surface-elevated font-semibold py-2.5 rounded-lg transition-colors flex justify-center items-center gap-2 cursor-pointer text-xs"
+                        >
+                          <Clock className="w-4 h-4" />
+                          <span>Adiar para Amanhã</span>
+                        </button>
+                      </>
+                    ) : (
+                      <div className="text-center py-2 bg-success-sober/10 border border-success-sober/30 rounded-lg">
+                        <span className="text-xs font-bold text-success-sober flex items-center justify-center gap-1.5">
+                          <CheckCircle2 className="w-4 h-4" />
+                          Tarefa Concluída! 🎉
                         </span>
-
-                        {/* Toggle Switch */}
-                        <label className="relative inline-flex items-center cursor-pointer">
-                          <input
-                            type="checkbox"
-                            checked={rule.enabled !== false}
-                            onChange={() => onToggleRule(rule.id)}
-                            className="sr-only peer"
-                          />
-                          <div className="w-7 h-3.5 bg-stone-300 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[1px] after:left-[1px] after:bg-white after:rounded-full after:h-3 after:w-3 after:transition-all peer-checked:bg-purple-600"></div>
-                        </label>
                       </div>
-
-                      <h3 className="text-xs font-bold text-stone-900 leading-snug">
-                        {template.name}
-                      </h3>
-
-                      <p className="text-[11px] text-stone-600 leading-relaxed">
-                        {template.result}
-                      </p>
-                    </div>
-
-                    <div className="pt-3 border-t border-stone-100 flex items-center justify-between text-[11px] text-stone-400">
-                      <span className="text-[10px] font-mono">{template.frequency}</span>
-                      <button
-                        onClick={() => onRunRuleNow(rule.id)}
-                        className="px-2.5 py-1 bg-stone-100 hover:bg-purple-50 text-stone-700 hover:text-purple-900 font-bold rounded-lg transition-all flex items-center gap-1 cursor-pointer"
-                      >
-                        <Play className="w-2.5 h-2.5" />
-                        <span>Executar</span>
-                      </button>
-                    </div>
+                    )}
                   </div>
-                );
-              })}
+                </div>
+              </div>
+            ) : (
+              <div className="bg-surface-card border border-outline-border p-6 rounded-xl text-center space-y-4">
+                <div className="w-12 h-12 rounded-full bg-primary-container/10 border border-primary-container/20 flex items-center justify-center mx-auto">
+                  <CheckSquare className="w-5 h-5 text-primary-fixed-dim" />
+                </div>
+                <div>
+                  <h4 className="text-sm font-bold text-text-primary">Tudo em dia! ✨</h4>
+                  <p className="text-xs text-text-secondary mt-1">
+                    Crie tarefas para gerenciar sua rotina de marketing de forma tática.
+                  </p>
+                </div>
+              </div>
+            )}
+
+            {/* Quick Notes Card */}
+            <div className="bg-surface-card border border-outline-border rounded-xl p-4 space-y-3 shadow-md">
+              <div className="flex items-center justify-between">
+                <span className="text-[11px] font-bold text-text-secondary uppercase tracking-wider">Notas Rápidas (Persistente)</span>
+                <Clock className="w-3.5 h-3.5 text-text-secondary" />
+              </div>
+
+              <textarea
+                value={quickNotes}
+                onChange={handleNotesChange}
+                placeholder="Rascunho rápido..."
+                className="w-full p-3 bg-[#1c2028] border border-outline-border rounded-xl font-mono text-xs text-text-secondary leading-relaxed outline-none focus:border-primary-container h-32 resize-none"
+              />
             </div>
           </div>
-        </div>
-      )}
-
+        )}
+      </div>
     </div>
   );
 };

@@ -1,1 +1,102 @@
 @import "tailwindcss";
+
+@theme {
+  --font-sans: "Plus Jakarta Sans", sans-serif;
+  --font-mono: "JetBrains Mono", monospace;
+
+  --color-surface: #0f131c;
+  --color-primary-fixed-dim: #b4c5ff;
+  --color-tertiary-fixed: #c9e6ff;
+  --color-outline-border: #334155;
+  --color-error-sober: #EF4444;
+  --color-on-primary: #002a78;
+  --color-primary-container: #2563eb;
+  --color-surface-bright: #353942;
+  --color-on-surface-variant: #c3c6d7;
+  --color-error: #ffb4ab;
+  --color-tertiary: #89ceff;
+  --color-text-secondary: #94A3B8;
+  --color-on-tertiary: #00344d;
+  --color-surface-container: #1c2028;
+  --color-surface-variant: #31353e;
+  --color-surface-container-lowest: #0a0e16;
+  --color-on-error: #690005;
+  --color-outline: #8d90a0;
+  --color-error-container: #93000a;
+  --color-surface-tint: #b4c5ff;
+  --color-background: #0f131c;
+  --color-on-error-container: #ffdad6;
+  --color-surface-container-highest: #31353e;
+  --color-on-tertiary-fixed-variant: #004c6e;
+  --color-primary: #b4c5ff;
+  --color-surface-elevated: #1E293B;
+  --color-on-primary-container: #eeefff;
+  --color-tertiary-fixed-dim: #89ceff;
+  --color-on-secondary: #3c0091;
+  --color-tertiary-container: #0074a6;
+  --color-text-primary: #F8FAFC;
+  --color-on-surface: #dfe2ee;
+  --color-inverse-on-surface: #2c3039;
+  --color-on-secondary-container: #c4abff;
+  --color-secondary-container: #571bc1;
+  --color-inverse-surface: #dfe2ee;
+  --color-surface-card: #182234;
+  --color-on-secondary-fixed-variant: #5516be;
+  --color-secondary: #d0bcff;
+  --color-on-primary-fixed: #00174b;
+  --color-outline-variant: #434655;
+  --color-secondary-fixed-dim: #d0bcff;
+  --color-on-secondary-fixed: #23005c;
+  --color-success-sober: #10B981;
+  --color-primary-fixed: #dbe1ff;
+  --color-surface-dim: #0f131c;
+  --color-on-primary-fixed-variant: #003ea8;
+  --color-motor-info: #38BDF8;
+  --color-surface-container-low: #181c24;
+  --color-on-tertiary-container: #e4f2ff;
+  --color-warning-sober: #F59E0B;
+  --color-secondary-fixed: #e9ddff;
+  --color-on-tertiary-fixed: #001e2f;
+  --color-surface-container-high: #262a33;
+  --color-inverse-primary: #0053db;
+  --color-on-background: #dfe2ee;
+}
+
+/* Override standard Tailwind classes in dark mode so everything maps perfectly */
+html.dark {
+  --color-white: #182234;
+  --color-stone-50: #0f131c;
+  --color-stone-100: #1c2028;
+  --color-stone-200: #334155;
+  --color-stone-300: #475569;
+  --color-stone-900: #F8FAFC;
+  --color-stone-850: #F1F5F9;
+  --color-stone-800: #dfe2ee;
+  --color-stone-700: #c3c6d7;
+  --color-stone-600: #94A3B8;
+  --color-stone-500: #94A3B8;
+  --color-stone-400: #64748B;
+  
+  --color-purple-50: rgba(168, 85, 247, 0.15);
+  --color-purple-100: rgba(168, 85, 247, 0.25);
+  --color-purple-200: rgba(168, 85, 247, 0.35);
+  --color-purple-600: #c084fc;
+  --color-purple-700: #e9d5ff;
+  --color-purple-900: #faf5ff;
+  --color-purple-950: #ffffff;
+}
+
+/* Force standard font-sans (Plus Jakarta Sans) as default for all UI elements */
+html, body, button, input, select, textarea {
+  font-family: "Plus Jakarta Sans", -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+}
+
+/* Hide all scrollbars globally but keep functional scrolling */
+*::-webkit-scrollbar {
+  display: none !important;
+}
+* {
+  -ms-overflow-style: none !important;  /* IE and Edge */
+  scrollbar-width: none !important;  /* Firefox */
+}
+

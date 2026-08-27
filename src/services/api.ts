@@ -58,6 +58,51 @@ async function obsidianProxyRequest(
   body?: unknown,
   customHeaders?: Record<string, string>
 ): Promise<{ response: Response; data: any }> {
+  // 1. Try DIRECT fetch from browser to Localhost Obsidian first!
+  try {
+    const normalizedPath = path.startsWith("/") ? path : `/${path}`;
+    const fullUrl = `${config.endpoint}${normalizedPath}`;
+    
+    const forwardHeaders: Record<string, string> = {
+      Authorization: `Bearer ${config.apiKey || ""}`,
+      Accept: "application/json, text/plain, */*",
+      ...customHeaders,
+    };
+
+    if (body && typeof body === "string") {
+      forwardHeaders["Content-Type"] = "text/markdown; charset=utf-8";
+    } else if (body && typeof body === "object") {
+      forwardHeaders["Content-Type"] = "application/json";
+    }
+
+    const fetchOptions: any = {
+      method: method.toUpperCase(),
+      headers: forwardHeaders,
+    };
+
+    if (body && method.toUpperCase() !== "GET" && method.toUpperCase() !== "HEAD") {
+      fetchOptions.body = typeof body === "string" ? body : JSON.stringify(body);
+    }
+
+    const response = await fetch(fullUrl, fetchOptions);
+    const contentType = response.headers.get("content-type") || "";
+    let rawData: any;
+    if (contentType.includes("application/json")) {
+      rawData = await response.json().catch(() => ({}));
+    } else {
+      rawData = await response.text().catch(() => "");
+    }
+    
+    const formattedData = response.ok
+      ? { success: true, status: response.status, data: rawData }
+      : { success: false, status: response.status, error: `HTTP ${response.status}`, data: rawData };
+
+    return { response, data: formattedData };
+  } catch (directErr) {
+    console.warn("Direct connection from browser to Obsidian failed, falling back to server-side proxy:", directErr);
+  }
+
+  // 2. FALLBACK to the server-side proxy
   const headers = await getSessionHeaders();
   const response = await fetch("/api/obsidian/proxy", {
     method: "POST",
@@ -148,6 +193,18 @@ export const api = {
     }
   },
 
+    async generateGuidelines(payload: { campaignName: string; objective: string; engineMode: string }) {
+    const headers = await getSessionHeaders();
+    const res = await fetch("/api/gemini/generate-guidelines", {
+      method: "POST",
+      headers,
+      body: JSON.stringify(payload),
+    });
+    const result = await res.json();
+    if (!result.success) throw new Error(result.error);
+    return result;
+  },
+
   async generateCampaign(payload: GenerateCampaignPayload) {
     const headers = await getSessionHeaders();
     const res = await fetch("/api/gemini/generate-campaign", {
@@ -191,6 +248,32 @@ export const api = {
   },
 
   async testObsidianConnection(config: { endpoint: string; apiKey: string }) {
+    // 1. Try DIRECT fetch from browser first to reach Localhost/Loopback
+    try {
+      const url = `${config.endpoint.endsWith("/") ? config.endpoint : config.endpoint + "/"}`;
+      const response = await fetch(url, {
+        method: "GET",
+        headers: {
+          Authorization: `Bearer ${config.apiKey}`,
+          Accept: "application/json",
+        },
+      });
+      if (response.ok) {
+        return {
+          success: true,
+          message: "Conectado com sucesso ao Obsidian local diretamente do seu navegador!",
+        };
+      } else {
+        return {
+          success: false,
+          message: `Obsidian local retornou HTTP ${response.status}`,
+        };
+      }
+    } catch (directErr) {
+      console.warn("Direct test connection to Obsidian failed, trying proxy server:", directErr);
+    }
+
+    // 2. Fallback to server-side connection test
     try {
       const headers = await getSessionHeaders();
       const res = await fetch("/api/obsidian/test-connection", {
@@ -198,11 +281,20 @@ export const api = {
         headers,
         body: JSON.stringify(config),
       });
-      return await res.json();
+      if (!res.ok) {
+        return {
+          success: false,
+          message: `O proxy do servidor retornou erro HTTP ${res.status}. Conexão local restrita.`,
+        };
+      }
+      return await res.json().catch(() => ({
+        success: false,
+        message: "Não foi possível interpretar a resposta JSON do servidor proxy.",
+      }));
     } catch (err: any) {
       return {
         success: false,
-        message: err.message || "Erro de conexão ao testar endpoint",
+        message: err.message || "Erro de conexão ao testar endpoint via proxy",
       };
     }
   },

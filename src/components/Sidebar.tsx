@@ -68,11 +68,11 @@ export const Sidebar: React.FC<SidebarProps> = ({
   ];
 
   return (
-    <aside className="w-64 bg-[#0B0D1B] text-slate-400 flex flex-col h-screen sticky top-0 border-r border-slate-800/40 shrink-0 z-30 select-none">
+    <aside className="w-20 bg-[#0B0D1B] text-slate-400 flex flex-col h-screen sticky top-0 border-r border-slate-800/40 shrink-0 z-30 select-none items-center">
       {/* Brand Header */}
-      <div className="p-6 pb-4 border-b border-slate-800/30 flex items-center gap-3">
+      <div className="py-6 border-b border-slate-800/30 flex justify-center w-full shrink-0">
         {/* Nisti Print Ribbon SVG Logo */}
-        <div className="shrink-0">
+        <div className="shrink-0 cursor-pointer" title="Nisti Print - Marketing Hub">
           <svg className="w-9 h-9" viewBox="0 0 40 40" fill="none" xmlns="http://www.w3.org/2000/svg">
             <path
               d="M10 26C10 26 13 14 17 14C21 14 21.5 26 25 26C28.5 26 31 14 31 14"
@@ -89,27 +89,10 @@ export const Sidebar: React.FC<SidebarProps> = ({
             </defs>
           </svg>
         </div>
-        <div>
-          <h1 className="font-black text-white text-base tracking-tight leading-none uppercase">
-            Nisti
-            <span className="text-[10px] font-extrabold text-pink-500 block leading-tight tracking-widest mt-0.5">
-              PRINT
-            </span>
-          </h1>
-          <span className="text-[9px] text-slate-500 font-bold block mt-1 uppercase tracking-wider">
-            Marketing Hub
-          </span>
-        </div>
       </div>
 
       {/* Navigation Menu */}
-      <nav className="flex-1 px-3 py-4 space-y-1 overflow-y-auto">
-        <div className="px-3 mb-2">
-          <span className="text-[10px] font-extrabold uppercase tracking-widest text-slate-600">
-            Pipeline de Ingestão PKM
-          </span>
-        </div>
-        
+      <nav className="flex-1 w-full px-2 py-6 flex flex-col items-center gap-3 overflow-y-auto scrollbar-hide">
         {navItems.map((item) => {
           const Icon = item.icon;
           const isActive = activeTab === item.id;
@@ -117,61 +100,44 @@ export const Sidebar: React.FC<SidebarProps> = ({
             <button
               key={item.id}
               onClick={() => setActiveTab(item.id)}
-              className={`w-full px-3 py-2.5 rounded-xl text-xs font-bold transition-all flex items-center gap-3 relative cursor-pointer text-left ${
+              className={`w-12 h-12 rounded-xl transition-all flex items-center justify-center relative cursor-pointer group ${
                 isActive
                   ? "bg-white/5 text-white shadow-sm"
-                  : "hover:text-white hover:bg-white/2"
+                  : "text-slate-400 hover:text-white hover:bg-white/2"
               }`}
-              title={item.description}
+              title={`${item.label} - ${item.description}`}
             >
               {/* Left active border marker */}
               {isActive && (
-                <span className="absolute left-0 top-2 bottom-2 w-1 rounded-r-full bg-pink-500" />
+                <span className="absolute left-0 top-3 bottom-3 w-1 rounded-r-full bg-pink-500" />
               )}
               <Icon
-                className={`w-4 h-4 shrink-0 transition-colors ${
-                  isActive ? "text-pink-500" : "text-slate-500"
+                className={`w-5 h-5 shrink-0 transition-colors ${
+                  isActive ? "text-pink-500" : "text-slate-400 group-hover:text-white"
                 }`}
               />
-              <span className="truncate">{item.label}</span>
             </button>
           );
         })}
       </nav>
 
       {/* Bottom Settings & Profile */}
-      <div className="p-4 border-t border-slate-800/40 space-y-3">
+      <div className="p-4 border-t border-slate-800/40 flex flex-col items-center gap-4 w-full shrink-0">
         {/* Settings Tab / Trigger */}
         <button
           onClick={onOpenSettings}
-          className="w-full px-3 py-2.5 rounded-xl text-xs font-bold transition-all flex items-center gap-3 hover:text-white hover:bg-white/2 cursor-pointer text-left"
+          className="w-12 h-12 rounded-xl transition-all flex items-center justify-center text-slate-400 hover:text-white hover:bg-white/2 cursor-pointer"
+          title="Configurações"
         >
-          <Settings className="w-4 h-4 text-slate-500 shrink-0" />
-          <span>Configurações</span>
+          <Settings className="w-5 h-5 shrink-0" />
         </button>
 
-        {/* Profile Card */}
-        <div className="p-3 bg-slate-900/50 rounded-2xl border border-slate-800/30 flex items-center justify-between">
-          <div className="flex items-center gap-2.5 min-w-0">
-            {/* NP Avatar */}
-            <div className="relative shrink-0">
-              <div className="w-8 h-8 rounded-xl bg-pink-600/10 border border-pink-500/25 text-pink-500 flex items-center justify-center font-bold text-xs">
-                NP
-              </div>
-              <span className="absolute bottom-0 right-0 w-2.5 h-2.5 rounded-full bg-emerald-500 border-2 border-[#0B0D1B]"></span>
-            </div>
-            {/* User Name / Subtitle */}
-            <div className="min-w-0">
-              <h4 className="text-xs font-extrabold text-white truncate">
-                Nisti Print
-              </h4>
-              <p className="text-[10px] text-slate-500 truncate mt-0.5">
-                Marketing
-              </p>
-            </div>
+        {/* Profile Avatar Card */}
+        <div className="relative shrink-0 cursor-pointer" title="Nisti Print - Marketing Hub">
+          <div className="w-10 h-10 rounded-xl bg-pink-600/10 border border-pink-500/25 text-pink-500 flex items-center justify-center font-bold text-xs">
+            NP
           </div>
-          {/* Dropdown Indicator */}
-          <ChevronDown className="w-3.5 h-3.5 text-slate-600 shrink-0" />
+          <span className="absolute bottom-0 right-0 w-2.5 h-2.5 rounded-full bg-emerald-500 border-2 border-[#0B0D1B]"></span>
         </div>
       </div>
     </aside>

@@ -8,6 +8,7 @@ import { TasksAutomationView } from "./components/TasksAutomationView";
 import { RoutineIntelligenceView } from "./components/RoutineIntelligenceView";
 import { AddKnowledgeView } from "./components/AddKnowledgeView";
 import { ObsidianApiSettingsModal } from "./components/ObsidianApiSettingsModal";
+import { ObsidianConnectionBlocker } from "./components/ObsidianConnectionBlocker";
 import { TaskModal } from "./components/TaskModal";
 import { NoteModal } from "./components/NoteModal";
 
@@ -187,21 +188,22 @@ export default function App() {
     connectionStatus: "disconnected",
     allowSelfSignedCerts: true,
   });
-  const [isApiConfigLoaded, setIsApiConfigLoaded] = useState(false);
+
+  const updateAndSaveApiConfig = useCallback((update: ObsidianApiConfig | ((prev: ObsidianApiConfig) => ObsidianApiConfig)) => {
+    setApiConfig((prev) => {
+      const next = typeof update === "function" ? update(prev) : update;
+      void storage.saveApiConfig(next);
+      return next;
+    });
+  }, []);
 
   useEffect(() => {
     storage
       .loadApiConfig(apiConfig)
       .then((loaded) => {
         if (loaded) setApiConfig(loaded);
-      })
-      .finally(() => setIsApiConfigLoaded(true));
+      });
   }, []);
-
-  useEffect(() => {
-    if (!isApiConfigLoaded) return;
-    void storage.saveApiConfig(apiConfig);
-  }, [apiConfig, isApiConfigLoaded]);
 
   const [selectedNote, setSelectedNote] = useState<ObsidianNote | null>(notes[0] || null);
   const [auditInsight, setAuditInsight] = useState<VaultAuditInsight | null>(null);
@@ -699,6 +701,15 @@ export default function App() {
   };
 
   const handleSyncNow = async () => {
+    if (apiConfig.connectionStatus !== "connected") {
+      showToast(
+        "warning",
+        "Sincronização Indisponível",
+        "Você precisa conectar o Obsidian nas Configurações antes de sincronizar."
+      );
+      setIsSettingsOpen(true);
+      return;
+    }
     setIsSyncing(true);
     try {
       const desktopNotes = await storage.readDesktopNotesForApp();
@@ -715,7 +726,7 @@ export default function App() {
 
       const remoteSuccess = await syncPendingTasksToDaily(true);
       const syncedAt = new Date().toISOString();
-      setApiConfig((prev) => ({ ...prev, lastSyncTime: syncedAt }));
+      updateAndSaveApiConfig((prev) => ({ ...prev, lastSyncTime: syncedAt }));
 
       if (remoteSuccess) {
         await storage.logAudit({
@@ -741,9 +752,9 @@ export default function App() {
       apiKey: cfg.apiKey,
     });
     if (res.success) {
-      setApiConfig((prev) => ({ ...prev, connectionStatus: "connected" }));
+      updateAndSaveApiConfig((prev) => ({ ...prev, connectionStatus: "connected" }));
     } else {
-      setApiConfig((prev) => ({ ...prev, connectionStatus: "disconnected" }));
+      updateAndSaveApiConfig((prev) => ({ ...prev, connectionStatus: "disconnected" }));
     }
     return res;
   };
@@ -770,21 +781,28 @@ export default function App() {
     );
   };
 
+  const handleUpdateTask = (updatedTask: MarketingTask) => {
+    setTasks((prev) => prev.map((t) => (t.id === updatedTask.id ? updatedTask : t)));
+  };
+
   const handleDeleteTask = (taskId: string) => {
     setTasks((prev) => prev.filter((t) => t.id !== taskId));
     showToast("info", "Tarefa Removida", "A tarefa foi removida da lista.");
   };
 
   const handleToggleRule = (ruleId: string) => {
-    setAutomationRules((prev) =>
-      prev.map((r) => (r.id === ruleId ? { ...r, enabled: !r.enabled } : r))
-    );
+    setAutomationRules((prev) => {
+      if (prev.some((r) => r.id === ruleId)) {
+        return prev.map((r) => (r.id === ruleId ? { ...r, enabled: !r.enabled } : r));
+      }
+      return [...prev, { id: ruleId, name: ruleId, enabled: false, executionCount: 0 }];
+    });
   };
 
   const handleRunRuleNow = async (ruleId: string) => {
     const today = localDateKey();
 
-    if (ruleId === "rule-1") {
+    if (ruleId === "rule_auto_tasks") {
       let syncedCount = 0;
       campaigns.forEach((camp) => {
         const expectedPath = camp.obsidianOutputNotePath || `04_Campanhas/${camp.title}.md`;
@@ -822,6 +840,9 @@ export default function App() {
             syncedWithApi: true,
           };
           setNotes((prev) => [newCampNote, ...prev]);
+          if (apiConfig.connectionStatus === "connected") {
+            void handlePushNoteToObsidianApi(newCampNote);
+          }
           syncedCount++;
         }
       });
@@ -837,13 +858,14 @@ export default function App() {
         "success",
         "Automação Executada!",
         syncedCount > 0
-          ? `${syncedCount} notas de campanha estruturadas em 04_Campanhas.`
+          ? (apiConfig.connectionStatus === "connected" ? `${syncedCount} notas de campanha estruturadas em 04_Campanhas.` : `${syncedCount} notas estruturadas apenas localmente (Cofre Desconectado).`)
           : "Todas as campanhas já estão sincronizadas em 04_Campanhas."
       );
-    } else if (ruleId === "rule-2") {
+    } else if (ruleId === "rule_vault_audit") {
       const inboxNotes = notes.filter(
         (n) => n.folder === "00_Inbox" && n.frontmatter?.status !== "OFICIAL"
       );
+
       if (inboxNotes.length > 0) {
         const triageTask: MarketingTask = {
           id: `triage-task-${today}`,
@@ -877,7 +899,7 @@ export default function App() {
       } else {
         showToast("info", "Inbox em Dia!", "Nenhuma nota pendente de triagem em 00_Inbox.");
       }
-    } else {
+    } else if (ruleId === "rule_daily_sync") {
       const pendingHighTasks = tasks.filter((t) => t.status !== "done" && t.priority === "high");
       const taskLines = pendingHighTasks.map((t) => t.obsidianTaskString).join("\n");
       await syncManagedDailySection(
@@ -885,28 +907,29 @@ export default function App() {
         "⚡ Tarefas de Alta Prioridade",
         taskLines
       );
-
       await storage.logAudit({
         action: "AUTOMATION_TRIGGERED",
         entityType: "AUTOMATION",
         entityId: ruleId,
         details: "Regra executada e seção de alta prioridade reconciliada de forma idempotente.",
       });
-
       showToast("success", "Automação Executada!", "Regra processada e reconciliada no cofre.");
     }
 
-    setAutomationRules((prev) =>
-      prev.map((r) =>
-        r.id === ruleId
-          ? {
-              ...r,
-              executionCount: r.executionCount + 1,
-              lastRun: new Date().toISOString().replace("T", " ").slice(0, 16),
-            }
-          : r
-      )
-    );
+    setAutomationRules((prev) => {
+      if (prev.some((r) => r.id === ruleId)) {
+        return prev.map((r) =>
+          r.id === ruleId
+            ? {
+                ...r,
+                executionCount: r.executionCount + 1,
+                lastRun: new Date().toISOString().replace("T", " ").slice(0, 16),
+              }
+            : r
+        );
+      }
+      return [...prev, { id: ruleId, name: ruleId, enabled: true, executionCount: 1, lastRun: new Date().toISOString().replace("T", " ").slice(0, 16) }];
+    });
     confetti({ particleCount: 25 });
   };
 
@@ -988,8 +1011,49 @@ export default function App() {
     reader.readAsText(file);
   };
 
+  const getBlockerConfig = () => {
+    switch (activeTab) {
+      case "dashboard":
+        return {
+          title: "Painel de Controle Offline",
+          description: "O painel de controle do Nisti Print PKM Marketing Hub está desativado. Conecte sua REST API do Obsidian nas Configurações para carregar e gerenciar suas métricas, tarefas e notas.",
+        };
+      case "vault":
+        return {
+          title: "Acesso ao Cofre Bloqueado",
+          description: "Não é possível ler ou visualizar suas notas Markdown locais. Conecte o Obsidian para sincronizar sua base de conhecimento e diretrizes oficiais de marketing.",
+        };
+      case "knowledge":
+        return {
+          title: "Captura de Conhecimento Desativada",
+          description: "Você não pode processar ou criar novas notas a partir de PDFs, YouTube ou sites enquanto o Obsidian estiver desconectado.",
+        };
+      case "routine":
+        return {
+          title: "Planejamento e Rotinas Offline",
+          description: "O agendamento de cronogramas e inserção automática de pautas nas suas Daily Notes requer conexão ativa com o Obsidian.",
+        };
+      case "tasks":
+      case "automations":
+        return {
+          title: "Quadro Kanban & Automações Bloqueados",
+          description: "O gerenciamento de pendências e tarefas automatizadas está travado para garantir a integridade do seu Obsidian Tasks e evitar duplicados.",
+        };
+      case "campaigns":
+        return {
+          title: "Modelagem de Campanhas Travada",
+          description: "A geração inteligente de estratégias criativas e de marketing está inativa porque necessita do contexto real das suas notas do Obsidian.",
+        };
+      default:
+        return {
+          title: "Obsidian Desconectado",
+          description: "Conecte sua REST API do Obsidian local nas Configurações para habilitar este recurso com segurança.",
+        };
+    }
+  };
+
   return (
-    <div className="min-h-screen bg-[#F5F6F8] text-stone-900 flex flex-col lg:flex-row font-sans selection:bg-purple-200 selection:text-purple-900">
+    <div className="h-screen w-screen overflow-hidden bg-background text-text-primary flex flex-col lg:flex-row font-sans selection:bg-purple-500/30 selection:text-purple-200">
       {toastMessage && (
         <div className="fixed bottom-6 right-6 z-50 animate-bounce duration-300">
           <div
@@ -1034,11 +1098,31 @@ export default function App() {
           onOpenSettings={() => setIsSettingsOpen(true)}
           onSyncNow={handleSyncNow}
           isSyncing={isSyncing}
+          tasks={tasks}
           onQuickNewCampaign={() => {
+            if (apiConfig.connectionStatus !== "connected") {
+              showToast("warning", "Ação de Criação Bloqueada", "Você precisa conectar o Obsidian para criar campanhas.");
+              setIsSettingsOpen(true);
+              return;
+            }
             setActiveTab("campaigns");
           }}
-          onQuickNewTask={() => setIsTaskModalOpen(true)}
-          onQuickNewNote={() => setIsNoteModalOpen(true)}
+          onQuickNewTask={() => {
+            if (apiConfig.connectionStatus !== "connected") {
+              showToast("warning", "Ação de Criação Bloqueada", "Você precisa conectar o Obsidian para criar tarefas.");
+              setIsSettingsOpen(true);
+              return;
+            }
+            setIsTaskModalOpen(true);
+          }}
+          onQuickNewNote={() => {
+            if (apiConfig.connectionStatus !== "connected") {
+              showToast("warning", "Ação de Criação Bloqueada", "Você precisa conectar o Obsidian para criar notas.");
+              setIsSettingsOpen(true);
+              return;
+            }
+            setIsNoteModalOpen(true);
+          }}
           hasApiKey={Boolean(apiConfig.apiKey.trim())}
           engineMode={engineMode}
           onToggleEngineMode={(mode) => {
@@ -1053,183 +1137,197 @@ export default function App() {
           }}
         />
 
-        <main className="flex-1 w-full px-4 sm:px-6 lg:px-8 py-6 md:py-8 overflow-y-auto pb-24 md:pb-8">
-        {activeTab === "dashboard" && (
-          <DashboardView
-            notes={notes}
-            campaigns={campaigns}
-            tasks={tasks}
-            ideas={ideas}
-            scripts={scripts}
-            visuals={visuals}
-            apiConfig={apiConfig}
-            engineMode={engineMode}
-            onNavigateTab={setActiveTab}
-            onSelectNote={(note) => {
-              setSelectedNote(note);
-              setActiveTab("vault");
-            }}
-            onToggleTaskStatus={handleToggleTaskStatus}
-            onOpenNewCampaignModal={() => setActiveTab("campaigns")}
-            onOpenNewTaskModal={() => setIsTaskModalOpen(true)}
-            onOpenNewNoteModal={() => setIsNoteModalOpen(true)}
-            onAuditVault={runVaultAudit}
-            isAuditing={isAuditingVault}
-            auditInsight={auditInsight}
-            onSyncDailyNote={handleSyncDailyNote}
-            onAddIdea={(newIdea) => {
-              const fullIdea: IdeaItem = {
-                ...newIdea,
-                id: `idea-${Date.now()}`,
-              };
-              setIdeas((prev) => [fullIdea, ...prev]);
-              showToast("success", "Ideia Salva", `"${fullIdea.title}" adicionada ao banco.`);
-            }}
-            onUpdateIdeaStatus={(ideaId, newStatus) => {
-              setIdeas((prev) =>
-                prev.map((i) => (i.id === ideaId ? { ...i, status: newStatus } : i))
-              );
-            }}
-            onConvertIdeaToCampaign={(idea) => {
-              setActiveTab("campaigns");
-              showToast("info", "Convertendo Ideia", `Gerador aberto com base em "${idea.title}".`);
-            }}
-          />
-        )}
+        <main className="flex-1 w-full px-4 sm:px-6 lg:px-8 py-4 flex flex-col min-h-0 overflow-hidden">
 
-        {activeTab === "vault" && (
-          <VaultView
-            notes={notes}
-            selectedNote={selectedNote}
-            onSelectNote={setSelectedNote}
-            onUpdateNote={(updated) => {
-              setNotes((prev) => prev.map((n) => (n.id === updated.id ? updated : n)));
-              setSelectedNote(updated);
-              showToast("success", "Nota Atualizada", `Alterações salvas em [[${updated.title}]].`);
-            }}
-            onOpenNewNoteModal={() => setIsNoteModalOpen(true)}
-            onExtractTasksFromNote={handleExtractTasksFromNote}
-            onGenerateCampaignFromNote={(note) => {
-              setSelectedNote(note);
-              setActiveTab("campaigns");
-            }}
-            onPushNoteToObsidianApi={handlePushNoteToObsidianApi}
-            apiConfig={apiConfig}
-            isExtractingTasks={isExtractingTasks}
-            isPushingToApi={isPushingToApi}
-          />
-        )}
+          {activeTab === "dashboard" && (
+            <DashboardView
+              notes={notes}
+              campaigns={campaigns}
+              tasks={tasks}
+              ideas={ideas}
+              scripts={scripts}
+              visuals={visuals}
+              apiConfig={apiConfig}
+              engineMode={engineMode}
+              onNavigateTab={setActiveTab}
+              onSelectNote={(note) => {
+                setSelectedNote(note);
+                setActiveTab("vault");
+              }}
+              onToggleTaskStatus={handleToggleTaskStatus}
+              onOpenNewCampaignModal={() => setActiveTab("campaigns")}
+              onOpenNewTaskModal={() => setIsTaskModalOpen(true)}
+              onOpenNewNoteModal={() => setIsNoteModalOpen(true)}
+              onAuditVault={runVaultAudit}
+              isAuditing={isAuditingVault}
+              auditInsight={auditInsight}
+              onSyncDailyNote={handleSyncDailyNote}
+              onAddIdea={(newIdea) => {
+                const fullIdea: IdeaItem = {
+                  ...newIdea,
+                  id: `idea-${Date.now()}`,
+                };
+                setIdeas((prev) => [fullIdea, ...prev]);
+                showToast("success", "Ideia Salva", `"${fullIdea.title}" adicionada ao banco.`);
+              }}
+              onUpdateIdeaStatus={(ideaId, newStatus) => {
+                setIdeas((prev) =>
+                  prev.map((i) => (i.id === ideaId ? { ...i, status: newStatus } : i))
+                );
+              }}
+              onConvertIdeaToCampaign={(idea) => {
+                setActiveTab("campaigns");
+                showToast("info", "Convertendo Ideia", `Gerador aberto com base em "${idea.title}".`);
+              }}
+            />
+          )}
 
-        {activeTab === "campaigns" && (
-          <CampaignsView
-            campaigns={campaigns}
-            notes={notes}
-            onGenerateCampaign={handleGenerateCampaign}
-            isGenerating={isGeneratingCampaign}
-            onSaveCampaignToObsidian={(camp) => {
-              if (camp.obsidianOutputNotePath) {
-                const note = notes.find((n) => n.path === camp.obsidianOutputNotePath);
-                if (note) void handlePushNoteToObsidianApi(note);
-              }
-            }}
-            onImportCampaignTasks={() => {
-              showToast("success", "Tarefas Sincronizadas", "Tarefas da campanha ativas no quadro.");
-              setActiveTab("tasks");
-            }}
-            apiConfig={apiConfig}
-            engineMode={engineMode}
-            onToggleEngineMode={setEngineMode}
-          />
-        )}
+          {activeTab === "vault" && (
+            <VaultView
+              notes={notes}
+              selectedNote={selectedNote}
+              onSelectNote={setSelectedNote}
+              onUpdateNote={(updated) => {
+                setNotes((prev) => prev.map((n) => (n.id === updated.id ? updated : n)));
+                setSelectedNote(updated);
+                showToast("success", "Nota Nota Atualizada", `Alterações salvas em [[${updated.title}]].`);
+              }}
+              onOpenNewNoteModal={() => setIsNoteModalOpen(true)}
+              onExtractTasksFromNote={handleExtractTasksFromNote}
+              onGenerateCampaignFromNote={(note) => {
+                setSelectedNote(note);
+                setActiveTab("campaigns");
+              }}
+              onPushNoteToObsidianApi={handlePushNoteToObsidianApi}
+              apiConfig={apiConfig}
+              isExtractingTasks={isExtractingTasks}
+              isPushingToApi={isPushingToApi}
+            />
+          )}
 
-        {activeTab === "tasks" && (
-          <TasksAutomationView
-            tasks={tasks}
-            automationRules={automationRules}
-            onToggleTaskStatus={handleToggleTaskStatus}
-            onDeleteTask={handleDeleteTask}
-            onOpenNewTaskModal={() => setIsTaskModalOpen(true)}
-            onToggleRule={handleToggleRule}
-            onRunRuleNow={handleRunRuleNow}
-            onSyncDailyNote={handleSyncDailyNote}
-            apiConfig={apiConfig}
-            isSyncingDaily={isSyncingDaily}
-            initialSection="tasks"
-          />
-        )}
+          {activeTab === "campaigns" && (
+            <CampaignsView
+              campaigns={campaigns}
+              notes={notes}
+              onGenerateCampaign={handleGenerateCampaign}
+              isGenerating={isGeneratingCampaign}
+              onSaveCampaignToObsidian={(camp) => {
+                if (camp.obsidianOutputNotePath) {
+                  const note = notes.find((n) => n.path === camp.obsidianOutputNotePath);
+                  if (note) void handlePushNoteToObsidianApi(note);
+                }
+              }}
+              onImportCampaignTasks={() => {
+                showToast("success", "Tarefas Sincronizadas", "Tarefas da campanha ativas no quadro.");
+                setActiveTab("tasks");
+              }}
+              apiConfig={apiConfig}
+              engineMode={engineMode}
+              onToggleEngineMode={setEngineMode}
+            />
+          )}
 
-        {activeTab === "automations" && (
-          <TasksAutomationView
-            tasks={tasks}
-            automationRules={automationRules}
-            onToggleTaskStatus={handleToggleTaskStatus}
-            onDeleteTask={handleDeleteTask}
-            onOpenNewTaskModal={() => setIsTaskModalOpen(true)}
-            onToggleRule={handleToggleRule}
-            onRunRuleNow={handleRunRuleNow}
-            onSyncDailyNote={handleSyncDailyNote}
-            apiConfig={apiConfig}
-            isSyncingDaily={isSyncingDaily}
-            initialSection="automations"
-          />
-        )}
+          {activeTab === "tasks" && (
+            <TasksAutomationView
+              tasks={tasks}
+              automationRules={automationRules}
+              onToggleTaskStatus={handleToggleTaskStatus}
+              onUpdateTask={handleUpdateTask}
+              onDeleteTask={handleDeleteTask}
+              onOpenNewTaskModal={() => setIsTaskModalOpen(true)}
+              onToggleRule={handleToggleRule}
+              onRunRuleNow={handleRunRuleNow}
+              onSyncDailyNote={handleSyncDailyNote}
+              apiConfig={apiConfig}
+              isSyncingDaily={isSyncingDaily}
+              initialSection="tasks"
+            />
+          )}
 
-        {activeTab === "routine" && (
-          <RoutineIntelligenceView
-            emotionalDrivers={emotionalDrivers}
-            niches={niches}
-            postHistory={postHistory}
-            learnings={learnings}
-            weeklyRoutine={weeklyRoutine}
-            apiConfig={apiConfig}
-            engineMode={engineMode}
-            notes={notes}
-            onAddPostHistory={(newPost) => {
-              const fullPost: PostHistoryItem = {
-                ...newPost,
-                id: `post-${Date.now()}`,
-              };
-              setPostHistory((prev) => [fullPost, ...prev]);
-            }}
-            onAddLearning={(newLearning) => {
-              const fullLearning: LearningInsight = {
-                ...newLearning,
-                id: `learn-${Date.now()}`,
-              };
-              setLearnings((prev) => [fullLearning, ...prev]);
-            }}
-            onUpdateRoutineSlot={(slotId, updated) => {
-              setWeeklyRoutine((prev) =>
-                prev.map((s) => (s.id === slotId ? { ...s, ...updated } : s))
-              );
-            }}
-            onCreateCampaignFromSuggestion={(data) => {
-              setActiveTab("campaigns");
-              showToast(
-                "info",
-                "Pauta Selecionada",
-                `Gerador aberto para ${data.title} (${data.niche} / ${data.emotion}).`
-              );
-            }}
-            onSyncRoutineToDailyNotes={handleSyncRoutineToDailyNotes}
-            showToast={showToast}
-          />
-        )}
+          {activeTab === "automations" && (
+            <TasksAutomationView
+              tasks={tasks}
+              automationRules={automationRules}
+              onToggleTaskStatus={handleToggleTaskStatus}
+              onUpdateTask={handleUpdateTask}
+              onDeleteTask={handleDeleteTask}
+              onOpenNewTaskModal={() => setIsTaskModalOpen(true)}
+              onToggleRule={handleToggleRule}
+              onRunRuleNow={handleRunRuleNow}
+              onSyncDailyNote={handleSyncDailyNote}
+              apiConfig={apiConfig}
+              isSyncingDaily={isSyncingDaily}
+              initialSection="automations"
+            />
+          )}
 
-        {activeTab === "knowledge" && (
-          <AddKnowledgeView
-            notes={notes}
-            onAddNote={(newNote) => {
-              setNotes((prev) => [newNote, ...prev]);
-              showToast("success", "Nota Automatizada", `[[${newNote.title}]] inserida com sucesso no cofre.`);
-              confetti({ particleCount: 35, spread: 65 });
-            }}
-            apiConfig={apiConfig}
-            onNavigateTab={setActiveTab}
-            onSelectNote={setSelectedNote}
-            engineMode={engineMode}
-          />
-        )}
+          {activeTab === "routine" && (
+            <RoutineIntelligenceView
+              emotionalDrivers={emotionalDrivers}
+              niches={niches}
+              postHistory={postHistory}
+              learnings={learnings}
+              weeklyRoutine={weeklyRoutine}
+              apiConfig={apiConfig}
+              engineMode={engineMode}
+              notes={notes}
+              onAddPostHistory={(newPost) => {
+                const fullPost: PostHistoryItem = {
+                  ...newPost,
+                  id: `post-${Date.now()}`,
+                };
+                setPostHistory((prev) => [fullPost, ...prev]);
+              }}
+              onAddLearning={(newLearning) => {
+                const fullLearning: LearningInsight = {
+                  ...newLearning,
+                  id: `learn-${Date.now()}`,
+                };
+                setLearnings((prev) => [fullLearning, ...prev]);
+              }}
+              onUpdateRoutineSlot={(slotId, updated) => {
+                setWeeklyRoutine((prev) =>
+                  prev.map((s) => (s.id === slotId ? { ...s, ...updated } : s))
+                );
+              }}
+              onAddRoutineSlot={(newSlot) => {
+                const fullSlot = {
+                  ...newSlot,
+                  id: `slot-${Date.now()}`,
+                } as DailyRoutineSlot;
+                setWeeklyRoutine((prev) => [...prev, fullSlot]);
+              }}
+              onCreateCampaignFromSuggestion={(data) => {
+                setActiveTab("campaigns");
+                showToast(
+                  "info",
+                  "Pauta Selecionada",
+                  `Gerador aberto para ${data.title} (${data.niche} / ${data.emotion}).`
+                );
+              }}
+              onSyncRoutineToDailyNotes={handleSyncRoutineToDailyNotes}
+              showToast={showToast}
+            />
+          )}
+
+          {activeTab === "knowledge" && (
+            <AddKnowledgeView
+              notes={notes}
+              onAddNote={(newNote) => {
+                setNotes((prev) => [newNote, ...prev]);
+                if (apiConfig.connectionStatus === "connected") {
+                  void handlePushNoteToObsidianApi(newNote);
+                } else {
+                  showToast("info", "Nota Salva Localmente", `[[${newNote.title}]] adicionada ao painel (Cofre Desconectado).`);
+                }
+                confetti({ particleCount: 35, spread: 65 });
+              }}
+              apiConfig={apiConfig}
+              onNavigateTab={setActiveTab}
+              onSelectNote={setSelectedNote}
+              engineMode={engineMode}
+            />
+          )}
       </main>
       </div>
 
@@ -1238,7 +1336,7 @@ export default function App() {
         onClose={() => setIsSettingsOpen(false)}
         config={apiConfig}
         onSaveConfig={(cfg) => {
-          setApiConfig(cfg);
+          updateAndSaveApiConfig(cfg);
           showToast("success", "Configurações Salvas", "Parâmetros da API do Obsidian atualizados.");
         }}
         onTestConnection={handleTestConnection}

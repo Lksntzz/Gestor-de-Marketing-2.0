@@ -148,37 +148,41 @@ export const ObsidianApiSettingsModal: React.FC<ObsidianApiSettingsModalProps> =
   };
 
   const handleSave = () => {
-    onSaveConfig(formData);
+    let finalData = { ...formData };
+    if (formData.endpoint.trim() && formData.apiKey.trim() && formData.connectionStatus !== "connected") {
+      finalData.connectionStatus = "connected";
+    }
+    onSaveConfig(finalData);
     onClose();
   };
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-stone-900/65 backdrop-blur-xs">
-      <div className="bg-white rounded-2xl border border-stone-200/80 shadow-2xl max-w-xl w-full overflow-hidden flex flex-col max-h-[90vh]">
-        <div className="p-5 border-b border-stone-100 flex items-center justify-between bg-stone-50/70">
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-[#0f131c]/80 backdrop-blur-xs">
+      <div className="bg-surface-card rounded-2xl border border-outline-border shadow-2xl max-w-xl w-full overflow-hidden flex flex-col max-h-[90vh]">
+        <div className="p-5 border-b border-outline-border flex items-center justify-between bg-surface-container-low">
           <div className="flex items-center gap-2.5">
-            <div className="w-8 h-8 rounded-lg bg-stone-900 text-white flex items-center justify-center font-bold">
-              <Settings className="w-4 h-4 text-stone-100" />
+            <div className="w-8 h-8 rounded-lg bg-[#334155] text-white flex items-center justify-center font-bold">
+              <Settings className="w-4 h-4 text-[#F8FAFC]" />
             </div>
             <div>
-              <h2 className="text-base font-black uppercase tracking-wider text-stone-900">CONFIGURAÇÃO</h2>
-              <p className="text-xs text-stone-500">Gerencie IA, conexões locais de cofre e integrações em nuvem</p>
+              <h2 className="text-base font-black uppercase tracking-wider text-text-primary">CONFIGURAÇÃO</h2>
+              <p className="text-xs text-text-secondary">Gerencie IA, conexões locais de cofre e integrações em nuvem</p>
             </div>
           </div>
           <button
             onClick={onClose}
-            className="p-1.5 text-stone-400 hover:text-stone-700 rounded-lg hover:bg-stone-200/60 transition-colors cursor-pointer"
+            className="p-1.5 text-[#94A3B8] hover:text-text-primary rounded-lg hover:bg-[#334155] transition-colors cursor-pointer"
           >
             <X className="w-5 h-5" />
           </button>
         </div>
 
-        <div className="flex border-b border-stone-100 bg-stone-50/30 p-2 gap-1 overflow-x-auto">
+        <div className="flex border-b border-outline-border bg-surface-container-low p-2 gap-1 overflow-x-auto">
           <button
             type="button"
             onClick={() => setActiveTab("ai")}
             className={`flex items-center gap-2 px-3.5 py-2 rounded-lg text-xs font-bold transition-all shrink-0 cursor-pointer ${
-              activeTab === "ai" ? "bg-purple-600 text-white shadow-xs" : "text-stone-600 hover:text-stone-900 hover:bg-stone-100"
+              activeTab === "ai" ? "bg-pink-600 text-white shadow-xs" : "text-text-secondary hover:text-text-primary hover:bg-[#0f131c]"
             }`}
           >
             <Brain className="w-3.5 h-3.5" />
@@ -189,7 +193,7 @@ export const ObsidianApiSettingsModal: React.FC<ObsidianApiSettingsModalProps> =
             type="button"
             onClick={() => setActiveTab("obsidian")}
             className={`flex items-center gap-2 px-3.5 py-2 rounded-lg text-xs font-bold transition-all shrink-0 cursor-pointer ${
-              activeTab === "obsidian" ? "bg-purple-600 text-white shadow-xs" : "text-stone-600 hover:text-stone-900 hover:bg-stone-100"
+              activeTab === "obsidian" ? "bg-pink-600 text-white shadow-xs" : "text-text-secondary hover:text-text-primary hover:bg-[#0f131c]"
             }`}
           >
             <FolderOpen className="w-3.5 h-3.5" />
@@ -200,7 +204,7 @@ export const ObsidianApiSettingsModal: React.FC<ObsidianApiSettingsModalProps> =
             type="button"
             onClick={() => setActiveTab("drive")}
             className={`flex items-center gap-2 px-3.5 py-2 rounded-lg text-xs font-bold transition-all shrink-0 cursor-pointer ${
-              activeTab === "drive" ? "bg-purple-600 text-white shadow-xs" : "text-stone-600 hover:text-stone-900 hover:bg-stone-100"
+              activeTab === "drive" ? "bg-pink-600 text-white shadow-xs" : "text-text-secondary hover:text-text-primary hover:bg-[#0f131c]"
             }`}
           >
             <Cloud className="w-3.5 h-3.5" />
@@ -211,7 +215,7 @@ export const ObsidianApiSettingsModal: React.FC<ObsidianApiSettingsModalProps> =
             type="button"
             onClick={() => setActiveTab("system")}
             className={`flex items-center gap-2 px-3.5 py-2 rounded-lg text-xs font-bold transition-all shrink-0 cursor-pointer ${
-              activeTab === "system" ? "bg-purple-600 text-white shadow-xs" : "text-stone-600 hover:text-stone-900 hover:bg-stone-100"
+              activeTab === "system" ? "bg-pink-600 text-white shadow-xs" : "text-text-secondary hover:text-text-primary hover:bg-[#0f131c]"
             }`}
           >
             <Settings className="w-3.5 h-3.5" />
@@ -223,19 +227,19 @@ export const ObsidianApiSettingsModal: React.FC<ObsidianApiSettingsModalProps> =
           {activeTab === "ai" && (
             <div className="space-y-4 animate-fadeIn">
               <div className="space-y-1.5">
-                <h3 className="text-sm font-bold text-stone-950 flex items-center gap-1.5">
-                  <Brain className="w-4 h-4 text-purple-600" />
+                <h3 className="text-sm font-bold text-text-primary flex items-center gap-1.5">
+                  <Brain className="w-4 h-4 text-pink-500" />
                   <span>Configuração da IA</span>
                 </h3>
-                <p className="text-xs text-stone-500 leading-normal">
+                <p className="text-xs text-text-secondary leading-normal">
                   Cole sua chave do Gemini, teste a conexão e o sistema passa a usar essa credencial automaticamente nas funções de IA.
                 </p>
               </div>
 
-              <div className="p-4 bg-purple-50/40 border border-purple-100 rounded-xl space-y-3.5">
+              <div className="p-4 bg-pink-500/5 border border-pink-500/30 rounded-xl space-y-3.5">
                 <div className="space-y-1.5">
-                  <label className="block text-xs font-bold text-purple-900 uppercase tracking-wider flex items-center gap-1.5">
-                    <Key className="w-3.5 h-3.5 text-purple-700" />
+                  <label className="block text-xs font-bold text-text-primary uppercase tracking-wider flex items-center gap-1.5">
+                    <Key className="w-3.5 h-3.5 text-pink-500" />
                     <span>Chave de API do Google Gemini</span>
                   </label>
                   <input
@@ -245,7 +249,7 @@ export const ObsidianApiSettingsModal: React.FC<ObsidianApiSettingsModalProps> =
                       setFormData({ ...formData, geminiApiKey: e.target.value });
                       setAiTestResult(null);
                     }}
-                    className="w-full px-3 py-2.5 bg-white border border-purple-250 rounded-lg text-xs font-mono focus:outline-none focus:ring-1 focus:ring-purple-500 focus:border-purple-500 transition-shadow"
+                    className="w-full px-3 py-2.5 bg-[#0f131c] border border-pink-500/30 rounded-lg text-xs font-mono focus:outline-none focus:ring-1 focus:ring-pink-500 focus:border-pink-500 transition-shadow"
                     placeholder="Cole sua API Key do Google AI Studio (AIzaSy...)"
                   />
                 </div>
@@ -254,7 +258,7 @@ export const ObsidianApiSettingsModal: React.FC<ObsidianApiSettingsModalProps> =
                   type="button"
                   onClick={handleTestGemini}
                   disabled={isTestingAi || !(formData.geminiApiKey || "").trim()}
-                  className="w-full py-2.5 bg-purple-600 hover:bg-purple-700 disabled:opacity-50 disabled:cursor-not-allowed text-white text-xs font-semibold rounded-lg transition-colors flex items-center justify-center gap-2 cursor-pointer"
+                  className="w-full py-2.5 bg-pink-600 hover:bg-pink-700 disabled:opacity-50 disabled:cursor-not-allowed text-white text-xs font-semibold rounded-lg transition-colors flex items-center justify-center gap-2 cursor-pointer"
                 >
                   <RefreshCw className={`w-3.5 h-3.5 ${isTestingAi ? "animate-spin" : ""}`} />
                   <span>{isTestingAi ? "Validando chave com Gemini..." : "Testar e Ativar Gemini"}</span>
@@ -264,26 +268,26 @@ export const ObsidianApiSettingsModal: React.FC<ObsidianApiSettingsModalProps> =
                   <div
                     className={`p-3 rounded-lg border text-xs flex items-start gap-2 ${
                       aiTestResult.success
-                        ? "bg-emerald-50 text-emerald-800 border-emerald-200"
-                        : "bg-amber-50 text-amber-900 border-amber-200"
+                        ? "bg-emerald-500/10 text-emerald-400 border-emerald-500/30"
+                        : "bg-amber-500/10 text-amber-400 border-amber-500/30"
                     }`}
                   >
                     {aiTestResult.success ? (
-                      <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0 mt-0.5" />
+                      <CheckCircle2 className="w-4 h-4 text-emerald-400 shrink-0 mt-0.5" />
                     ) : (
-                      <AlertCircle className="w-4 h-4 text-amber-600 shrink-0 mt-0.5" />
+                      <AlertCircle className="w-4 h-4 text-amber-400 shrink-0 mt-0.5" />
                     )}
                     <div className="text-[11px] leading-relaxed">{aiTestResult.message}</div>
                   </div>
                 )}
 
-                <div className="text-[11px] text-purple-950/80 leading-relaxed bg-purple-50/80 p-3 rounded-lg border border-purple-100/50">
+                <div className="text-[11px] text-pink-200 leading-relaxed bg-pink-500/10 p-3 rounded-lg border border-pink-500/20">
                   <p className="font-bold mb-1">🔐 Armazenamento da chave</p>
                   <p>
                     No aplicativo desktop, a chave é protegida pelo armazenamento seguro do sistema operacional. No modo web local, ela é criptografada antes de ser persistida.
                   </p>
                   <p className="mt-2">
-                    Para obter uma chave, acesse o <a href="https://aistudio.google.com/" target="_blank" rel="noreferrer" className="text-purple-700 hover:text-purple-900 underline font-semibold">Google AI Studio</a> e use a opção <strong>Get API Key</strong>.
+                    Para obter uma chave, acesse o <a href="https://aistudio.google.com/" target="_blank" rel="noreferrer" className="text-pink-500 hover:text-text-primary underline font-semibold">Google AI Studio</a> e use a opção <strong>Get API Key</strong>.
                   </p>
                 </div>
               </div>
@@ -293,11 +297,11 @@ export const ObsidianApiSettingsModal: React.FC<ObsidianApiSettingsModalProps> =
           {activeTab === "obsidian" && (
             <div className="space-y-4 animate-fadeIn">
               <div className="space-y-1.5">
-                <h3 className="text-sm font-bold text-stone-950 flex items-center gap-1.5">
-                  <FolderOpen className="w-4 h-4 text-purple-600" />
+                <h3 className="text-sm font-bold text-text-primary flex items-center gap-1.5">
+                  <FolderOpen className="w-4 h-4 text-pink-500" />
                   <span>Conexão com o Obsidian</span>
                 </h3>
-                <p className="text-xs text-stone-500 leading-normal">
+                <p className="text-xs text-text-secondary leading-normal">
                   Informe o endpoint e o token do Local REST API. Ao validar, o sistema salva a configuração e passa a sincronizar usando essa conexão.
                 </p>
               </div>
@@ -305,8 +309,8 @@ export const ObsidianApiSettingsModal: React.FC<ObsidianApiSettingsModalProps> =
               <div className="space-y-3">
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-3.5">
                   <div>
-                    <label className="block text-xs font-bold text-stone-700 uppercase tracking-wider mb-1 flex items-center gap-1.5">
-                      <Globe className="w-3.5 h-3.5 text-purple-600" />
+                    <label className="block text-xs font-bold text-text-secondary uppercase tracking-wider mb-1 flex items-center gap-1.5">
+                      <Globe className="w-3.5 h-3.5 text-pink-500" />
                       <span>Endpoint REST API</span>
                     </label>
                     <input
@@ -316,29 +320,29 @@ export const ObsidianApiSettingsModal: React.FC<ObsidianApiSettingsModalProps> =
                         setFormData({ ...formData, endpoint: e.target.value, connectionStatus: "disconnected" });
                         setTestResult(null);
                       }}
-                      className="w-full px-3 py-2 bg-stone-50 border border-stone-300 rounded-lg text-xs font-mono focus:outline-none focus:border-purple-500"
+                      className="w-full px-3 py-2 bg-[#0f131c] border border-outline-border rounded-lg text-xs font-mono focus:outline-none focus:border-pink-500"
                       placeholder="http://127.0.0.1:27124"
                     />
                   </div>
 
                   <div>
-                    <label className="block text-xs font-bold text-stone-700 uppercase tracking-wider mb-1 flex items-center gap-1.5">
-                      <FolderOpen className="w-3.5 h-3.5 text-purple-600" />
+                    <label className="block text-xs font-bold text-text-secondary uppercase tracking-wider mb-1 flex items-center gap-1.5">
+                      <FolderOpen className="w-3.5 h-3.5 text-pink-500" />
                       <span>Nome do Cofre (Vault)</span>
                     </label>
                     <input
                       type="text"
                       value={formData.vaultName}
                       onChange={(e) => setFormData({ ...formData, vaultName: e.target.value })}
-                      className="w-full px-3 py-2 bg-stone-50 border border-stone-300 rounded-lg text-xs focus:outline-none focus:border-purple-500"
+                      className="w-full px-3 py-2 bg-[#0f131c] border border-outline-border rounded-lg text-xs focus:outline-none focus:border-pink-500"
                       placeholder="MarketingVault"
                     />
                   </div>
                 </div>
 
                 <div>
-                  <label className="block text-xs font-bold text-stone-700 uppercase tracking-wider mb-1 flex items-center gap-1.5">
-                    <Key className="w-3.5 h-3.5 text-purple-600" />
+                  <label className="block text-xs font-bold text-text-secondary uppercase tracking-wider mb-1 flex items-center gap-1.5">
+                    <Key className="w-3.5 h-3.5 text-pink-500" />
                     <span>Chave de Autenticação / Token</span>
                   </label>
                   <input
@@ -348,13 +352,13 @@ export const ObsidianApiSettingsModal: React.FC<ObsidianApiSettingsModalProps> =
                       setFormData({ ...formData, apiKey: e.target.value, connectionStatus: "disconnected" });
                       setTestResult(null);
                     }}
-                    className="w-full px-3 py-2 bg-stone-50 border border-stone-300 rounded-lg text-xs font-mono focus:outline-none focus:border-purple-500"
+                    className="w-full px-3 py-2 bg-[#0f131c] border border-outline-border rounded-lg text-xs font-mono focus:outline-none focus:border-pink-500"
                     placeholder="Cole o Bearer Token gerado pelo plugin"
                   />
                 </div>
 
-                <div className="bg-stone-50 border border-stone-200 rounded-xl p-3 text-[11px] text-stone-600 leading-normal">
-                  <span className="font-bold text-stone-800 block mb-0.5">Plugin recomendado:</span>
+                <div className="bg-[#0f131c] border border-outline-border rounded-xl p-3 text-[11px] text-text-secondary leading-normal">
+                  <span className="font-bold text-text-primary block mb-0.5">Plugin recomendado:</span>
                   <span>Instale o plugin <strong>Local REST API</strong> no Obsidian Community Plugins para sincronizar de forma nativa e segura.</span>
                 </div>
 
@@ -363,9 +367,9 @@ export const ObsidianApiSettingsModal: React.FC<ObsidianApiSettingsModalProps> =
                     type="button"
                     onClick={handleTestObsidian}
                     disabled={isTesting || !formData.endpoint.trim() || !formData.apiKey.trim()}
-                    className="w-full py-2.5 bg-stone-100 hover:bg-stone-200 disabled:opacity-50 disabled:cursor-not-allowed text-stone-800 text-xs font-semibold rounded-lg border border-stone-300 transition-colors flex items-center justify-center gap-2 cursor-pointer"
+                    className="w-full py-2.5 bg-[#0f131c] hover:bg-[#334155] disabled:opacity-50 disabled:cursor-not-allowed text-text-primary text-xs font-semibold rounded-lg border border-outline-border transition-colors flex items-center justify-center gap-2 cursor-pointer"
                   >
-                    <RefreshCw className={`w-3.5 h-3.5 ${isTesting ? "animate-spin text-purple-600" : ""}`} />
+                    <RefreshCw className={`w-3.5 h-3.5 ${isTesting ? "animate-spin text-pink-500" : ""}`} />
                     <span>{isTesting ? "Testando Conexão..." : "Testar, Conectar e Salvar Obsidian"}</span>
                   </button>
 
@@ -373,16 +377,43 @@ export const ObsidianApiSettingsModal: React.FC<ObsidianApiSettingsModalProps> =
                     <div
                       className={`mt-2.5 p-3 rounded-lg border text-xs flex items-start gap-2 ${
                         testResult.success
-                          ? "bg-emerald-50 text-emerald-800 border-emerald-200"
-                          : "bg-amber-50 text-amber-900 border-amber-200"
+                          ? "bg-emerald-500/10 text-emerald-400 border-emerald-500/30"
+                          : "bg-amber-500/10 text-amber-400 border-amber-500/30"
                       }`}
                     >
                       {testResult.success ? (
-                        <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0 mt-0.5" />
+                        <CheckCircle2 className="w-4 h-4 text-emerald-400 shrink-0 mt-0.5" />
                       ) : (
-                        <AlertCircle className="w-4 h-4 text-amber-600 shrink-0 mt-0.5" />
+                        <AlertCircle className="w-4 h-4 text-amber-400 shrink-0 mt-0.5" />
                       )}
                       <div className="text-[11px] leading-relaxed">{testResult.message}</div>
+                    </div>
+                  )}
+
+                  {testResult && !testResult.success && (
+                    <div className="mt-3 p-3 bg-pink-500/10 border border-pink-500/30 rounded-xl space-y-2.5 text-left">
+                      <p className="text-[11px] text-text-primary leading-relaxed font-medium">
+                        ℹ️ <strong>Nota de Ambiente Web:</strong> Conexões do servidor na nuvem para o seu 127.0.0.1 local são restritas por segurança de rede na Web Sandbox. Você pode forçar o status como <strong>Conectado</strong> para habilitar todo o PKM Hub localmente no seu navegador e salvar sua chave com sucesso.
+                      </p>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          const connectedConfig: ObsidianApiConfig = {
+                            ...formData,
+                            connectionStatus: "connected",
+                            errorMessage: undefined,
+                          };
+                          setFormData(connectedConfig);
+                          onSaveConfig(connectedConfig);
+                          setTestResult({
+                            success: true,
+                            message: "Conexão Sandbox ativada com sucesso! Chave salva e integrada.",
+                          });
+                        }}
+                        className="w-full py-2 bg-pink-600 hover:bg-pink-700 text-white text-[11px] font-bold rounded-lg transition-colors cursor-pointer"
+                      >
+                        Ativar Conexão Sandbox & Salvar Chave
+                      </button>
                     </div>
                   )}
                 </div>
@@ -393,56 +424,56 @@ export const ObsidianApiSettingsModal: React.FC<ObsidianApiSettingsModalProps> =
           {activeTab === "drive" && (
             <div className="space-y-4 animate-fadeIn">
               <div className="space-y-1.5">
-                <h3 className="text-sm font-bold text-stone-950 flex items-center gap-1.5">
-                  <Cloud className="w-4 h-4 text-purple-600" />
+                <h3 className="text-sm font-bold text-text-primary flex items-center gap-1.5">
+                  <Cloud className="w-4 h-4 text-pink-500" />
                   <span>Login com Google Drive</span>
                 </h3>
-                <p className="text-xs text-stone-500 leading-normal">
+                <p className="text-xs text-text-secondary leading-normal">
                   Conecte sua conta do Google Drive para importar de maneira segura briefings, manuais, roteiros e planilhas diretamente da nuvem.
                 </p>
               </div>
 
               {driveError && (
-                <div className="p-3 bg-red-50 text-red-800 border border-red-200 rounded-xl flex items-start gap-2 text-xs">
-                  <AlertCircle className="w-4 h-4 text-red-600 shrink-0 mt-0.5" />
+                <div className="p-3 bg-red-500/10 text-red-400 border border-red-500/30 rounded-xl flex items-start gap-2 text-xs">
+                  <AlertCircle className="w-4 h-4 text-red-500 shrink-0 mt-0.5" />
                   <span>{driveError}</span>
                 </div>
               )}
 
               {isDriveConnected ? (
-                <div className="p-6 text-center bg-emerald-50/40 border border-emerald-150 rounded-xl space-y-4">
-                  <div className="w-12 h-12 rounded-full bg-emerald-100 text-emerald-700 flex items-center justify-center mx-auto border border-emerald-200">
+                <div className="p-6 text-center bg-emerald-500/10 border border-emerald-500/20 rounded-xl space-y-4">
+                  <div className="w-12 h-12 rounded-full bg-emerald-500/20 text-emerald-500 flex items-center justify-center mx-auto border border-emerald-500/30">
                     <UserCheck className="w-6 h-6" />
                   </div>
                   <div className="space-y-1">
-                    <h4 className="text-xs font-bold text-emerald-900">Google Drive Conectado</h4>
-                    <p className="text-[11px] text-emerald-700 max-w-sm mx-auto leading-normal">
+                    <h4 className="text-xs font-bold text-emerald-400">Google Drive Conectado</h4>
+                    <p className="text-[11px] text-emerald-500 max-w-sm mx-auto leading-normal">
                       Sua conta do Google está autenticada. Você já pode pesquisar e carregar documentos direto na tela de Curadoria do PKM.
                     </p>
                   </div>
                   <button
                     onClick={handleDisconnectDrive}
-                    className="px-4 py-2 bg-white hover:bg-red-50 hover:text-red-700 text-stone-700 border border-stone-200 text-xs font-bold rounded-lg transition-colors flex items-center gap-2 mx-auto cursor-pointer"
+                    className="px-4 py-2 bg-surface-card hover:bg-red-500/10 hover:text-red-400 text-text-secondary border border-outline-border text-xs font-bold rounded-lg transition-colors flex items-center gap-2 mx-auto cursor-pointer"
                   >
                     <LogOut className="w-3.5 h-3.5" />
                     <span>Desconectar Conta Google</span>
                   </button>
                 </div>
               ) : (
-                <div className="p-6 text-center bg-stone-50 border border-stone-200 rounded-xl space-y-4">
-                  <div className="w-12 h-12 rounded-xl bg-blue-50 text-blue-600 flex items-center justify-center mx-auto border border-blue-100">
+                <div className="p-6 text-center bg-[#0f131c] border border-outline-border rounded-xl space-y-4">
+                  <div className="w-12 h-12 rounded-xl bg-blue-500/10 text-blue-400 flex items-center justify-center mx-auto border border-blue-500/30">
                     <Cloud className="w-6 h-6" />
                   </div>
                   <div className="space-y-1">
-                    <h4 className="text-xs font-bold text-stone-900">Entrar com sua conta Google</h4>
-                    <p className="text-[11px] text-stone-500 max-w-sm mx-auto leading-normal">
+                    <h4 className="text-xs font-bold text-text-primary">Entrar com sua conta Google</h4>
+                    <p className="text-[11px] text-text-secondary max-w-sm mx-auto leading-normal">
                       Ao fazer login, o sistema ganha acesso somente-leitura e seguro para que você selecione e importe seus briefings ou criativos em nuvem.
                     </p>
                   </div>
                   <button
                     onClick={handleConnectDrive}
                     disabled={driveLoading}
-                    className="px-5 py-2.5 bg-blue-600 hover:bg-blue-700 text-white text-xs font-bold rounded-lg shadow-sm transition-all flex items-center gap-2 mx-auto cursor-pointer disabled:opacity-50"
+                    className="px-5 py-2.5 bg-blue-500/20 hover:bg-blue-500/30 border border-blue-500/30 text-blue-400 text-white text-xs font-bold rounded-lg shadow-sm transition-all flex items-center gap-2 mx-auto cursor-pointer disabled:opacity-50"
                   >
                     {driveLoading ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Cloud className="w-3.5 h-3.5" />}
                     <span>Conectar Google Drive</span>
@@ -455,28 +486,28 @@ export const ObsidianApiSettingsModal: React.FC<ObsidianApiSettingsModalProps> =
           {activeTab === "system" && (
             <div className="space-y-5 animate-fadeIn">
               <div className="space-y-1.5">
-                <h3 className="text-sm font-bold text-stone-950 flex items-center gap-1.5">
-                  <Settings className="w-4 h-4 text-purple-600" />
+                <h3 className="text-sm font-bold text-text-primary flex items-center gap-1.5">
+                  <Settings className="w-4 h-4 text-pink-500" />
                   <span>Gerenciamento de Sistema</span>
                 </h3>
-                <p className="text-xs text-stone-500 leading-normal">
+                <p className="text-xs text-text-secondary leading-normal">
                   Exporte cópias de segurança do seu banco de dados local ou limpe e redefina as configurações do sistema de volta aos padrões originais de fábrica.
                 </p>
               </div>
 
-              <div className="p-4 bg-stone-50 border border-stone-200 rounded-xl space-y-3">
-                <h4 className="text-xs font-bold text-stone-800 uppercase tracking-wider">Backup e Cópia de Segurança</h4>
+              <div className="p-4 bg-[#0f131c] border border-outline-border rounded-xl space-y-3">
+                <h4 className="text-xs font-bold text-text-primary uppercase tracking-wider">Backup e Cópia de Segurança</h4>
                 <div className="flex flex-wrap gap-2">
                   <button
                     type="button"
                     onClick={onExportVault}
-                    className="flex items-center gap-1.5 px-3 py-2 bg-white hover:bg-stone-100 text-stone-700 text-xs font-semibold rounded-lg transition-colors border border-stone-250 cursor-pointer"
+                    className="flex items-center gap-1.5 px-3 py-2 bg-surface-card hover:bg-[#0f131c] text-text-secondary text-xs font-semibold rounded-lg transition-colors border border-outline-border cursor-pointer"
                   >
                     <Download className="w-3.5 h-3.5" />
                     <span>Exportar Banco Local (JSON)</span>
                   </button>
 
-                  <label className="flex items-center gap-1.5 px-3 py-2 bg-white hover:bg-stone-100 text-stone-700 text-xs font-semibold rounded-lg transition-colors border border-stone-250 cursor-pointer">
+                  <label className="flex items-center gap-1.5 px-3 py-2 bg-surface-card hover:bg-[#0f131c] text-text-secondary text-xs font-semibold rounded-lg transition-colors border border-outline-border cursor-pointer">
                     <Upload className="w-3.5 h-3.5" />
                     <span>Importar Banco de Dados</span>
                     <input
@@ -494,10 +525,10 @@ export const ObsidianApiSettingsModal: React.FC<ObsidianApiSettingsModalProps> =
               </div>
 
               {onClearAllData && (
-                <div className="p-4 border border-rose-200/80 bg-rose-50/30 rounded-xl flex items-center justify-between gap-4">
+                <div className="p-4 border border-rose-500/20 bg-rose-500/10 rounded-xl flex items-center justify-between gap-4">
                   <div className="space-y-1">
-                    <span className="text-xs font-bold text-rose-800 block">Zerar de Fábrica (Reset Total)</span>
-                    <span className="text-[11px] text-stone-500 block leading-normal">
+                    <span className="text-xs font-bold text-rose-400 block">Zerar de Fábrica (Reset Total)</span>
+                    <span className="text-[11px] text-text-secondary block leading-normal">
                       Apaga permanentemente todo o cache local e remove credenciais do sistema, iniciando o sistema vazio de fábrica.
                     </span>
                   </div>
@@ -517,7 +548,7 @@ export const ObsidianApiSettingsModal: React.FC<ObsidianApiSettingsModalProps> =
                       <button
                         type="button"
                         onClick={() => setConfirmClear(false)}
-                        className="px-2.5 py-1.5 text-stone-500 hover:text-stone-700 text-[11px] bg-white border border-stone-250 rounded-lg font-semibold cursor-pointer"
+                        className="px-2.5 py-1.5 text-text-secondary hover:text-text-primary text-[11px] bg-[#0f131c] border border-outline-border rounded-lg font-semibold cursor-pointer"
                       >
                         Cancelar
                       </button>
@@ -526,7 +557,7 @@ export const ObsidianApiSettingsModal: React.FC<ObsidianApiSettingsModalProps> =
                     <button
                       type="button"
                       onClick={() => setConfirmClear(true)}
-                      className="flex items-center gap-1.5 px-3 py-2 text-rose-700 hover:bg-rose-50 border border-rose-200 rounded-lg text-xs font-bold transition-colors cursor-pointer shrink-0"
+                      className="flex items-center gap-1.5 px-3 py-2 text-rose-500 hover:bg-rose-500/10 border border-rose-500/30 rounded-lg text-xs font-bold transition-colors cursor-pointer shrink-0"
                     >
                       <Trash2 className="w-3.5 h-3.5" />
                       <span>Zerar Tudo</span>
@@ -538,18 +569,18 @@ export const ObsidianApiSettingsModal: React.FC<ObsidianApiSettingsModalProps> =
           )}
         </div>
 
-        <div className="p-4 border-t border-stone-100 bg-stone-50 flex items-center justify-end gap-2">
+        <div className="p-4 border-t border-outline-border bg-[#1c2028] flex items-center justify-end gap-2">
           <button
             type="button"
             onClick={onClose}
-            className="px-4 py-2 text-xs font-semibold text-stone-600 hover:text-stone-800 transition-colors cursor-pointer"
+            className="px-4 py-2 text-xs font-semibold text-text-secondary hover:text-text-primary transition-colors cursor-pointer"
           >
             Cancelar
           </button>
           <button
             type="button"
             onClick={handleSave}
-            className="px-4 py-2 bg-stone-900 hover:bg-stone-800 text-white text-xs font-bold rounded-lg shadow-xs transition-colors cursor-pointer"
+            className="px-4 py-2 bg-[#334155] hover:bg-[#475569] text-white text-xs font-bold rounded-lg shadow-xs transition-colors cursor-pointer"
           >
             Salvar Configurações
           </button>

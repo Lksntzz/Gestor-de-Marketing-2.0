@@ -37,7 +37,18 @@ function writeJson(res: http.ServerResponse, statusCode: number, payload: unknow
 let hasBoundMainServer = false;
 
 (http.Server.prototype as any).listen = function (...args: any[]) {
-  if (!hasBoundMainServer) {
+  let isMainServer = false;
+  if (typeof args[0] === "object" && args[0] !== null) {
+    if (args[0].port === APP_PORT || args[0].port === 3000) {
+      isMainServer = true;
+    }
+  } else if (typeof args[0] === "number") {
+    if (args[0] === APP_PORT || args[0] === 3000) {
+      isMainServer = true;
+    }
+  }
+
+  if (isMainServer && !hasBoundMainServer) {
     hasBoundMainServer = true;
     const targetHost = IS_DESKTOP_ENV ? LOOPBACK_HOST : "0.0.0.0";
     if (typeof args[0] === "object" && args[0] !== null) {
