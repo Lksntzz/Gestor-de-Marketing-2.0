@@ -31,6 +31,7 @@ import type {
 } from "../types";
 import { APP_STATE_CHANGED_EVENT } from "../hooks/usePersistentState";
 import { AppStateSchemas } from "../domain/appStateSchemas";
+import { api } from "../services/api";
 import { APP_STATE_KEYS, StorageManager } from "../services/storage/StorageManager";
 import { buildObsidianOpenUri } from "../utils/obsidianUri";
 import { buildPlanningSnapshot } from "../utils/planningIntelligence";
@@ -109,7 +110,6 @@ export const RoutineIntelligenceView: React.FC<RoutineIntelligenceViewProps> = (
   onUpdateRoutineSlot,
   onAddRoutineSlot,
   onCreateCampaignFromSuggestion,
-  onSyncRoutineToDailyNotes,
   showToast,
 }) => {
   const [liveTasks, setLiveTasks] = useState<MarketingTask[]>(() => loadTasks());
@@ -182,9 +182,35 @@ export const RoutineIntelligenceView: React.FC<RoutineIntelligenceViewProps> = (
       showToast("warning", "Obsidian desconectado", "Conecte o Vault antes de sincronizar o planejamento semanal.");
       return;
     }
+
+    const body = orderedRoutine.length
+      ? orderedRoutine.map((slot) => {
+          const details = [
+            slot.dayOfWeek,
+            slot.optimalTime || "",
+            slot.recommendedFormat,
+            `status:${slot.status}`,
+            `nicho:${slot.primaryNiche}`,
+            `gatilho:${slot.primaryEmotion}`,
+          ].filter(Boolean);
+          return `- ${slot.focusTheme} — ${details.join(" • ")}`;
+        }).join("\n")
+      : "_Nenhuma pauta semanal registrada._";
+
     setIsSyncingPlan(true);
     try {
-      await Promise.resolve(onSyncRoutineToDailyNotes());
+      const result = await api.upsertDailyNoteSection(
+        apiConfig,
+        "nisti-planning-week",
+        "🗓️ Planejamento semanal Nisti Marketing",
+        body
+      );
+      if (!result?.success) {
+        throw new Error(result?.message || "O Obsidian não confirmou a gravação do planejamento.");
+      }
+      showToast("success", "Planejamento sincronizado", "A seção semanal foi atualizada no Obsidian sem criar tarefas, prioridades ou métricas automáticas.");
+    } catch (err: any) {
+      showToast("warning", "Falha ao sincronizar planejamento", err?.message || "O Obsidian não confirmou a gravação.");
     } finally {
       setIsSyncingPlan(false);
     }
