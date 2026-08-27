@@ -97,92 +97,48 @@ async function getEncryptionKey(): Promise<CryptoKey> {
     throw new Error("Web Crypto API unavailable");
   }
 
+  const db = await openKeyDb();
   try {
-    const db = await openKeyDb();
-    try {
-      const existing = await getStoredKey(db);
-      if (existing) return existing;
-
-      const generated = (await crypto.subtle.generateKey(
-        { name: "AES-GCM", length: 256 },
-        false,
-        ["encrypt", "decrypt"]
-      )) as CryptoKey;
-      await storeKey(db, generated);
-      return generated;
-    } finally {
-      db.close();
-    }
-  } catch (dbError) {
-    console.warn("IndexedDB secure store failed, falling back to localStorage JWK store:", dbError);
-    
-    const fallbackKey = "nisti_secure_key_fallback_v3";
-    const existingJwk = localStorage.getItem(fallbackKey);
-    if (existingJwk) {
-      try {
-        const jwk = JSON.parse(existingJwk);
-        const imported = await crypto.subtle.importKey(
-          "jwk",
-          jwk,
-          { name: "AES-GCM", length: 256 },
-          true,
-          ["encrypt", "decrypt"]
-        );
-        return imported;
-      } catch (importError) {
-        console.warn("Failed to import fallback key, regenerating:", importError);
-      }
-    }
+    const existing = await getStoredKey(db);
+    if (existing) return existing;
 
     const generated = (await crypto.subtle.generateKey(
       { name: "AES-GCM", length: 256 },
-      true, // must be extractable to export as jwk
+      false,
       ["encrypt", "decrypt"]
     )) as CryptoKey;
-
-    try {
-      const jwk = await crypto.subtle.exportKey("jwk", generated);
-      localStorage.setItem(fallbackKey, JSON.stringify(jwk));
-    } catch (exportError) {
-      console.error("Failed to export secure fallback key:", exportError);
-    }
-
+    await storeKey(db, generated);
     return generated;
+  } finally {
+    db.close();
   }
 }
 
 /**
- * Encrypts credentials with standard base64 obfuscation to guarantee 100% uptime in restricted sandboxed iframes.
+ * Encrypts credentials with a random non-extractable AES-GCM key. This fails
+ * closed: no plaintext or reversible-obfuscation fallback is permitted.
  */
 export async function encryptSecret(plainText: string): Promise<string> {
   if (!plainText) return "";
-  try {
-    return `enc_fallback:${btoa(unescape(encodeURIComponent(plainText)))}`;
-  } catch (err) {
-    console.warn("Obfuscation failed, returning raw string as ultimate fallback:", err);
-    return plainText;
-  }
+
+  const key = await getEncryptionKey();
+  const iv = crypto.getRandomValues(new Uint8Array(12));
+  const encoded = new TextEncoder().encode(plainText);
+  const cipherBuffer = await crypto.subtle.encrypt({ name: "AES-GCM", iv }, key, encoded);
+  const payload = {
+    iv: Array.from(iv),
+    data: Array.from(new Uint8Array(cipherBuffer)),
+  };
+  return `enc_v3:${btoa(JSON.stringify(payload))}`;
 }
 
 /**
- * Decrypts credentials in fallback or v3 formats.
+ * Only the current v3 format is accepted from the secure-config store.
+ * Plaintext, enc_v2 and enc_obf values are rejected and require re-entry.
  */
 export async function decryptSecret(cipherText: string): Promise<string> {
   if (!cipherText) return "";
-  
-  if (cipherText.startsWith("enc_fallback:")) {
-    try {
-      return decodeURIComponent(escape(atob(cipherText.slice("enc_fallback:".length))));
-    } catch (err) {
-      console.warn("Failed to decode fallback credential:", err);
-      return "";
-    }
-  }
-
-  if (!cipherText.startsWith("enc_v3:")) {
-    // If it is not encrypted at all, return as plain text
-    return cipherText;
-  }
+  if (!cipherText.startsWith("enc_v3:")) return "";
 
   try {
     const key = await getEncryptionKey();
