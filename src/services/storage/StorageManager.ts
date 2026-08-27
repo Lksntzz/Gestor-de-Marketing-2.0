@@ -11,6 +11,7 @@ import { TaxonomyFolder, normalizeTaxonomyFolder, sanitizeSafePath } from "../..
 import { generateFastHash, generateUUID, encryptSecret, decryptSecret } from "../../utils/crypto";
 import { APP_VERSION, localDateKey } from "../../utils/reliability";
 import { ObsidianApiConfig, ObsidianNote } from "../../types";
+import { isObsidianRuntimeConnected } from "../obsidianRuntimeState";
 
 const STORAGE_KEYS = {
   NOTES: "nisti_pkm_notes_v2",
@@ -148,42 +149,49 @@ export class StorageManager implements IStorageService {
   // ==========================================
   public async readAllNotes(): Promise<KnowledgeNote[]> {
     if (this.isDesktopRuntime()) {
+      if (!isObsidianRuntimeConnected()) {
+        return [];
+      }
+
       try {
         const vaultPath = await window.electronAPI!.getVaultPath();
-        if (vaultPath) {
-          const files = await window.electronAPI!.readNotes();
-          return files.map((f: any) => ({
-            id: f.frontmatter?.id || `note_${generateFastHash("n", f.title)}`,
-            path: `${f.folder}/${f.title}.md`,
-            title: f.title,
-            folder: normalizeTaxonomyFolder(f.folder),
-            content: f.content,
-            tags: Array.isArray(f.frontmatter?.tags) ? f.frontmatter.tags : [],
-            wikilinks: [],
-            frontmatter: {
-              id: f.frontmatter?.id || `note_${generateFastHash("n", f.title)}`,
-              tipo: f.frontmatter?.tipo || "Documento PKM",
-              status: f.frontmatter?.status || "OFICIAL",
-              owner: f.frontmatter?.owner || "Gestor de Marketing Nisti Print",
-              created_at: f.frontmatter?.created_at || new Date().toISOString(),
-              updated_at: f.frontmatter?.updated_at || new Date().toISOString(),
-              confidencialidade: f.frontmatter?.confidencialidade || "Interno",
-              produto: f.frontmatter?.produto || "Linha Nisti Print",
-              nicho: f.frontmatter?.nicho || "Papelaria Criativa & B2B",
-              canal: f.frontmatter?.canal || "Omnichannel",
-              projeto: f.frontmatter?.projeto || "Geral",
-              tags: Array.isArray(f.frontmatter?.tags) ? f.frontmatter.tags : [],
-              origem: f.frontmatter?.origem || "Obsidian Local Vault",
-              approved_by: f.frontmatter?.approved_by || "",
-              hash: f.frontmatter?.hash || generateFastHash("h", f.title),
-            },
-            lastModified: new Date(f.mtime || Date.now()).toISOString().substring(0, 16),
-            syncedWithApi: true,
-            isDemoData: false,
-          }));
+        if (!vaultPath) {
+          return [];
         }
+
+        const files = await window.electronAPI!.readNotes();
+        return files.map((f: any) => ({
+          id: f.frontmatter?.id || `note_${generateFastHash("n", f.title)}`,
+          path: `${f.folder}/${f.title}.md`,
+          title: f.title,
+          folder: normalizeTaxonomyFolder(f.folder),
+          content: f.content,
+          tags: Array.isArray(f.frontmatter?.tags) ? f.frontmatter.tags : [],
+          wikilinks: [],
+          frontmatter: {
+            id: f.frontmatter?.id || `note_${generateFastHash("n", f.title)}`,
+            tipo: f.frontmatter?.tipo || "Documento PKM",
+            status: f.frontmatter?.status || "PENDENTE",
+            owner: f.frontmatter?.owner || "Gestor de Marketing Nisti Print",
+            created_at: f.frontmatter?.created_at || new Date().toISOString(),
+            updated_at: f.frontmatter?.updated_at || new Date().toISOString(),
+            confidencialidade: f.frontmatter?.confidencialidade || "Interno",
+            produto: f.frontmatter?.produto || "Não classificado",
+            nicho: f.frontmatter?.nicho || "Não classificado",
+            canal: f.frontmatter?.canal || "Não classificado",
+            projeto: f.frontmatter?.projeto || "Geral",
+            tags: Array.isArray(f.frontmatter?.tags) ? f.frontmatter.tags : [],
+            origem: f.frontmatter?.origem || "Obsidian Local Vault",
+            approved_by: f.frontmatter?.approved_by || "",
+            hash: f.frontmatter?.hash || generateFastHash("h", f.title),
+          },
+          lastModified: new Date(f.mtime || Date.now()).toISOString().substring(0, 16),
+          syncedWithApi: true,
+          isDemoData: false,
+        }));
       } catch (err) {
-        console.warn("Desktop filesystem read failed, falling back to local sandbox:", err);
+        console.warn("Desktop Vault read failed closed:", err);
+        return [];
       }
     }
 
@@ -197,6 +205,7 @@ export class StorageManager implements IStorageService {
 
   public async readDesktopNotesForApp(): Promise<ObsidianNote[] | null> {
     if (!this.isDesktopRuntime() || !window.electronAPI) return null;
+    if (!isObsidianRuntimeConnected()) return null;
 
     const vaultPath = await window.electronAPI.getVaultPath();
     if (!vaultPath) return null;
@@ -233,18 +242,38 @@ export class StorageManager implements IStorageService {
     };
 
     if (this.isDesktopRuntime()) {
+      if (!isObsidianRuntimeConnected()) {
+        return { success: false, error: "Obsidian não está conectado. A gravação foi bloqueada." };
+      }
+
       try {
         const vaultPath = await window.electronAPI!.getVaultPath();
-        if (vaultPath) {
-          await window.electronAPI!.writeNote(
-            safeFolder,
-            cleanTitle,
-            sanitizedNote.content,
-            sanitizedNote.frontmatter
-          );
+        if (!vaultPath) {
+          return { success: false, error: "Vault físico do Obsidian não selecionado." };
         }
+
+        const writeResult = await window.electronAPI!.writeNote(
+          safeFolder,
+          cleanTitle,
+          sanitizedNote.content,
+          sanitizedNote.frontmatter
+        );
+        if (!writeResult?.success) {
+          return { success: false, error: writeResult?.error || "O Obsidian não confirmou a gravação." };
+        }
+
+        await this.logAudit({
+          action: "NOTE_CREATED",
+          entityId: sanitizedNote.id,
+          entityType: "KnowledgeNote",
+          details: `Nota confirmada no Vault em ${sanitizedNote.path} (Status: ${sanitizedNote.frontmatter.status})`,
+          actor: sanitizedNote.frontmatter.owner || "Gestor Nisti",
+          newStateHash: sanitizedNote.frontmatter.hash,
+        });
+        return { success: true };
       } catch (err: any) {
-        console.error("Desktop note write error:", err);
+        console.error("Desktop note write failed closed:", err);
+        return { success: false, error: err?.message || "Falha ao gravar no Vault do Obsidian." };
       }
     }
 
@@ -274,13 +303,32 @@ export class StorageManager implements IStorageService {
     const cleanTitle = safeFilename.replace(/\.md$/, "");
 
     if (this.isDesktopRuntime()) {
+      if (!isObsidianRuntimeConnected()) {
+        return { success: false, error: "Obsidian não está conectado. A exclusão foi bloqueada." };
+      }
+
       try {
         const vaultPath = await window.electronAPI!.getVaultPath();
-        if (vaultPath) {
-          await window.electronAPI!.deleteNote(safeFolder, cleanTitle);
+        if (!vaultPath) {
+          return { success: false, error: "Vault físico do Obsidian não selecionado." };
         }
-      } catch (err) {
-        console.warn("Desktop delete error:", err);
+
+        const deleteResult = await window.electronAPI!.deleteNote(safeFolder, cleanTitle);
+        if (!deleteResult?.success) {
+          return { success: false, error: deleteResult?.error || "O Obsidian não confirmou a exclusão." };
+        }
+
+        await this.logAudit({
+          action: "NOTE_DELETED",
+          entityId: `${safeFolder}/${cleanTitle}`,
+          entityType: "KnowledgeNote",
+          details: `Nota excluída do Vault: ${safeFolder}/${safeFilename}`,
+          actor: "Gestor Nisti",
+        });
+        return { success: true };
+      } catch (err: any) {
+        console.warn("Desktop delete failed closed:", err);
+        return { success: false, error: err?.message || "Falha ao excluir do Vault do Obsidian." };
       }
     }
 
@@ -378,6 +426,11 @@ export class StorageManager implements IStorageService {
 
     try {
       const { apiKey, geminiApiKey, ...nonSecretConfig } = config;
+      const persistedConfig = {
+        ...nonSecretConfig,
+        connectionStatus: "disconnected" as const,
+        errorMessage: undefined,
+      };
 
       if (this.isDesktopRuntime() && window.electronAPI?.setSecret) {
         await Promise.all([
@@ -386,7 +439,7 @@ export class StorageManager implements IStorageService {
         ]);
         localStorage.setItem(
           STORAGE_KEYS.API_CONFIG_SECURE,
-          JSON.stringify({ ...nonSecretConfig, apiKey: "", geminiApiKey: "" })
+          JSON.stringify({ ...persistedConfig, apiKey: "", geminiApiKey: "" })
         );
         return;
       }
@@ -398,7 +451,7 @@ export class StorageManager implements IStorageService {
       localStorage.setItem(
         STORAGE_KEYS.API_CONFIG_SECURE,
         JSON.stringify({
-          ...nonSecretConfig,
+          ...persistedConfig,
           apiKey: encryptedObsidianKey,
           geminiApiKey: encryptedGeminiKey,
         })
@@ -407,7 +460,13 @@ export class StorageManager implements IStorageService {
       const { apiKey: _apiKey, geminiApiKey: _geminiApiKey, ...nonSecretConfig } = config;
       localStorage.setItem(
         STORAGE_KEYS.API_CONFIG_SECURE,
-        JSON.stringify({ ...nonSecretConfig, apiKey: "", geminiApiKey: "" })
+        JSON.stringify({
+          ...nonSecretConfig,
+          connectionStatus: "disconnected",
+          errorMessage: undefined,
+          apiKey: "",
+          geminiApiKey: "",
+        })
       );
       console.warn("Could not persist API credentials securely; secrets kept only in memory for this session.", e);
     } finally {
@@ -431,6 +490,8 @@ export class StorageManager implements IStorageService {
             ...parsed,
             apiKey: obsidianKey || "",
             geminiApiKey: geminiKey || "",
+            connectionStatus: "disconnected",
+            errorMessage: undefined,
           };
         }
 
@@ -443,6 +504,8 @@ export class StorageManager implements IStorageService {
           ...parsed,
           apiKey: decryptedObsidianKey,
           geminiApiKey: decryptedGeminiKey,
+          connectionStatus: "disconnected",
+          errorMessage: undefined,
         };
       }
 
@@ -456,13 +519,21 @@ export class StorageManager implements IStorageService {
           ...legacyParsed,
           apiKey: legacyParsed.apiKey || "",
           geminiApiKey: legacyParsed.geminiApiKey || "",
+          connectionStatus: "disconnected",
+          errorMessage: undefined,
         };
       }
     } catch (e) {
       console.warn("Could not load API config securely, using defaults without persisted secrets:", e);
     }
 
-    return { ...defaultConfig, apiKey: "", geminiApiKey: "" };
+    return {
+      ...defaultConfig,
+      apiKey: "",
+      geminiApiKey: "",
+      connectionStatus: "disconnected",
+      errorMessage: undefined,
+    };
   }
 
   // ==========================================
