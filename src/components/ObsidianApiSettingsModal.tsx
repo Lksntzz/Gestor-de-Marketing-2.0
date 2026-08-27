@@ -1,25 +1,25 @@
-import React, { useState, useEffect } from "react";
+import React, { useEffect, useRef, useState } from "react";
 import {
-  X,
-  Settings,
-  RefreshCw,
-  CheckCircle2,
   AlertCircle,
-  Key,
-  Globe,
-  FolderOpen,
-  Download,
-  Upload,
-  Trash2,
-  Cloud,
   Brain,
+  CheckCircle2,
+  Cloud,
+  Download,
+  FolderOpen,
+  HardDrive,
+  Key,
   Loader2,
-  LogOut,
-  UserCheck,
+  RefreshCw,
+  Save,
+  Settings,
+  Trash2,
+  Upload,
+  X,
 } from "lucide-react";
 import { ObsidianApiConfig } from "../types";
 import { api } from "../services/api";
 import { googleDriveService } from "../services/googleDriveService";
+import { APP_VERSION } from "../utils/reliability";
 
 interface ObsidianApiSettingsModalProps {
   isOpen: boolean;
@@ -32,8 +32,6 @@ interface ObsidianApiSettingsModalProps {
   onClearAllData?: () => void;
 }
 
-type SettingsTab = "ai" | "obsidian" | "drive" | "system";
-
 export const ObsidianApiSettingsModal: React.FC<ObsidianApiSettingsModalProps> = ({
   isOpen,
   onClose,
@@ -44,517 +42,205 @@ export const ObsidianApiSettingsModal: React.FC<ObsidianApiSettingsModalProps> =
   onImportVault,
   onClearAllData,
 }) => {
-  const [activeTab, setActiveTab] = useState<SettingsTab>("ai");
   const [formData, setFormData] = useState<ObsidianApiConfig>({ ...config });
-
+  const [vaultPath, setVaultPath] = useState<string>("");
   const [isTestingAi, setIsTestingAi] = useState(false);
-  const [aiTestResult, setAiTestResult] = useState<{ success: boolean; message: string } | null>(null);
-
-  const [isTesting, setIsTesting] = useState(false);
-  const [testResult, setTestResult] = useState<{ success: boolean; message: string } | null>(null);
-
-  const [isDriveConnected, setIsDriveConnected] = useState<boolean>(googleDriveService.isAuthenticated());
-  const [driveLoading, setDriveLoading] = useState<boolean>(false);
+  const [isTestingObsidian, setIsTestingObsidian] = useState(false);
+  const [aiResult, setAiResult] = useState<{ success: boolean; message: string } | null>(null);
+  const [obsidianResult, setObsidianResult] = useState<{ success: boolean; message: string } | null>(null);
+  const [driveConnected, setDriveConnected] = useState(false);
+  const [driveLoading, setDriveLoading] = useState(false);
   const [driveError, setDriveError] = useState<string | null>(null);
-
   const [confirmClear, setConfirmClear] = useState(false);
+  const importRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
-    if (isOpen) {
-      setFormData({ ...config });
-      setIsDriveConnected(googleDriveService.isAuthenticated());
-      setAiTestResult(null);
-      setTestResult(null);
-      setConfirmClear(false);
+    if (!isOpen) return;
+    setFormData({ ...config });
+    setAiResult(null);
+    setObsidianResult(null);
+    setConfirmClear(false);
+    setDriveConnected(googleDriveService.isAuthenticated());
+    if (window.electronAPI?.getVaultPath) {
+      window.electronAPI.getVaultPath().then((path) => setVaultPath(path || "")).catch(() => setVaultPath(""));
     }
   }, [isOpen, config]);
 
   if (!isOpen) return null;
 
-  const handleTestGemini = async () => {
+  const testGemini = async () => {
     setIsTestingAi(true);
-    setAiTestResult(null);
+    setAiResult(null);
     try {
       const result = await api.testGeminiConnection(formData.geminiApiKey || "");
-      setAiTestResult(result);
-      if (result.success) {
-        onSaveConfig({ ...formData });
-      }
+      setAiResult(result);
+      if (result.success) onSaveConfig({ ...formData });
     } catch (err: any) {
-      setAiTestResult({
-        success: false,
-        message: err.message || "Erro desconhecido ao testar o Gemini.",
-      });
+      setAiResult({ success: false, message: err.message || "Falha ao testar Gemini." });
     } finally {
       setIsTestingAi(false);
     }
   };
 
-  const handleTestObsidian = async () => {
-    setIsTesting(true);
-    setTestResult(null);
+  const selectVault = async () => {
+    if (!window.electronAPI?.selectVault) return;
+    const result = await window.electronAPI.selectVault();
+    if (result?.vaultPath) setVaultPath(result.vaultPath);
+  };
+
+  const testObsidian = async () => {
+    setIsTestingObsidian(true);
+    setObsidianResult(null);
     try {
-      const res = await onTestConnection(formData);
-      setTestResult(res);
-      if (res.success) {
-        const connectedConfig: ObsidianApiConfig = {
-          ...formData,
-          connectionStatus: "connected",
-          errorMessage: undefined,
-        };
-        setFormData(connectedConfig);
-        onSaveConfig(connectedConfig);
-      } else {
-        setFormData((current) => ({
-          ...current,
-          connectionStatus: "error",
-          errorMessage: res.message,
-        }));
+      const result = await onTestConnection(formData);
+      if (!result.success) {
+        const failed = { ...formData, connectionStatus: "error" as const, errorMessage: result.message };
+        setFormData(failed);
+        setObsidianResult(result);
+        return;
       }
+
+      let resolvedPath = vaultPath;
+      if (!resolvedPath && window.electronAPI?.selectVault) {
+        const selected = await window.electronAPI.selectVault();
+        resolvedPath = selected?.vaultPath || "";
+        setVaultPath(resolvedPath);
+      }
+
+      const connected = { ...formData, connectionStatus: "connected" as const, errorMessage: undefined };
+      setFormData(connected);
+      onSaveConfig(connected);
+      setObsidianResult({
+        success: true,
+        message: resolvedPath
+          ? `Conexão validada. Vault local selecionado: ${resolvedPath}`
+          : "Conexão REST validada. Selecione a pasta física do Vault para sincronizar arquivos locais.",
+      });
     } catch (err: any) {
-      const message = err.message || "Erro desconhecido ao testar conexão";
-      setTestResult({ success: false, message });
-      setFormData((current) => ({
-        ...current,
-        connectionStatus: "error",
-        errorMessage: message,
-      }));
+      const message = err.message || "Falha ao testar conexão com Obsidian.";
+      setFormData((current) => ({ ...current, connectionStatus: "error", errorMessage: message }));
+      setObsidianResult({ success: false, message });
     } finally {
-      setIsTesting(false);
+      setIsTestingObsidian(false);
     }
   };
 
-  const handleConnectDrive = async () => {
+  const disconnectObsidian = () => {
+    const disconnected = { ...formData, connectionStatus: "disconnected" as const, errorMessage: undefined };
+    setFormData(disconnected);
+    onSaveConfig(disconnected);
+    setObsidianResult({ success: true, message: "Obsidian marcado como desconectado no Nisti Marketing." });
+  };
+
+  const connectDrive = async () => {
     setDriveLoading(true);
     setDriveError(null);
     try {
       await googleDriveService.getAccessToken();
-      setIsDriveConnected(true);
+      setDriveConnected(true);
     } catch (err: any) {
-      setDriveError(err.message || "Erro ao conectar com o Google Drive.");
-      setIsDriveConnected(false);
+      setDriveError(err.message || "Falha ao conectar Google Drive.");
+      setDriveConnected(false);
     } finally {
       setDriveLoading(false);
     }
   };
 
-  const handleDisconnectDrive = () => {
-    try {
-      googleDriveService.disconnect();
-    } catch (err) {
-      console.error(err);
-    }
-    setIsDriveConnected(false);
+  const disconnectDrive = () => {
+    googleDriveService.disconnect();
+    setDriveConnected(false);
   };
 
-  const handleSave = () => {
+  const saveAndClose = () => {
     onSaveConfig(formData);
     onClose();
   };
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-stone-900/65 backdrop-blur-xs">
-      <div className="bg-white rounded-2xl border border-stone-200/80 shadow-2xl max-w-xl w-full overflow-hidden flex flex-col max-h-[90vh]">
-        <div className="p-5 border-b border-stone-100 flex items-center justify-between bg-stone-50/70">
-          <div className="flex items-center gap-2.5">
-            <div className="w-8 h-8 rounded-lg bg-stone-900 text-white flex items-center justify-center font-bold">
-              <Settings className="w-4 h-4 text-stone-100" />
-            </div>
-            <div>
-              <h2 className="text-base font-black uppercase tracking-wider text-stone-900">CONFIGURAÇÃO</h2>
-              <p className="text-xs text-stone-500">Gerencie IA, conexões locais de cofre e integrações em nuvem</p>
-            </div>
-          </div>
-          <button
-            onClick={onClose}
-            className="p-1.5 text-stone-400 hover:text-stone-700 rounded-lg hover:bg-stone-200/60 transition-colors cursor-pointer"
-          >
-            <X className="w-5 h-5" />
-          </button>
+    <div className="fixed inset-0 z-50 bg-[#0f131c] text-slate-100 font-sans overflow-y-auto">
+      <header className="h-16 sticky top-0 z-10 bg-[#0f131c] border-b border-[#334155] px-6 md:px-8 flex items-center justify-between gap-4">
+        <div className="flex items-center gap-4">
+          <span className="text-xl font-bold tracking-tight text-[#c7d2fe]">Nisti Marketing</span>
+          <span className="hidden sm:inline-flex px-2.5 py-1 border border-[#475569] rounded-full text-[9px] font-bold uppercase tracking-[0.1em] text-cyan-400">● Engine</span>
+          <span className={`hidden sm:inline-flex px-2.5 py-1 border border-[#475569] rounded-full text-[9px] font-bold uppercase tracking-[0.1em] ${formData.connectionStatus === "connected" ? "text-emerald-400" : "text-slate-500"}`}>● Sync</span>
+        </div>
+        <button onClick={onClose} className="w-9 h-9 border border-[#334155] hover:bg-[#1c2028] flex items-center justify-center text-slate-400 hover:text-white" aria-label="Fechar configurações"><X className="w-4 h-4" /></button>
+      </header>
+
+      <main className="max-w-[1500px] mx-auto px-6 md:px-8 py-7 space-y-7">
+        <div>
+          <h1 className="text-2xl font-bold">Configurações do Sistema</h1>
+          <p className="text-sm text-slate-500 mt-1">Gerencie conexões, credenciais e parâmetros operacionais do workspace.</p>
         </div>
 
-        <div className="flex border-b border-stone-100 bg-stone-50/30 p-2 gap-1 overflow-x-auto">
-          <button
-            type="button"
-            onClick={() => setActiveTab("ai")}
-            className={`flex items-center gap-2 px-3.5 py-2 rounded-lg text-xs font-bold transition-all shrink-0 cursor-pointer ${
-              activeTab === "ai" ? "bg-purple-600 text-white shadow-xs" : "text-stone-600 hover:text-stone-900 hover:bg-stone-100"
-            }`}
-          >
-            <Brain className="w-3.5 h-3.5" />
-            <span>Inteligência Artificial (IA)</span>
-          </button>
+        <div className="grid grid-cols-1 xl:grid-cols-2 gap-6">
+          <SettingsCard title="Motor IA" icon={<Brain className="w-5 h-5 text-cyan-400" />} accent="border-l-cyan-500" status={(formData.geminiApiKey || "").trim() ? "CONFIGURADO" : "SEM CHAVE"} statusClass={(formData.geminiApiKey || "").trim() ? "text-cyan-400" : "text-slate-500"}>
+            <p className="settings-description">Credencial do Gemini usada pelas funções de análise, curadoria e geração quando o modo IA está ativo.</p>
+            <label className="settings-label">Chave de acesso Gemini</label>
+            <div className="relative">
+              <Key className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-500" />
+              <input type="password" value={formData.geminiApiKey || ""} onChange={(event) => { setFormData({ ...formData, geminiApiKey: event.target.value }); setAiResult(null); }} placeholder="AIza..." className="settings-input pl-10 font-mono" />
+            </div>
+            <div className="flex justify-end mt-4"><button onClick={testGemini} disabled={isTestingAi || !(formData.geminiApiKey || "").trim()} className="settings-secondary disabled:opacity-40">{isTestingAi ? <Loader2 className="w-4 h-4 animate-spin" /> : <RefreshCw className="w-4 h-4" />} {isTestingAi ? "Testando..." : "Testar Conexão"}</button></div>
+            {aiResult && <ResultBox result={aiResult} />}
+          </SettingsCard>
 
-          <button
-            type="button"
-            onClick={() => setActiveTab("obsidian")}
-            className={`flex items-center gap-2 px-3.5 py-2 rounded-lg text-xs font-bold transition-all shrink-0 cursor-pointer ${
-              activeTab === "obsidian" ? "bg-purple-600 text-white shadow-xs" : "text-stone-600 hover:text-stone-900 hover:bg-stone-100"
-            }`}
-          >
-            <FolderOpen className="w-3.5 h-3.5" />
-            <span>Obsidian</span>
-          </button>
+          <SettingsCard title="Cofre Obsidian" icon={<FolderOpen className="w-5 h-5 text-violet-400" />} accent="border-l-violet-600" status={formData.connectionStatus === "connected" ? "CONECTADO" : "DESCONECTADO"} statusClass={formData.connectionStatus === "connected" ? "text-emerald-400" : "text-red-400"}>
+            <p className="settings-description">Integração principal de PKM. A conexão REST e a pasta física do Vault precisam estar válidas para leitura e gravação desktop.</p>
+            <label className="settings-label">Diretório do Cofre (Vault)</label>
+            <div className="flex gap-2"><div className="settings-input flex-1 flex items-center gap-2 text-xs font-mono overflow-hidden"><HardDrive className="w-4 h-4 shrink-0 text-slate-500" /><span className="truncate">{vaultPath || "Nenhuma pasta selecionada"}</span></div><button onClick={selectVault} disabled={!window.electronAPI?.selectVault} className="settings-secondary disabled:opacity-40">Selecionar</button></div>
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mt-4">
+              <div><label className="settings-label">Endpoint Local REST API</label><input value={formData.endpoint} onChange={(event) => { setFormData({ ...formData, endpoint: event.target.value, connectionStatus: "disconnected" }); setObsidianResult(null); }} className="settings-input font-mono" /></div>
+              <div><label className="settings-label">Nome do Vault</label><input value={formData.vaultName} onChange={(event) => setFormData({ ...formData, vaultName: event.target.value })} className="settings-input" /></div>
+            </div>
+            <label className="settings-label mt-4">Token de Autenticação</label>
+            <input type="password" value={formData.apiKey} onChange={(event) => { setFormData({ ...formData, apiKey: event.target.value, connectionStatus: "disconnected" }); setObsidianResult(null); }} placeholder="Bearer token do Local REST API" className="settings-input font-mono" />
+            <div className="flex flex-wrap justify-end gap-2 mt-4">{formData.connectionStatus === "connected" && <button onClick={disconnectObsidian} className="settings-danger">Desconectar</button>}<button onClick={testObsidian} disabled={isTestingObsidian || !formData.endpoint.trim() || !formData.apiKey.trim()} className="settings-primary disabled:opacity-40">{isTestingObsidian ? <Loader2 className="w-4 h-4 animate-spin" /> : <RefreshCw className="w-4 h-4" />} {isTestingObsidian ? "Validando..." : "Testar e Conectar"}</button></div>
+            {obsidianResult && <ResultBox result={obsidianResult} />}
+          </SettingsCard>
 
-          <button
-            type="button"
-            onClick={() => setActiveTab("drive")}
-            className={`flex items-center gap-2 px-3.5 py-2 rounded-lg text-xs font-bold transition-all shrink-0 cursor-pointer ${
-              activeTab === "drive" ? "bg-purple-600 text-white shadow-xs" : "text-stone-600 hover:text-stone-900 hover:bg-stone-100"
-            }`}
-          >
-            <Cloud className="w-3.5 h-3.5" />
-            <span>Google Drive</span>
-          </button>
+          <SettingsCard title="Google Drive" icon={<Cloud className="w-5 h-5 text-amber-400" />} accent="border-l-amber-500" status={driveConnected ? "CONECTADO" : "DESCONECTADO"} statusClass={driveConnected ? "text-emerald-400" : "text-red-400"}>
+            <p className="settings-description">Fonte opcional de ingestão em modo somente leitura. O token OAuth fica somente em memória e expira automaticamente.</p>
+            <div className="bg-[#263140] border border-[#475569] p-4 flex items-center gap-3">
+              <div className={`w-10 h-10 border flex items-center justify-center ${driveConnected ? "border-emerald-600 text-emerald-400" : "border-[#475569] text-slate-500"}`}><Cloud className="w-5 h-5" /></div>
+              <div><p className="text-sm font-semibold">{driveConnected ? "Conta conectada" : "Nenhuma conta vinculada"}</p><p className="text-xs text-slate-500 mt-1">{driveConnected ? "Ingestão read-only disponível." : "A ingestão de arquivos do Drive está pausada."}</p></div>
+            </div>
+            <div className="flex justify-end mt-5">{driveConnected ? <button onClick={disconnectDrive} className="settings-danger">Desconectar Conta</button> : <button onClick={connectDrive} disabled={driveLoading} className="settings-secondary disabled:opacity-40">{driveLoading ? <Loader2 className="w-4 h-4 animate-spin" /> : <Cloud className="w-4 h-4" />} Conectar Conta</button>}</div>
+            {driveError && <ResultBox result={{ success: false, message: driveError }} />}
+          </SettingsCard>
 
-          <button
-            type="button"
-            onClick={() => setActiveTab("system")}
-            className={`flex items-center gap-2 px-3.5 py-2 rounded-lg text-xs font-bold transition-all shrink-0 cursor-pointer ${
-              activeTab === "system" ? "bg-purple-600 text-white shadow-xs" : "text-stone-600 hover:text-stone-900 hover:bg-stone-100"
-            }`}
-          >
-            <Settings className="w-3.5 h-3.5" />
-            <span>Sistema</span>
-          </button>
+          <SettingsCard title="Aplicativo" icon={<Settings className="w-5 h-5 text-slate-300" />} accent="border-l-slate-500" status={`v${APP_VERSION}`} statusClass="text-slate-500">
+            <p className="settings-description">Backup, importação e manutenção dos dados locais do Nisti Marketing.</p>
+            <div className="space-y-2">
+              <button onClick={onExportVault} className="settings-row"><span className="flex items-center gap-2"><Download className="w-4 h-4" /> Exportar Backup do Workspace</span><span className="text-slate-600">JSON</span></button>
+              <button onClick={() => importRef.current?.click()} className="settings-row"><span className="flex items-center gap-2"><Upload className="w-4 h-4" /> Importar Backup do Workspace</span><span className="text-slate-600">JSON</span></button>
+              <input ref={importRef} type="file" accept="application/json,.json" className="hidden" onChange={(event) => { const file = event.target.files?.[0]; if (file) onImportVault(file); event.currentTarget.value = ""; }} />
+              {onClearAllData && !confirmClear && <button onClick={() => setConfirmClear(true)} className="settings-row text-red-300"><span className="flex items-center gap-2"><Trash2 className="w-4 h-4" /> Limpar todos os dados locais</span><span className="text-red-500">Perigoso</span></button>}
+              {onClearAllData && confirmClear && <div className="p-3 border border-red-800 bg-red-950/20"><p className="text-xs text-red-200">Esta ação apaga o workspace local. O conteúdo físico do seu Vault não é apagado por este botão.</p><div className="flex justify-end gap-2 mt-3"><button onClick={() => setConfirmClear(false)} className="settings-secondary">Cancelar</button><button onClick={() => { onClearAllData(); setConfirmClear(false); }} className="settings-danger">Confirmar Limpeza</button></div></div>}
+            </div>
+          </SettingsCard>
         </div>
 
-        <div className="p-6 overflow-y-auto flex-1 min-h-[340px] max-h-[50vh] space-y-5">
-          {activeTab === "ai" && (
-            <div className="space-y-4 animate-fadeIn">
-              <div className="space-y-1.5">
-                <h3 className="text-sm font-bold text-stone-950 flex items-center gap-1.5">
-                  <Brain className="w-4 h-4 text-purple-600" />
-                  <span>Configuração da IA</span>
-                </h3>
-                <p className="text-xs text-stone-500 leading-normal">
-                  Cole sua chave do Gemini, teste a conexão e o sistema passa a usar essa credencial automaticamente nas funções de IA.
-                </p>
-              </div>
-
-              <div className="p-4 bg-purple-50/40 border border-purple-100 rounded-xl space-y-3.5">
-                <div className="space-y-1.5">
-                  <label className="block text-xs font-bold text-purple-900 uppercase tracking-wider flex items-center gap-1.5">
-                    <Key className="w-3.5 h-3.5 text-purple-700" />
-                    <span>Chave de API do Google Gemini</span>
-                  </label>
-                  <input
-                    type="password"
-                    value={formData.geminiApiKey || ""}
-                    onChange={(e) => {
-                      setFormData({ ...formData, geminiApiKey: e.target.value });
-                      setAiTestResult(null);
-                    }}
-                    className="w-full px-3 py-2.5 bg-white border border-purple-250 rounded-lg text-xs font-mono focus:outline-none focus:ring-1 focus:ring-purple-500 focus:border-purple-500 transition-shadow"
-                    placeholder="Cole sua API Key do Google AI Studio (AIzaSy...)"
-                  />
-                </div>
-
-                <button
-                  type="button"
-                  onClick={handleTestGemini}
-                  disabled={isTestingAi || !(formData.geminiApiKey || "").trim()}
-                  className="w-full py-2.5 bg-purple-600 hover:bg-purple-700 disabled:opacity-50 disabled:cursor-not-allowed text-white text-xs font-semibold rounded-lg transition-colors flex items-center justify-center gap-2 cursor-pointer"
-                >
-                  <RefreshCw className={`w-3.5 h-3.5 ${isTestingAi ? "animate-spin" : ""}`} />
-                  <span>{isTestingAi ? "Validando chave com Gemini..." : "Testar e Ativar Gemini"}</span>
-                </button>
-
-                {aiTestResult && (
-                  <div
-                    className={`p-3 rounded-lg border text-xs flex items-start gap-2 ${
-                      aiTestResult.success
-                        ? "bg-emerald-50 text-emerald-800 border-emerald-200"
-                        : "bg-amber-50 text-amber-900 border-amber-200"
-                    }`}
-                  >
-                    {aiTestResult.success ? (
-                      <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0 mt-0.5" />
-                    ) : (
-                      <AlertCircle className="w-4 h-4 text-amber-600 shrink-0 mt-0.5" />
-                    )}
-                    <div className="text-[11px] leading-relaxed">{aiTestResult.message}</div>
-                  </div>
-                )}
-
-                <div className="text-[11px] text-purple-950/80 leading-relaxed bg-purple-50/80 p-3 rounded-lg border border-purple-100/50">
-                  <p className="font-bold mb-1">🔐 Armazenamento da chave</p>
-                  <p>
-                    No aplicativo desktop, a chave é protegida pelo armazenamento seguro do sistema operacional. No modo web local, ela é criptografada antes de ser persistida.
-                  </p>
-                  <p className="mt-2">
-                    Para obter uma chave, acesse o <a href="https://aistudio.google.com/" target="_blank" rel="noreferrer" className="text-purple-700 hover:text-purple-900 underline font-semibold">Google AI Studio</a> e use a opção <strong>Get API Key</strong>.
-                  </p>
-                </div>
-              </div>
-            </div>
-          )}
-
-          {activeTab === "obsidian" && (
-            <div className="space-y-4 animate-fadeIn">
-              <div className="space-y-1.5">
-                <h3 className="text-sm font-bold text-stone-950 flex items-center gap-1.5">
-                  <FolderOpen className="w-4 h-4 text-purple-600" />
-                  <span>Conexão com o Obsidian</span>
-                </h3>
-                <p className="text-xs text-stone-500 leading-normal">
-                  Informe o endpoint e o token do Local REST API. Ao validar, o sistema salva a configuração e passa a sincronizar usando essa conexão.
-                </p>
-              </div>
-
-              <div className="space-y-3">
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-3.5">
-                  <div>
-                    <label className="block text-xs font-bold text-stone-700 uppercase tracking-wider mb-1 flex items-center gap-1.5">
-                      <Globe className="w-3.5 h-3.5 text-purple-600" />
-                      <span>Endpoint REST API</span>
-                    </label>
-                    <input
-                      type="text"
-                      value={formData.endpoint}
-                      onChange={(e) => {
-                        setFormData({ ...formData, endpoint: e.target.value, connectionStatus: "disconnected" });
-                        setTestResult(null);
-                      }}
-                      className="w-full px-3 py-2 bg-stone-50 border border-stone-300 rounded-lg text-xs font-mono focus:outline-none focus:border-purple-500"
-                      placeholder="http://127.0.0.1:27124"
-                    />
-                  </div>
-
-                  <div>
-                    <label className="block text-xs font-bold text-stone-700 uppercase tracking-wider mb-1 flex items-center gap-1.5">
-                      <FolderOpen className="w-3.5 h-3.5 text-purple-600" />
-                      <span>Nome do Cofre (Vault)</span>
-                    </label>
-                    <input
-                      type="text"
-                      value={formData.vaultName}
-                      onChange={(e) => setFormData({ ...formData, vaultName: e.target.value })}
-                      className="w-full px-3 py-2 bg-stone-50 border border-stone-300 rounded-lg text-xs focus:outline-none focus:border-purple-500"
-                      placeholder="MarketingVault"
-                    />
-                  </div>
-                </div>
-
-                <div>
-                  <label className="block text-xs font-bold text-stone-700 uppercase tracking-wider mb-1 flex items-center gap-1.5">
-                    <Key className="w-3.5 h-3.5 text-purple-600" />
-                    <span>Chave de Autenticação / Token</span>
-                  </label>
-                  <input
-                    type="password"
-                    value={formData.apiKey}
-                    onChange={(e) => {
-                      setFormData({ ...formData, apiKey: e.target.value, connectionStatus: "disconnected" });
-                      setTestResult(null);
-                    }}
-                    className="w-full px-3 py-2 bg-stone-50 border border-stone-300 rounded-lg text-xs font-mono focus:outline-none focus:border-purple-500"
-                    placeholder="Cole o Bearer Token gerado pelo plugin"
-                  />
-                </div>
-
-                <div className="bg-stone-50 border border-stone-200 rounded-xl p-3 text-[11px] text-stone-600 leading-normal">
-                  <span className="font-bold text-stone-800 block mb-0.5">Plugin recomendado:</span>
-                  <span>Instale o plugin <strong>Local REST API</strong> no Obsidian Community Plugins para sincronizar de forma nativa e segura.</span>
-                </div>
-
-                <div className="pt-1">
-                  <button
-                    type="button"
-                    onClick={handleTestObsidian}
-                    disabled={isTesting || !formData.endpoint.trim() || !formData.apiKey.trim()}
-                    className="w-full py-2.5 bg-stone-100 hover:bg-stone-200 disabled:opacity-50 disabled:cursor-not-allowed text-stone-800 text-xs font-semibold rounded-lg border border-stone-300 transition-colors flex items-center justify-center gap-2 cursor-pointer"
-                  >
-                    <RefreshCw className={`w-3.5 h-3.5 ${isTesting ? "animate-spin text-purple-600" : ""}`} />
-                    <span>{isTesting ? "Testando Conexão..." : "Testar, Conectar e Salvar Obsidian"}</span>
-                  </button>
-
-                  {testResult && (
-                    <div
-                      className={`mt-2.5 p-3 rounded-lg border text-xs flex items-start gap-2 ${
-                        testResult.success
-                          ? "bg-emerald-50 text-emerald-800 border-emerald-200"
-                          : "bg-amber-50 text-amber-900 border-amber-200"
-                      }`}
-                    >
-                      {testResult.success ? (
-                        <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0 mt-0.5" />
-                      ) : (
-                        <AlertCircle className="w-4 h-4 text-amber-600 shrink-0 mt-0.5" />
-                      )}
-                      <div className="text-[11px] leading-relaxed">{testResult.message}</div>
-                    </div>
-                  )}
-                </div>
-              </div>
-            </div>
-          )}
-
-          {activeTab === "drive" && (
-            <div className="space-y-4 animate-fadeIn">
-              <div className="space-y-1.5">
-                <h3 className="text-sm font-bold text-stone-950 flex items-center gap-1.5">
-                  <Cloud className="w-4 h-4 text-purple-600" />
-                  <span>Login com Google Drive</span>
-                </h3>
-                <p className="text-xs text-stone-500 leading-normal">
-                  Conecte sua conta do Google Drive para importar de maneira segura briefings, manuais, roteiros e planilhas diretamente da nuvem.
-                </p>
-              </div>
-
-              {driveError && (
-                <div className="p-3 bg-red-50 text-red-800 border border-red-200 rounded-xl flex items-start gap-2 text-xs">
-                  <AlertCircle className="w-4 h-4 text-red-600 shrink-0 mt-0.5" />
-                  <span>{driveError}</span>
-                </div>
-              )}
-
-              {isDriveConnected ? (
-                <div className="p-6 text-center bg-emerald-50/40 border border-emerald-150 rounded-xl space-y-4">
-                  <div className="w-12 h-12 rounded-full bg-emerald-100 text-emerald-700 flex items-center justify-center mx-auto border border-emerald-200">
-                    <UserCheck className="w-6 h-6" />
-                  </div>
-                  <div className="space-y-1">
-                    <h4 className="text-xs font-bold text-emerald-900">Google Drive Conectado</h4>
-                    <p className="text-[11px] text-emerald-700 max-w-sm mx-auto leading-normal">
-                      Sua conta do Google está autenticada. Você já pode pesquisar e carregar documentos direto na tela de Curadoria do PKM.
-                    </p>
-                  </div>
-                  <button
-                    onClick={handleDisconnectDrive}
-                    className="px-4 py-2 bg-white hover:bg-red-50 hover:text-red-700 text-stone-700 border border-stone-200 text-xs font-bold rounded-lg transition-colors flex items-center gap-2 mx-auto cursor-pointer"
-                  >
-                    <LogOut className="w-3.5 h-3.5" />
-                    <span>Desconectar Conta Google</span>
-                  </button>
-                </div>
-              ) : (
-                <div className="p-6 text-center bg-stone-50 border border-stone-200 rounded-xl space-y-4">
-                  <div className="w-12 h-12 rounded-xl bg-blue-50 text-blue-600 flex items-center justify-center mx-auto border border-blue-100">
-                    <Cloud className="w-6 h-6" />
-                  </div>
-                  <div className="space-y-1">
-                    <h4 className="text-xs font-bold text-stone-900">Entrar com sua conta Google</h4>
-                    <p className="text-[11px] text-stone-500 max-w-sm mx-auto leading-normal">
-                      Ao fazer login, o sistema ganha acesso somente-leitura e seguro para que você selecione e importe seus briefings ou criativos em nuvem.
-                    </p>
-                  </div>
-                  <button
-                    onClick={handleConnectDrive}
-                    disabled={driveLoading}
-                    className="px-5 py-2.5 bg-blue-600 hover:bg-blue-700 text-white text-xs font-bold rounded-lg shadow-sm transition-all flex items-center gap-2 mx-auto cursor-pointer disabled:opacity-50"
-                  >
-                    {driveLoading ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Cloud className="w-3.5 h-3.5" />}
-                    <span>Conectar Google Drive</span>
-                  </button>
-                </div>
-              )}
-            </div>
-          )}
-
-          {activeTab === "system" && (
-            <div className="space-y-5 animate-fadeIn">
-              <div className="space-y-1.5">
-                <h3 className="text-sm font-bold text-stone-950 flex items-center gap-1.5">
-                  <Settings className="w-4 h-4 text-purple-600" />
-                  <span>Gerenciamento de Sistema</span>
-                </h3>
-                <p className="text-xs text-stone-500 leading-normal">
-                  Exporte cópias de segurança do seu banco de dados local ou limpe e redefina as configurações do sistema de volta aos padrões originais de fábrica.
-                </p>
-              </div>
-
-              <div className="p-4 bg-stone-50 border border-stone-200 rounded-xl space-y-3">
-                <h4 className="text-xs font-bold text-stone-800 uppercase tracking-wider">Backup e Cópia de Segurança</h4>
-                <div className="flex flex-wrap gap-2">
-                  <button
-                    type="button"
-                    onClick={onExportVault}
-                    className="flex items-center gap-1.5 px-3 py-2 bg-white hover:bg-stone-100 text-stone-700 text-xs font-semibold rounded-lg transition-colors border border-stone-250 cursor-pointer"
-                  >
-                    <Download className="w-3.5 h-3.5" />
-                    <span>Exportar Banco Local (JSON)</span>
-                  </button>
-
-                  <label className="flex items-center gap-1.5 px-3 py-2 bg-white hover:bg-stone-100 text-stone-700 text-xs font-semibold rounded-lg transition-colors border border-stone-250 cursor-pointer">
-                    <Upload className="w-3.5 h-3.5" />
-                    <span>Importar Banco de Dados</span>
-                    <input
-                      type="file"
-                      accept=".json"
-                      className="hidden"
-                      onChange={(e) => {
-                        if (e.target.files && e.target.files[0]) {
-                          onImportVault(e.target.files[0]);
-                        }
-                      }}
-                    />
-                  </label>
-                </div>
-              </div>
-
-              {onClearAllData && (
-                <div className="p-4 border border-rose-200/80 bg-rose-50/30 rounded-xl flex items-center justify-between gap-4">
-                  <div className="space-y-1">
-                    <span className="text-xs font-bold text-rose-800 block">Zerar de Fábrica (Reset Total)</span>
-                    <span className="text-[11px] text-stone-500 block leading-normal">
-                      Apaga permanentemente todo o cache local e remove credenciais do sistema, iniciando o sistema vazio de fábrica.
-                    </span>
-                  </div>
-                  {confirmClear ? (
-                    <div className="flex items-center gap-1.5 shrink-0">
-                      <button
-                        type="button"
-                        onClick={() => {
-                          onClearAllData();
-                          setConfirmClear(false);
-                          onClose();
-                        }}
-                        className="px-3 py-1.5 bg-rose-600 hover:bg-rose-700 text-white text-[11px] font-bold rounded-lg transition-colors cursor-pointer"
-                      >
-                        Resetar Agora
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => setConfirmClear(false)}
-                        className="px-2.5 py-1.5 text-stone-500 hover:text-stone-700 text-[11px] bg-white border border-stone-250 rounded-lg font-semibold cursor-pointer"
-                      >
-                        Cancelar
-                      </button>
-                    </div>
-                  ) : (
-                    <button
-                      type="button"
-                      onClick={() => setConfirmClear(true)}
-                      className="flex items-center gap-1.5 px-3 py-2 text-rose-700 hover:bg-rose-50 border border-rose-200 rounded-lg text-xs font-bold transition-colors cursor-pointer shrink-0"
-                    >
-                      <Trash2 className="w-3.5 h-3.5" />
-                      <span>Zerar Tudo</span>
-                    </button>
-                  )}
-                </div>
-              )}
-            </div>
-          )}
+        <div className="border-t border-[#334155] pt-5 flex flex-col sm:flex-row items-center justify-end gap-3">
+          <button onClick={onClose} className="h-10 px-5 border border-[#475569] hover:bg-[#1c2028] text-sm font-semibold">Descartar Alterações</button>
+          <button onClick={saveAndClose} className="h-10 px-6 bg-[#2563eb] hover:bg-blue-500 text-sm font-semibold flex items-center gap-2"><Save className="w-4 h-4" /> Salvar Configurações</button>
         </div>
+      </main>
 
-        <div className="p-4 border-t border-stone-100 bg-stone-50 flex items-center justify-end gap-2">
-          <button
-            type="button"
-            onClick={onClose}
-            className="px-4 py-2 text-xs font-semibold text-stone-600 hover:text-stone-800 transition-colors cursor-pointer"
-          >
-            Cancelar
-          </button>
-          <button
-            type="button"
-            onClick={handleSave}
-            className="px-4 py-2 bg-stone-900 hover:bg-stone-800 text-white text-xs font-bold rounded-lg shadow-xs transition-colors cursor-pointer"
-          >
-            Salvar Configurações
-          </button>
-        </div>
-      </div>
+      <style>{`.settings-label{display:block;margin-bottom:7px;font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.07em;color:#94a3b8}.settings-description{font-size:12px;line-height:18px;color:#94a3b8;margin-bottom:20px}.settings-input{width:100%;height:41px;padding-left:12px;padding-right:12px;background:#111827;border:1px solid #475569;color:#e2e8f0;font-size:12px;outline:none}.settings-input:focus{border-color:#3b82f6}.settings-primary,.settings-secondary,.settings-danger{height:38px;padding:0 15px;display:inline-flex;align-items:center;justify-content:center;gap:7px;font-size:12px;font-weight:600;border:1px solid #475569}.settings-primary{background:#2563eb;border-color:#3b82f6;color:white}.settings-primary:hover{background:#3b82f6}.settings-secondary{background:#182234;color:#e2e8f0}.settings-secondary:hover{background:#263140}.settings-danger{background:#111827;border-color:#be123c;color:#fb7185}.settings-row{width:100%;height:42px;padding:0 14px;background:#111827;border:1px solid #475569;display:flex;align-items:center;justify-content:space-between;text-align:left;font-size:12px;color:#e2e8f0}.settings-row:hover{background:#263140}`}</style>
     </div>
   );
 };
+
+const SettingsCard: React.FC<{ title: string; icon: React.ReactNode; accent: string; status: string; statusClass: string; children: React.ReactNode }> = ({ title, icon, accent, status, statusClass, children }) => (
+  <section className={`bg-[#182234] border border-[#263140] border-l-4 ${accent} rounded-sm p-5 md:p-6`}>
+    <div className="flex items-center justify-between gap-4 pb-4 border-b border-[#475569]"><h2 className="text-lg font-semibold flex items-center gap-2">{icon}{title}</h2><span className={`text-[10px] font-bold uppercase tracking-[0.08em] ${statusClass}`}>● {status}</span></div>
+    <div className="pt-4">{children}</div>
+  </section>
+);
+
+const ResultBox: React.FC<{ result: { success: boolean; message: string } }> = ({ result }) => (
+  <div className={`mt-4 p-3 border text-xs flex items-start gap-2 ${result.success ? "border-emerald-700 bg-emerald-950/20 text-emerald-300" : "border-amber-700 bg-amber-950/20 text-amber-200"}`}>
+    {result.success ? <CheckCircle2 className="w-4 h-4 shrink-0 mt-0.5" /> : <AlertCircle className="w-4 h-4 shrink-0 mt-0.5" />}<span>{result.message}</span>
+  </div>
+);
