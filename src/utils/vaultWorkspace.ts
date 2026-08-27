@@ -39,9 +39,20 @@ export function epistemicState(note: ObsidianNote): EpistemicState {
 }
 
 function extractStructuredSection(content: string, heading: string): string | null {
-  const escaped = heading.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-  const match = content.match(new RegExp(`^##\\s+${escaped}\\s*$([\\s\\S]*?)(?=^##\\s+|$)`, "im"));
-  return match?.[1]?.trim() || null;
+  const target = `## ${heading}`.trim().toLocaleLowerCase("pt-BR");
+  const lines = (content || "").split(/\r?\n/);
+  const start = lines.findIndex((line) => line.trim().toLocaleLowerCase("pt-BR") === target);
+  if (start < 0) return null;
+
+  const section: string[] = [];
+  for (let index = start + 1; index < lines.length; index += 1) {
+    const line = lines[index];
+    if (/^##\s+/.test(line.trim())) break;
+    section.push(line);
+  }
+
+  const value = section.join("\n").trim();
+  return value || null;
 }
 
 export function noteSummary(note: ObsidianNote): string {
