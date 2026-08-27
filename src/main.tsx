@@ -1,4 +1,4 @@
-import { StrictMode, useEffect, useState } from "react";
+import { StrictMode, useEffect, useState, type ReactNode } from "react";
 import { createRoot } from "react-dom/client";
 import { FolderLock, Settings, ShieldCheck } from "lucide-react";
 import App from "./App.tsx";
@@ -37,7 +37,7 @@ function triggerVaultSync() {
   }, 500);
 }
 
-function ObsidianRuntimeGate({ children }: { children: React.ReactNode }) {
+function ObsidianRuntimeGate({ children }: { children: ReactNode }) {
   const [connected, setConnected] = useState(() => isObsidianRuntimeConnected());
   const [checking, setChecking] = useState(true);
   const [reason, setReason] = useState("Conecte o Obsidian Local REST API e selecione o Vault físico para liberar o banco de conhecimento.");
