@@ -86,7 +86,7 @@ export function noteCategory(note: ObsidianNote): string | undefined {
 }
 
 export function noteKeywords(note: ObsidianNote): string[] {
-  const candidates = [note.frontmatter?.tags, note.tags];
+  const candidates: unknown[] = [note.frontmatter?.tags, note.tags];
   for (const candidate of candidates) {
     if (Array.isArray(candidate)) {
       return Array.from(new Set(candidate.map(String).map((item) => item.trim()).filter(Boolean))).slice(0, 8);
