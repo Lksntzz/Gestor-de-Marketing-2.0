@@ -14,13 +14,7 @@ O cofre do Nisti Marketing usa uma interface fixa em três áreas: pastas, arqui
 
 ### Análise de conhecimento
 
-No desktop, a sincronização reconhece arquivos Markdown e também fontes `.pdf`, `.png`, `.jpg`, `.jpeg`, `.webp` e `.txt` existentes no Vault. Quando uma chave Gemini está configurada, fontes novas ou alteradas podem ser analisadas para gerar:
-
-- resumo curto;
-- pontos importantes;
-- texto visível relevante, quando aplicável;
-- categoria e palavras-chave;
-- estado `CONFIRMADO`, `HIPÓTESE` ou `PENDENTE`.
+No desktop, a sincronização reconhece arquivos Markdown e também fontes `.pdf`, `.png`, `.jpg`, `.jpeg`, `.webp` e `.txt` existentes no Vault. Quando uma chave Gemini está configurada, fontes novas ou alteradas podem ser analisadas para gerar resumo curto, pontos importantes, texto visível relevante, categoria, palavras-chave e estado `CONFIRMADO`, `HIPÓTESE` ou `PENDENTE`.
 
 A análise não deve promover inferências a fatos. Arquivos sem chave de IA, acima do limite automático ou que falhem no processamento permanecem como análise pendente, sem fabricação de conteúdo.
 
