@@ -7,6 +7,13 @@ type SafeParseSchema = {
 
 const storage = StorageManager.getInstance();
 
+export const APP_STATE_CHANGED_EVENT = "nisti:app-state-changed";
+
+function publishStateChange(key: string): void {
+  if (typeof window === "undefined") return;
+  window.dispatchEvent(new CustomEvent(APP_STATE_CHANGED_EVENT, { detail: { key } }));
+}
+
 export function usePersistentState<T>(
   key: string,
   fallback: T,
@@ -16,6 +23,7 @@ export function usePersistentState<T>(
 
   useEffect(() => {
     storage.saveAppState(key, value);
+    publishStateChange(key);
   }, [key, value]);
 
   return [value, setValue];
@@ -30,6 +38,7 @@ export function usePersistentTextState<T extends string>(
 
   useEffect(() => {
     storage.saveTextState(key, value);
+    publishStateChange(key);
   }, [key, value]);
 
   return [value, setValue];
