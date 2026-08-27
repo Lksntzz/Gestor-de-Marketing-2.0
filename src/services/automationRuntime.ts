@@ -2,6 +2,7 @@ import type { AutomationRule, MarketingTask, ObsidianApiConfig } from "../types"
 import { AppStateSchemas } from "../domain/appStateSchemas";
 import { api } from "./api";
 import { APP_STATE_KEYS, StorageManager } from "./storage/StorageManager";
+import { localDateKey } from "../utils/reliability";
 import {
   buildStatusReportMarkdown,
   buildTaskAutomationMarkdown,
@@ -113,7 +114,9 @@ export async function executeAutomationRule(
 function ranToday(rule: AutomationRule, now: Date): boolean {
   const lastRun = String(rule.lastRun || "");
   if (!lastRun) return false;
-  return lastRun.slice(0, 10) === now.toISOString().slice(0, 10);
+  const parsed = new Date(lastRun);
+  if (Number.isNaN(parsed.getTime())) return false;
+  return localDateKey(parsed) === localDateKey(now);
 }
 
 async function automationTick(): Promise<void> {
