@@ -8,7 +8,6 @@ import {
   Clock3,
   Copy,
   ExternalLink,
-  FileText,
   Kanban,
   ListFilter,
   Play,
@@ -29,6 +28,7 @@ import type {
 } from "../types";
 import { api } from "../services/api";
 import { APP_STATE_KEYS, StorageManager } from "../services/storage/StorageManager";
+import { PERSISTENT_STATE_EVENT } from "../hooks/usePersistentState";
 import { buildObsidianOpenUri } from "../utils/obsidianUri";
 import {
   buildExecutionSnapshot,
@@ -68,6 +68,7 @@ type ViewMode = "list" | "kanban" | "automations";
 type Feedback = { type: "success" | "warning" | "info"; message: string } | null;
 
 const storage = StorageManager.getInstance();
+const RUNTIME_SOURCE_ID = "tasks-automation-view-v2";
 
 const priorityLabels: Record<TaskPriority, string> = {
   urgent: "Urgente",
@@ -93,17 +94,17 @@ function formatLastSync(value?: string): string {
   })}`;
 }
 
-function uniqueTasks(groups: MarketingTask[][]): MarketingTask[] {
-  const seen = new Set<string>();
-  const ordered: MarketingTask[] = [];
-  for (const group of groups) {
-    for (const task of group) {
-      if (seen.has(task.id)) continue;
-      seen.add(task.id);
-      ordered.push(task);
-    }
-  }
-  return ordered;
+function publishRules(rules: AutomationRule[]): void {
+  storage.saveAppState(APP_STATE_KEYS.AUTOMATION_RULES, rules);
+  window.dispatchEvent(
+    new CustomEvent(PERSISTENT_STATE_EVENT, {
+      detail: {
+        key: APP_STATE_KEYS.AUTOMATION_RULES,
+        value: rules,
+        sourceId: RUNTIME_SOURCE_ID,
+      },
+    })
+  );
 }
 
 export const TasksAutomationView: React.FC<TasksAutomationViewProps> = ({
@@ -125,7 +126,6 @@ export const TasksAutomationView: React.FC<TasksAutomationViewProps> = ({
   const [searchQuery, setSearchQuery] = useState("");
   const [selectedTaskId, setSelectedTaskId] = useState<string | null>(null);
   const [copiedTaskId, setCopiedTaskId] = useState<string | null>(null);
-
   const [rules, setRules] = useState<AutomationRule[]>(() =>
     storage.loadAppState<AutomationRule[]>(APP_STATE_KEYS.AUTOMATION_RULES, automationRules)
   );
@@ -142,13 +142,20 @@ export const TasksAutomationView: React.FC<TasksAutomationViewProps> = ({
 
   const persistRules = (next: AutomationRule[]) => {
     setRules(next);
-    storage.saveAppState(APP_STATE_KEYS.AUTOMATION_RULES, next);
+    publishRules(next);
   };
 
-  const refreshAutomationContext = async (): Promise<{
-    connected: boolean;
-    notes: ObsidianNote[];
-  }> => {
+  useEffect(() => {
+    const handlePersistentUpdate = (event: Event) => {
+      const detail = (event as CustomEvent<{ key?: string; value?: unknown; sourceId?: string }>).detail;
+      if (!detail || detail.key !== APP_STATE_KEYS.AUTOMATION_RULES || detail.sourceId === RUNTIME_SOURCE_ID) return;
+      if (Array.isArray(detail.value)) setRules(detail.value as AutomationRule[]);
+    };
+    window.addEventListener(PERSISTENT_STATE_EVENT, handlePersistentUpdate);
+    return () => window.removeEventListener(PERSISTENT_STATE_EVENT, handlePersistentUpdate);
+  }, []);
+
+  const refreshAutomationContext = async (): Promise<{ connected: boolean; notes: ObsidianNote[] }> => {
     setIsRefreshingAutomationContext(true);
     try {
       const connected =
@@ -158,7 +165,6 @@ export const TasksAutomationView: React.FC<TasksAutomationViewProps> = ({
         setVaultNotes([]);
         return { connected: false, notes: [] };
       }
-
       const notes = (await storage.readDesktopNotesForApp()) || [];
       setVaultNotes(notes);
       return { connected: true, notes };
@@ -186,96 +192,51 @@ export const TasksAutomationView: React.FC<TasksAutomationViewProps> = ({
     () => ({ isConnected: runtimeConnected, tasks, notes: vaultNotes }),
     [runtimeConnected, tasks, vaultNotes]
   );
-
-  const enabledRules = useMemo(() => rules.filter((rule) => rule.enabled).length, [rules]);
-  const readyRules = useMemo(
-    () =>
-      rules.filter((rule) =>
-        validateAutomationRule({ ...rule, enabled: true }, automationContext).runnable
-      ).length,
-    [rules, automationContext]
-  );
-  const totalExecutions = useMemo(
-    () => rules.reduce((sum, rule) => sum + Number(rule.executionCount || 0), 0),
-    [rules]
+  const enabledRules = rules.filter((rule) => rule.enabled).length;
+  const readyRules = rules.filter((rule) =>
+    validateAutomationRule({ ...rule, enabled: true }, automationContext).runnable
+  ).length;
+  const totalExecutions = rules.reduce(
+    (sum, rule) => sum + Number(rule.executionCount || 0),
+    0
   );
 
   const orderedTasks = useMemo(() => {
-    const remainingPending = snapshot.pending.filter(
-      (task) =>
-        !snapshot.overdue.some((item) => item.id === task.id) &&
-        !snapshot.dueToday.some((item) => item.id === task.id) &&
-        !snapshot.inProgress.some((item) => item.id === task.id)
-    );
-    return uniqueTasks([
-      snapshot.overdue,
-      snapshot.dueToday,
-      snapshot.inProgress,
-      remainingPending,
-      snapshot.completed,
-    ]);
-  }, [snapshot]);
-
-  const filteredTasks = useMemo(() => {
-    return orderedTasks.filter((task) => {
-      if (!taskMatchesSearch(task, searchQuery)) return false;
-      if (filterMode === "overdue") return classifyTask(task, snapshot.today) === "overdue";
-      if (filterMode === "today") return classifyTask(task, snapshot.today) === "today";
-      if (filterMode === "in_progress") return task.status === "in-progress";
-      if (filterMode === "reminders") {
-        return snapshot.remindersDue.some((item) => item.id === task.id);
-      }
-      if (filterMode === "done") return task.status === "done";
+    const seen = new Set<string>();
+    return [
+      ...snapshot.overdue,
+      ...snapshot.dueToday,
+      ...snapshot.inProgress,
+      ...snapshot.pending,
+      ...snapshot.completed,
+    ].filter((task) => {
+      if (seen.has(task.id)) return false;
+      seen.add(task.id);
       return true;
     });
-  }, [filterMode, orderedTasks, searchQuery, snapshot]);
+  }, [snapshot]);
 
-  const activeTask = useMemo(() => {
-    if (selectedTaskId) {
-      const selected = tasks.find((task) => task.id === selectedTaskId);
-      if (selected) return selected;
-    }
-    return snapshot.nextAction;
-  }, [selectedTaskId, snapshot.nextAction, tasks]);
+  const filteredTasks = useMemo(
+    () =>
+      orderedTasks.filter((task) => {
+        if (!taskMatchesSearch(task, searchQuery)) return false;
+        if (filterMode === "overdue") return classifyTask(task, snapshot.today) === "overdue";
+        if (filterMode === "today") return classifyTask(task, snapshot.today) === "today";
+        if (filterMode === "in_progress") return task.status === "in-progress";
+        if (filterMode === "reminders") return snapshot.remindersDue.some((item) => item.id === task.id);
+        if (filterMode === "done") return task.status === "done";
+        return true;
+      }),
+    [filterMode, orderedTasks, searchQuery, snapshot]
+  );
 
-  const todoTasks = useMemo(
-    () => filteredTasks.filter((task) => task.status === "todo"),
-    [filteredTasks]
-  );
-  const inProgressTasks = useMemo(
-    () => filteredTasks.filter((task) => task.status === "in-progress"),
-    [filteredTasks]
-  );
-  const doneTasks = useMemo(
-    () => filteredTasks.filter((task) => task.status === "done"),
-    [filteredTasks]
+  const activeTask = useMemo(
+    () => tasks.find((task) => task.id === selectedTaskId) || snapshot.nextAction,
+    [selectedTaskId, snapshot.nextAction, tasks]
   );
 
   const updateTask = (task: MarketingTask, patch: Partial<MarketingTask>) => {
-    if (!onUpdateTask) return;
-    onUpdateTask({ ...task, ...patch });
-  };
-
-  const handleStartTask = (task: MarketingTask) => {
-    if (task.status !== "todo") return;
-    updateTask(task, { status: "in-progress" });
-  };
-
-  const handleDeferTask = (task: MarketingTask) => {
-    if (!onUpdateTask) return;
-    onUpdateTask(moveTaskToNextDay(task));
-  };
-
-  const handleCopyTask = async (task: MarketingTask) => {
-    if (!task.obsidianTaskString) return;
-    await navigator.clipboard.writeText(task.obsidianTaskString);
-    setCopiedTaskId(task.id);
-    window.setTimeout(() => setCopiedTaskId(null), 1600);
-  };
-
-  const handleOpenInObsidian = (task: MarketingTask) => {
-    if (!task.obsidianFilePath || !apiConfig.vaultName) return;
-    window.location.href = buildObsidianOpenUri(apiConfig.vaultName, task.obsidianFilePath);
+    if (onUpdateTask) onUpdateTask({ ...task, ...patch });
   };
 
   const addAutomation = (blueprintId: AutomationBlueprintId) => {
@@ -287,15 +248,16 @@ export const TasksAutomationView: React.FC<TasksAutomationViewProps> = ({
     persistRules([...rules, rule]);
     setFeedback({
       type: "success",
-      message: `Regra “${rule.name}” adicionada como inativa. Revise a configuração antes de habilitar.`,
+      message: `Regra “${rule.name}” adicionada como inativa. Configure e valide antes de habilitar.`,
     });
   };
 
   const updateAutomationCondition = (ruleId: string, conditionParam: string) => {
-    const next = rules.map((rule) =>
-      rule.id === ruleId ? { ...rule, conditionParam, enabled: false } : rule
+    persistRules(
+      rules.map((rule) =>
+        rule.id === ruleId ? { ...rule, conditionParam, enabled: false } : rule
+      )
     );
-    persistRules(next);
     setFeedback({
       type: "info",
       message: "Configuração alterada. A regra foi desativada e precisa ser habilitada novamente.",
@@ -305,7 +267,6 @@ export const TasksAutomationView: React.FC<TasksAutomationViewProps> = ({
   const toggleAutomation = async (ruleId: string) => {
     const target = rules.find((rule) => rule.id === ruleId);
     if (!target) return;
-
     if (target.enabled) {
       persistRules(rules.map((rule) => (rule.id === ruleId ? { ...rule, enabled: false } : rule)));
       setFeedback({ type: "info", message: `Regra “${target.name}” desativada.` });
@@ -320,7 +281,7 @@ export const TasksAutomationView: React.FC<TasksAutomationViewProps> = ({
     if (!validation.runnable) {
       setFeedback({
         type: "warning",
-        message: validation.reasons[0] || "A regra ainda não está pronta para ser habilitada.",
+        message: validation.reasons[0] || "A regra ainda não está pronta para execução segura.",
       });
       return;
     }
@@ -328,23 +289,16 @@ export const TasksAutomationView: React.FC<TasksAutomationViewProps> = ({
     persistRules(rules.map((rule) => (rule.id === ruleId ? { ...rule, enabled: true } : rule)));
     setFeedback({
       type: "success",
-      message: `Regra “${target.name}” habilitada. A execução permanece manual nesta versão.`,
-    });
-  };
-
-  const deleteAutomation = (ruleId: string) => {
-    const target = rules.find((rule) => rule.id === ruleId);
-    persistRules(rules.filter((rule) => rule.id !== ruleId));
-    setFeedback({
-      type: "info",
-      message: target ? `Regra “${target.name}” removida.` : "Regra removida.",
+      message:
+        target.trigger === "daily_schedule"
+          ? `Regra “${target.name}” habilitada. Ela poderá executar automaticamente enquanto o Nisti estiver aberto.`
+          : `Regra “${target.name}” habilitada para execução manual.`,
     });
   };
 
   const runAutomation = async (ruleId: string) => {
     const rule = rules.find((item) => item.id === ruleId);
     if (!rule || runningRuleId) return;
-
     setRunningRuleId(ruleId);
     setFeedback(null);
     try {
@@ -357,18 +311,15 @@ export const TasksAutomationView: React.FC<TasksAutomationViewProps> = ({
             const response = await api
               .upsertDailyNoteSection(
                 apiConfig,
-                "automation-v2-pending-tasks",
-                "📋 Tarefas pendentes — Automação Nisti",
+                `automation-v2-${rule.id}`,
+                `📋 ${rule.name}`,
                 markdown
               )
               .catch((error: any) => ({
                 success: false,
                 message: error?.message || "Falha ao gravar a Daily Note.",
               }));
-            return {
-              success: Boolean(response?.success),
-              message: response?.message,
-            };
+            return { success: Boolean(response?.success), message: response?.message };
           },
           pushNote: async (note) => {
             const response = await api
@@ -382,10 +333,7 @@ export const TasksAutomationView: React.FC<TasksAutomationViewProps> = ({
                 success: false,
                 message: error?.message || "Falha ao gravar a nota.",
               }));
-            return {
-              success: Boolean(response?.success),
-              message: response?.message,
-            };
+            return { success: Boolean(response?.success), message: response?.message };
           },
           logAudit: async (details) => {
             await storage.logAudit({
@@ -397,638 +345,161 @@ export const TasksAutomationView: React.FC<TasksAutomationViewProps> = ({
           },
         }
       );
-
       if (!result.success) {
         setFeedback({ type: "warning", message: result.message });
         return;
       }
-
       const executedAt = new Date().toISOString();
-      const next = rules.map((item) =>
-        item.id === rule.id
-          ? {
-              ...item,
-              executionCount: Number(item.executionCount || 0) + 1,
-              lastRun: executedAt,
-            }
-          : item
+      persistRules(
+        rules.map((item) =>
+          item.id === rule.id
+            ? {
+                ...item,
+                executionCount: Number(item.executionCount || 0) + 1,
+                lastRun: executedAt,
+              }
+            : item
+        )
       );
-      persistRules(next);
       setFeedback({ type: "success", message: result.message });
       await refreshAutomationContext();
     } catch (error: any) {
       setFeedback({
         type: "warning",
-        message: error?.message || "A automação falhou antes de receber confirmação do Obsidian.",
+        message: error?.message || "A automação falhou antes da confirmação do Obsidian.",
       });
     } finally {
       setRunningRuleId(null);
     }
   };
 
-  const renderTaskRow = (task: MarketingTask) => {
+  const taskGroups = [
+    { key: "todo", label: "A fazer", items: filteredTasks.filter((task) => task.status === "todo") },
+    { key: "in-progress", label: "Em andamento", items: filteredTasks.filter((task) => task.status === "in-progress") },
+    { key: "done", label: "Concluídas", items: filteredTasks.filter((task) => task.status === "done") },
+  ];
+
+  const renderTask = (task: MarketingTask) => {
     const bucket = classifyTask(task, snapshot.today);
     return (
-      <div
+      <button
         key={task.id}
+        type="button"
         onClick={() => setSelectedTaskId(task.id)}
-        className={`w-full text-left rounded-xl border p-3 transition-colors cursor-pointer ${
+        className={`w-full rounded-xl border p-3 text-left transition-colors ${
           activeTask?.id === task.id
             ? "border-primary-container bg-primary-container/10"
             : "border-outline-border bg-surface-card hover:bg-surface-elevated"
         }`}
       >
         <div className="flex items-start gap-3">
-          <button
-            type="button"
+          <span
             onClick={(event) => {
               event.stopPropagation();
               onToggleTaskStatus(task.id);
             }}
-            className={`mt-0.5 w-5 h-5 rounded-md border flex items-center justify-center shrink-0 ${
+            className={`mt-0.5 flex h-5 w-5 shrink-0 items-center justify-center rounded-md border ${
               task.status === "done"
-                ? "bg-success-sober border-success-sober text-white"
-                : "border-outline-border text-transparent hover:border-primary-container"
+                ? "border-success-sober bg-success-sober text-white"
+                : "border-outline-border text-transparent"
             }`}
-            aria-label={task.status === "done" ? "Reabrir tarefa" : "Concluir tarefa"}
           >
-            <Check className="w-3.5 h-3.5" />
-          </button>
+            <Check className="h-3.5 w-3.5" />
+          </span>
           <div className="min-w-0 flex-1">
             <div className="flex flex-wrap items-center gap-2">
-              <p
-                className={`text-sm font-semibold truncate ${
-                  task.status === "done"
-                    ? "line-through text-text-secondary"
-                    : "text-text-primary"
-                }`}
-              >
-                {task.title}
-              </p>
-              <span
-                className={`text-[10px] px-2 py-0.5 rounded-full border ${priorityClasses[task.priority]}`}
-              >
-                {priorityLabels[task.priority]}
-              </span>
-              {task.status === "in-progress" && (
-                <span className="text-[10px] px-2 py-0.5 rounded-full border border-primary-container/30 bg-primary-container/10 text-primary-fixed-dim">
-                  Em andamento
-                </span>
-              )}
-              {bucket === "overdue" && task.status !== "done" && (
-                <span className="text-[10px] px-2 py-0.5 rounded-full border border-error-sober/30 bg-error-sober/10 text-error-sober">
-                  Vencida
-                </span>
-              )}
+              <p className={`truncate text-sm font-semibold ${task.status === "done" ? "text-text-secondary line-through" : "text-text-primary"}`}>{task.title}</p>
+              <span className={`rounded-full border px-2 py-0.5 text-[10px] ${priorityClasses[task.priority]}`}>{priorityLabels[task.priority]}</span>
+              {bucket === "overdue" && task.status !== "done" && <span className="rounded-full border border-error-sober/30 bg-error-sober/10 px-2 py-0.5 text-[10px] text-error-sober">Vencida</span>}
             </div>
-            <div className="mt-1.5 flex flex-wrap items-center gap-x-3 gap-y-1 text-[11px] text-text-secondary">
-              <span className="flex items-center gap-1">
-                <Clock3 className="w-3 h-3" />
-                {formatTaskDueLabel(task, now)}
-              </span>
-              {task.channel && <span>{task.channel}</span>}
-              {task.obsidianFilePath && (
-                <span className="truncate max-w-[260px]">{task.obsidianFilePath}</span>
-              )}
-            </div>
+            <p className="mt-1 text-[11px] text-text-secondary">{formatTaskDueLabel(task, now)}{task.channel ? ` • ${task.channel}` : ""}</p>
           </div>
         </div>
-      </div>
+      </button>
     );
   };
 
   return (
-    <div className="w-full h-full min-h-0 flex flex-col gap-4 animate-fadeIn font-sans">
-      <div className="shrink-0 flex flex-col xl:flex-row xl:items-end xl:justify-between gap-3 border-b border-outline-border pb-3">
+    <div className="flex h-full min-h-0 w-full flex-col gap-4 font-sans">
+      <header className="flex shrink-0 flex-col gap-3 border-b border-outline-border pb-3 xl:flex-row xl:items-end xl:justify-between">
         <div>
           <div className="flex flex-wrap items-center gap-2 text-[10px] font-semibold uppercase tracking-wider">
-            <span
-              className={`px-2 py-1 rounded-md border ${
-                activeTab === "automations"
-                  ? runtimeConnected
-                    ? "border-success-sober/30 bg-success-sober/10 text-success-sober"
-                    : "border-error-sober/30 bg-error-sober/10 text-error-sober"
-                  : isConnected
-                    ? "border-success-sober/30 bg-success-sober/10 text-success-sober"
-                    : "border-error-sober/30 bg-error-sober/10 text-error-sober"
-              }`}
-            >
-              {activeTab === "automations"
-                ? runtimeConnected
-                  ? "Runtime Obsidian validado"
-                  : "Runtime Obsidian bloqueado"
-                : isConnected
-                  ? "Obsidian conectado"
-                  : "Obsidian desconectado"}
+            <span className={`rounded-md border px-2 py-1 ${runtimeConnected || (activeTab !== "automations" && isConnected) ? "border-success-sober/30 bg-success-sober/10 text-success-sober" : "border-error-sober/30 bg-error-sober/10 text-error-sober"}`}>
+              {runtimeConnected || (activeTab !== "automations" && isConnected) ? "Obsidian validado" : "Obsidian bloqueado"}
             </span>
-            <span className="text-text-secondary normal-case tracking-normal font-medium">
-              {formatLastSync(apiConfig.lastSyncTime)}
-            </span>
+            <span className="font-medium normal-case tracking-normal text-text-secondary">{formatLastSync(apiConfig.lastSyncTime)}</span>
           </div>
-          <h1 className="mt-2 text-2xl font-black tracking-tight text-text-primary">
-            {activeTab === "automations" ? "Automações" : "Execução"}
-          </h1>
-          <p className="mt-1 text-xs text-text-secondary max-w-3xl">
+          <h1 className="mt-2 text-2xl font-black tracking-tight text-text-primary">{activeTab === "automations" ? "Automações" : "Execução"}</h1>
+          <p className="mt-1 max-w-3xl text-xs text-text-secondary">
             {activeTab === "automations"
-              ? "Regras auditáveis e fail-closed. Nesta versão, nenhuma regra roda em segundo plano: a execução exige ação manual, configuração válida e confirmação do Obsidian quando houver escrita."
-              : "Priorize, execute e sincronize tarefas sem datas, métricas ou urgências inventadas."}
+              ? "Regras auditáveis e fail-closed. Somente o gatilho diário explicitamente configurado pode rodar em segundo plano enquanto o aplicativo estiver aberto."
+              : "Priorize e execute tarefas sem prazos, métricas ou urgências inventadas."}
           </p>
         </div>
-
-        {activeTab !== "automations" ? (
-          <div className="flex flex-wrap gap-2">
-            <button
-              type="button"
-              onClick={onSyncDailyNote}
-              disabled={!isConnected || isSyncingDaily}
-              className="px-3.5 py-2 rounded-xl border border-outline-border bg-surface-card text-xs font-semibold text-text-primary disabled:opacity-40 disabled:cursor-not-allowed flex items-center gap-1.5"
-            >
-              <Send className="w-3.5 h-3.5" />
-              {isSyncingDaily ? "Sincronizando..." : "Sincronizar Daily Note"}
-            </button>
-            <button
-              type="button"
-              onClick={onOpenNewTaskModal}
-              disabled={!isConnected}
-              className="px-4 py-2 rounded-xl bg-primary-container text-white text-xs font-bold disabled:opacity-40 disabled:cursor-not-allowed flex items-center gap-1.5"
-            >
-              <Plus className="w-3.5 h-3.5" /> Nova tarefa
-            </button>
-          </div>
+        {activeTab === "automations" ? (
+          <button type="button" onClick={() => void refreshAutomationContext()} disabled={isRefreshingAutomationContext} className="inline-flex items-center gap-2 rounded-xl border border-outline-border bg-surface-card px-3 py-2 text-xs font-semibold text-text-primary disabled:opacity-40"><RefreshCw className={`h-3.5 w-3.5 ${isRefreshingAutomationContext ? "animate-spin" : ""}`} />Atualizar contexto</button>
         ) : (
-          <button
-            type="button"
-            onClick={() => void refreshAutomationContext()}
-            disabled={isRefreshingAutomationContext}
-            className="px-3.5 py-2 rounded-xl border border-outline-border bg-surface-card text-xs font-semibold text-text-primary disabled:opacity-40 flex items-center gap-1.5"
-          >
-            <RefreshCw
-              className={`w-3.5 h-3.5 ${isRefreshingAutomationContext ? "animate-spin" : ""}`}
-            />
-            Atualizar contexto
-          </button>
-        )}
-      </div>
-
-      {activeTab !== "automations" && (
-        <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 shrink-0">
-          {[
-            ["Vencidas", snapshot.overdue.length, AlertTriangle, "text-error-sober"],
-            ["Para hoje", snapshot.dueToday.length, Clock3, "text-warning-sober"],
-            ["Em andamento", snapshot.inProgress.length, Play, "text-primary-fixed-dim"],
-            ["Lembretes vencidos", snapshot.remindersDue.length, Bell, "text-text-primary"],
-          ].map(([label, value, Icon, color]) => {
-            const MetricIcon = Icon as React.ComponentType<{ className?: string }>;
-            return (
-              <div
-                key={String(label)}
-                className="rounded-xl border border-outline-border bg-surface-card p-3.5"
-              >
-                <div className="flex items-center justify-between gap-2">
-                  <span className="text-[10px] uppercase tracking-wider font-bold text-text-secondary">
-                    {String(label)}
-                  </span>
-                  <MetricIcon className={`w-4 h-4 ${String(color)}`} />
-                </div>
-                <div className="mt-2 text-2xl font-black text-text-primary">{Number(value)}</div>
-              </div>
-            );
-          })}
-        </div>
-      )}
-
-      <div className="shrink-0 flex flex-col lg:flex-row lg:items-center lg:justify-between gap-3">
-        <div className="inline-flex rounded-xl border border-outline-border bg-surface-card p-1 self-start">
-          <button
-            type="button"
-            onClick={() => setActiveTab("list")}
-            className={`px-3 py-1.5 rounded-lg text-xs font-semibold flex items-center gap-1.5 ${
-              activeTab === "list" ? "bg-surface-elevated text-text-primary" : "text-text-secondary"
-            }`}
-          >
-            <ListFilter className="w-3.5 h-3.5" /> Lista
-          </button>
-          <button
-            type="button"
-            onClick={() => setActiveTab("kanban")}
-            className={`px-3 py-1.5 rounded-lg text-xs font-semibold flex items-center gap-1.5 ${
-              activeTab === "kanban" ? "bg-surface-elevated text-text-primary" : "text-text-secondary"
-            }`}
-          >
-            <Kanban className="w-3.5 h-3.5" /> Kanban
-          </button>
-          <button
-            type="button"
-            onClick={() => setActiveTab("automations")}
-            className={`px-3 py-1.5 rounded-lg text-xs font-semibold flex items-center gap-1.5 ${
-              activeTab === "automations"
-                ? "bg-surface-elevated text-text-primary"
-                : "text-text-secondary"
-            }`}
-          >
-            <Zap className="w-3.5 h-3.5" /> Automações
-          </button>
-        </div>
-
-        {activeTab !== "automations" && (
-          <div className="flex flex-wrap items-center gap-2">
-            <div className="relative">
-              <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-text-secondary" />
-              <input
-                value={searchQuery}
-                onChange={(event) => setSearchQuery(event.target.value)}
-                placeholder="Buscar tarefa"
-                className="w-52 pl-8 pr-3 py-2 rounded-xl border border-outline-border bg-surface-card text-xs text-text-primary outline-none focus:border-primary-container"
-              />
-            </div>
-            <select
-              value={filterMode}
-              onChange={(event) => setFilterMode(event.target.value as FilterMode)}
-              className="px-3 py-2 rounded-xl border border-outline-border bg-surface-card text-xs text-text-primary outline-none"
-            >
-              <option value="all">Todas</option>
-              <option value="overdue">Vencidas</option>
-              <option value="today">Hoje</option>
-              <option value="in_progress">Em andamento</option>
-              <option value="reminders">Lembretes vencidos</option>
-              <option value="done">Concluídas</option>
-            </select>
+          <div className="flex gap-2">
+            <button type="button" onClick={onSyncDailyNote} disabled={!isConnected || isSyncingDaily} className="inline-flex items-center gap-2 rounded-xl border border-outline-border bg-surface-card px-3 py-2 text-xs font-semibold text-text-primary disabled:opacity-40"><Send className="h-3.5 w-3.5" />{isSyncingDaily ? "Sincronizando..." : "Daily Note"}</button>
+            <button type="button" onClick={onOpenNewTaskModal} disabled={!isConnected} className="inline-flex items-center gap-2 rounded-xl bg-primary-container px-4 py-2 text-xs font-bold text-white disabled:opacity-40"><Plus className="h-3.5 w-3.5" />Nova tarefa</button>
           </div>
         )}
+      </header>
+
+      <div className="flex shrink-0 flex-wrap items-center justify-between gap-3">
+        <div className="inline-flex rounded-xl border border-outline-border bg-surface-card p-1">
+          <TabButton active={activeTab === "list"} onClick={() => setActiveTab("list")} icon={<ListFilter className="h-3.5 w-3.5" />} label="Lista" />
+          <TabButton active={activeTab === "kanban"} onClick={() => setActiveTab("kanban")} icon={<Kanban className="h-3.5 w-3.5" />} label="Kanban" />
+          <TabButton active={activeTab === "automations"} onClick={() => setActiveTab("automations")} icon={<Zap className="h-3.5 w-3.5" />} label="Automações" />
+        </div>
+        {activeTab !== "automations" && <div className="flex gap-2"><div className="relative"><Search className="absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-text-secondary" /><input value={searchQuery} onChange={(event) => setSearchQuery(event.target.value)} placeholder="Buscar tarefa" className="w-52 rounded-xl border border-outline-border bg-surface-card py-2 pl-8 pr-3 text-xs text-text-primary outline-none" /></div><select value={filterMode} onChange={(event) => setFilterMode(event.target.value as FilterMode)} className="rounded-xl border border-outline-border bg-surface-card px-3 py-2 text-xs text-text-primary"><option value="all">Todas</option><option value="overdue">Vencidas</option><option value="today">Hoje</option><option value="in_progress">Em andamento</option><option value="reminders">Lembretes vencidos</option><option value="done">Concluídas</option></select></div>}
       </div>
 
       {activeTab === "automations" ? (
-        <div className="flex-1 min-h-0 overflow-y-auto space-y-4 pr-1">
-          <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
-            {[
-              ["Regras registradas", rules.length, Zap],
-              ["Regras habilitadas", enabledRules, CheckCircle2],
-              ["Prontas agora", readyRules, ShieldCheck],
-              ["Execuções confirmadas", totalExecutions, Play],
-            ].map(([label, value, Icon]) => {
-              const MetricIcon = Icon as React.ComponentType<{ className?: string }>;
-              return (
-                <div key={String(label)} className="rounded-xl border border-outline-border bg-surface-card p-3.5">
-                  <div className="flex items-center justify-between gap-2">
-                    <span className="text-[10px] uppercase tracking-wider font-bold text-text-secondary">
-                      {String(label)}
-                    </span>
-                    <MetricIcon className="w-4 h-4 text-primary-fixed-dim" />
-                  </div>
-                  <div className="mt-2 text-2xl font-black text-text-primary">{Number(value)}</div>
-                </div>
-              );
-            })}
-          </div>
-
-          <div className="rounded-xl border border-warning-sober/30 bg-warning-sober/10 p-4 flex items-start gap-3">
-            <AlertTriangle className="w-4 h-4 text-warning-sober shrink-0 mt-0.5" />
-            <div>
-              <p className="text-xs font-bold text-text-primary">Sem automação em segundo plano nesta etapa</p>
-              <p className="mt-1 text-[11px] leading-5 text-text-secondary">
-                Os gatilhos abaixo documentam a intenção da regra. O executor da v2 só roda quando você clica em Executar, com o aplicativo aberto. Nenhuma execução é simulada e o contador só aumenta após sucesso confirmado.
-              </p>
-            </div>
-          </div>
-
-          {feedback && (
-            <div
-              className={`rounded-xl border p-3 text-xs ${
-                feedback.type === "success"
-                  ? "border-success-sober/30 bg-success-sober/10 text-success-sober"
-                  : feedback.type === "warning"
-                    ? "border-error-sober/30 bg-error-sober/10 text-error-sober"
-                    : "border-outline-border bg-surface-card text-text-secondary"
-              }`}
-            >
-              {feedback.message}
-            </div>
-          )}
+        <div className="min-h-0 flex-1 space-y-4 overflow-y-auto pr-1">
+          <div className="grid grid-cols-2 gap-3 lg:grid-cols-4"><Metric label="Regras" value={rules.length} icon={<Zap className="h-4 w-4" />} /><Metric label="Habilitadas" value={enabledRules} icon={<CheckCircle2 className="h-4 w-4" />} /><Metric label="Prontas" value={readyRules} icon={<ShieldCheck className="h-4 w-4" />} /><Metric label="Execuções confirmadas" value={totalExecutions} icon={<Play className="h-4 w-4" />} /></div>
+          <div className="rounded-xl border border-primary-container/25 bg-primary-container/5 p-4 text-[11px] leading-5 text-text-secondary"><strong className="text-text-primary">Runner diário ativo:</strong> regras `daily_schedule` executam no primeiro ciclo após o horário configurado, no máximo uma vez por dia, somente enquanto o Nisti estiver aberto e com Obsidian validado. Falhas não incrementam o contador.</div>
+          {feedback && <div className={`rounded-xl border p-3 text-xs ${feedback.type === "success" ? "border-success-sober/30 bg-success-sober/10 text-success-sober" : feedback.type === "warning" ? "border-error-sober/30 bg-error-sober/10 text-error-sober" : "border-outline-border bg-surface-card text-text-secondary"}`}>{feedback.message}</div>}
 
           <section className="rounded-2xl border border-outline-border bg-surface-card p-4">
-            <div className="flex items-start justify-between gap-3 mb-3">
-              <div>
-                <h2 className="text-sm font-bold text-text-primary">Adicionar regra segura</h2>
-                <p className="mt-1 text-[11px] text-text-secondary">
-                  Templates entram sempre desativados e sem histórico fictício.
-                </p>
-              </div>
-              <span className="text-[10px] text-text-secondary">{vaultNotes.length} fonte(s) no snapshot atual</span>
-            </div>
-            <div className="grid gap-3 lg:grid-cols-3">
-              {AUTOMATION_BLUEPRINTS.map((blueprint) => {
-                const alreadyAdded = rules.some((rule) => rule.id === blueprint.id);
-                return (
-                  <article key={blueprint.id} className="rounded-xl border border-outline-border bg-surface-elevated/30 p-4 flex flex-col">
-                    <div className="flex items-start gap-2">
-                      <ShieldCheck className="w-4 h-4 text-primary-fixed-dim shrink-0 mt-0.5" />
-                      <div>
-                        <h3 className="text-xs font-bold text-text-primary">{blueprint.name}</h3>
-                        <p className="mt-1 text-[11px] leading-5 text-text-secondary">{blueprint.description}</p>
-                      </div>
-                    </div>
-                    <p className="mt-3 text-[10px] text-text-secondary">{blueprint.runtimeNotice}</p>
-                    <button
-                      type="button"
-                      onClick={() => addAutomation(blueprint.id)}
-                      disabled={alreadyAdded}
-                      className="mt-4 px-3 py-2 rounded-lg border border-outline-border text-xs font-semibold text-text-primary disabled:opacity-40 flex items-center justify-center gap-1.5"
-                    >
-                      <Plus className="w-3.5 h-3.5" />
-                      {alreadyAdded ? "Já adicionada" : "Adicionar regra"}
-                    </button>
-                  </article>
-                );
-              })}
-            </div>
+            <h2 className="text-sm font-bold text-text-primary">Adicionar regra segura</h2>
+            <p className="mt-1 text-[11px] text-text-secondary">Toda regra entra desativada e sem histórico fictício.</p>
+            <div className="mt-3 grid gap-3 lg:grid-cols-3">{AUTOMATION_BLUEPRINTS.map((blueprint) => { const added = rules.some((rule) => rule.id === blueprint.id); return <article key={blueprint.id} className="flex flex-col rounded-xl border border-outline-border bg-surface-elevated/30 p-4"><div className="flex items-start gap-2"><ShieldCheck className="mt-0.5 h-4 w-4 shrink-0 text-primary-fixed-dim" /><div><h3 className="text-xs font-bold text-text-primary">{blueprint.name}</h3><p className="mt-1 text-[11px] leading-5 text-text-secondary">{blueprint.description}</p></div></div><p className="mt-3 text-[10px] text-text-secondary">{blueprint.runtimeNotice}</p><button type="button" onClick={() => addAutomation(blueprint.id)} disabled={added} className="mt-4 rounded-lg border border-outline-border px-3 py-2 text-xs font-semibold text-text-primary disabled:opacity-40"><Plus className="mr-1 inline h-3.5 w-3.5" />{added ? "Já adicionada" : "Adicionar regra"}</button></article>; })}</div>
           </section>
 
           <section className="rounded-2xl border border-outline-border bg-surface-card p-4">
-            <div className="flex items-center justify-between gap-3 mb-3">
-              <div>
-                <h2 className="text-sm font-bold text-text-primary">Regras registradas</h2>
-                <p className="mt-1 text-[11px] text-text-secondary">
-                  Regras legadas desconhecidas ficam bloqueadas até serem removidas ou migradas.
-                </p>
-              </div>
-            </div>
-
-            {rules.length === 0 ? (
-              <div className="min-h-44 flex flex-col items-center justify-center text-center rounded-xl border border-dashed border-outline-border">
-                <Zap className="w-8 h-8 text-text-secondary" />
-                <h3 className="mt-3 text-sm font-bold text-text-primary">Nenhuma regra registrada</h3>
-                <p className="mt-1 text-xs text-text-secondary max-w-md">
-                  Adicione somente a automação que deseja configurar. Nada é ativado automaticamente.
-                </p>
-              </div>
-            ) : (
-              <div className="grid gap-3 lg:grid-cols-2">
-                {rules.map((rule) => {
-                  const validation = validateAutomationRule(rule, automationContext);
-                  const validationWhenEnabled = validateAutomationRule(
-                    { ...rule, enabled: true },
-                    automationContext
-                  );
-                  const running = runningRuleId === rule.id;
-                  return (
-                    <article key={rule.id} className="rounded-xl border border-outline-border bg-surface-elevated/30 p-4">
-                      <div className="flex items-start justify-between gap-3">
-                        <div className="min-w-0">
-                          <div className="flex flex-wrap items-center gap-2">
-                            <h3 className="text-sm font-bold text-text-primary">{rule.name}</h3>
-                            <span
-                              className={`text-[9px] uppercase tracking-wider font-bold px-2 py-0.5 rounded-full border ${
-                                !validation.supported
-                                  ? "border-error-sober/30 bg-error-sober/10 text-error-sober"
-                                  : rule.enabled
-                                    ? "border-success-sober/30 bg-success-sober/10 text-success-sober"
-                                    : "border-outline-border text-text-secondary"
-                              }`}
-                            >
-                              {!validation.supported ? "Bloqueada" : rule.enabled ? "Ativa" : "Inativa"}
-                            </span>
-                          </div>
-                          <p className="mt-1 text-[11px] leading-5 text-text-secondary">
-                            {rule.description || "Sem descrição registrada."}
-                          </p>
-                        </div>
-                        <button
-                          type="button"
-                          onClick={() => deleteAutomation(rule.id)}
-                          className="p-1.5 rounded-lg border border-outline-border text-text-secondary hover:text-error-sober"
-                          title="Excluir regra"
-                        >
-                          <Trash2 className="w-3.5 h-3.5" />
-                        </button>
-                      </div>
-
-                      <div className="mt-3 grid grid-cols-2 gap-2 text-[11px]">
-                        <div className="rounded-lg border border-outline-border p-2.5">
-                          <span className="block text-text-secondary">Gatilho declarado</span>
-                          <strong className="text-text-primary">{automationTriggerLabel(rule.trigger)}</strong>
-                        </div>
-                        <div className="rounded-lg border border-outline-border p-2.5">
-                          <span className="block text-text-secondary">Ação</span>
-                          <strong className="text-text-primary">{automationActionLabel(rule.action)}</strong>
-                        </div>
-                      </div>
-
-                      {rule.action === "push_to_obsidian_api" && validation.supported && (
-                        <div className="mt-3">
-                          <label className="text-[10px] uppercase tracking-wider font-bold text-text-secondary">
-                            Nota autorizada para envio
-                          </label>
-                          <select
-                            value={rule.conditionParam || ""}
-                            onChange={(event) => updateAutomationCondition(rule.id, event.target.value)}
-                            className="mt-1.5 w-full px-3 py-2 rounded-lg border border-outline-border bg-surface-card text-xs text-text-primary outline-none"
-                          >
-                            <option value="">Selecione uma nota do snapshot validado</option>
-                            {vaultNotes.map((note) => (
-                              <option key={note.path} value={note.path}>
-                                {note.path}
-                              </option>
-                            ))}
-                          </select>
-                        </div>
-                      )}
-
-                      {validationWhenEnabled.reasons.length > 0 && (
-                        <div className="mt-3 rounded-lg border border-outline-border bg-surface-card p-2.5">
-                          <p className="text-[10px] uppercase tracking-wider font-bold text-text-secondary">Bloqueios atuais</p>
-                          <ul className="mt-1.5 space-y-1 text-[11px] text-text-secondary">
-                            {validationWhenEnabled.reasons.map((reason) => (
-                              <li key={reason}>• {reason}</li>
-                            ))}
-                          </ul>
-                        </div>
-                      )}
-
-                      <div className="mt-3 flex flex-wrap items-center gap-2">
-                        <button
-                          type="button"
-                          onClick={() => void toggleAutomation(rule.id)}
-                          disabled={!validation.supported}
-                          className={`px-3 py-2 rounded-lg border text-xs font-semibold disabled:opacity-40 ${
-                            rule.enabled
-                              ? "border-error-sober/30 text-error-sober"
-                              : "border-outline-border text-text-primary"
-                          }`}
-                        >
-                          {rule.enabled ? "Desativar" : "Habilitar"}
-                        </button>
-                        <button
-                          type="button"
-                          onClick={() => void runAutomation(rule.id)}
-                          disabled={!validation.runnable || running || runningRuleId !== null}
-                          className="px-3 py-2 rounded-lg bg-primary-container text-white text-xs font-bold disabled:opacity-40 flex items-center gap-1.5"
-                        >
-                          {running ? (
-                            <RefreshCw className="w-3.5 h-3.5 animate-spin" />
-                          ) : (
-                            <Play className="w-3.5 h-3.5" />
-                          )}
-                          {running ? "Executando..." : "Executar"}
-                        </button>
-                      </div>
-
-                      <div className="mt-3 pt-3 border-t border-outline-border flex flex-wrap items-center justify-between gap-2 text-[10px] text-text-secondary">
-                        <span>{Number(rule.executionCount || 0)} execução(ões) confirmada(s)</span>
-                        <span>{formatAutomationLastRun(rule.lastRun)}</span>
-                      </div>
-                    </article>
-                  );
-                })}
-              </div>
-            )}
+            <h2 className="text-sm font-bold text-text-primary">Regras registradas</h2>
+            {rules.length === 0 ? <div className="mt-3 flex min-h-40 flex-col items-center justify-center rounded-xl border border-dashed border-outline-border text-center"><Zap className="h-8 w-8 text-text-secondary" /><p className="mt-2 text-xs font-bold text-text-primary">Nenhuma regra registrada</p></div> : <div className="mt-3 grid gap-3 lg:grid-cols-2">{rules.map((rule) => {
+              const validation = validateAutomationRule(rule, automationContext);
+              const whenEnabled = validateAutomationRule({ ...rule, enabled: true }, automationContext);
+              const running = runningRuleId === rule.id;
+              return <article key={rule.id} className="rounded-xl border border-outline-border bg-surface-elevated/30 p-4">
+                <div className="flex items-start justify-between gap-3"><div><div className="flex flex-wrap items-center gap-2"><h3 className="text-sm font-bold text-text-primary">{rule.name}</h3><span className={`rounded-full border px-2 py-0.5 text-[9px] font-bold uppercase ${!validation.supported ? "border-error-sober/30 text-error-sober" : rule.enabled ? "border-success-sober/30 bg-success-sober/10 text-success-sober" : "border-outline-border text-text-secondary"}`}>{!validation.supported ? "Bloqueada" : rule.enabled ? "Ativa" : "Inativa"}</span></div><p className="mt-1 text-[11px] leading-5 text-text-secondary">{rule.description || "Sem descrição registrada."}</p></div><button type="button" onClick={() => persistRules(rules.filter((item) => item.id !== rule.id))} className="rounded-lg border border-outline-border p-1.5 text-text-secondary hover:text-error-sober"><Trash2 className="h-3.5 w-3.5" /></button></div>
+                <div className="mt-3 grid grid-cols-2 gap-2 text-[11px]"><InfoCell label="Gatilho" value={automationTriggerLabel(rule.trigger)} /><InfoCell label="Ação" value={automationActionLabel(rule.action)} /></div>
+                {rule.trigger === "daily_schedule" && validation.supported && <label className="mt-3 block text-[10px] font-bold uppercase tracking-wider text-text-secondary">Horário diário<input type="time" value={rule.conditionParam || ""} onChange={(event) => updateAutomationCondition(rule.id, event.target.value)} className="mt-1.5 w-full rounded-lg border border-outline-border bg-surface-card px-3 py-2 text-xs font-normal text-text-primary outline-none" /></label>}
+                {rule.action === "push_to_obsidian_api" && validation.supported && <label className="mt-3 block text-[10px] font-bold uppercase tracking-wider text-text-secondary">Nota autorizada<select value={rule.conditionParam || ""} onChange={(event) => updateAutomationCondition(rule.id, event.target.value)} className="mt-1.5 w-full rounded-lg border border-outline-border bg-surface-card px-3 py-2 text-xs font-normal text-text-primary"><option value="">Selecione uma nota</option>{vaultNotes.map((note) => <option key={note.path} value={note.path}>{note.path}</option>)}</select></label>}
+                {whenEnabled.reasons.length > 0 && <div className="mt-3 rounded-lg border border-outline-border bg-surface-card p-2.5"><p className="text-[10px] font-bold uppercase text-text-secondary">Bloqueios atuais</p><ul className="mt-1 space-y-1 text-[11px] text-text-secondary">{whenEnabled.reasons.map((reason) => <li key={reason}>• {reason}</li>)}</ul></div>}
+                <div className="mt-3 flex gap-2"><button type="button" onClick={() => void toggleAutomation(rule.id)} disabled={!validation.supported} className={`rounded-lg border px-3 py-2 text-xs font-semibold disabled:opacity-40 ${rule.enabled ? "border-error-sober/30 text-error-sober" : "border-outline-border text-text-primary"}`}>{rule.enabled ? "Desativar" : "Habilitar"}</button><button type="button" onClick={() => void runAutomation(rule.id)} disabled={!validation.runnable || running || runningRuleId !== null} className="inline-flex items-center gap-1.5 rounded-lg bg-primary-container px-3 py-2 text-xs font-bold text-white disabled:opacity-40">{running ? <RefreshCw className="h-3.5 w-3.5 animate-spin" /> : <Play className="h-3.5 w-3.5" />}{running ? "Executando..." : "Executar agora"}</button></div>
+                <div className="mt-3 flex flex-wrap justify-between gap-2 border-t border-outline-border pt-3 text-[10px] text-text-secondary"><span>{Number(rule.executionCount || 0)} execução(ões) confirmada(s)</span><span>{formatAutomationLastRun(rule.lastRun)}</span></div>
+              </article>;
+            })}</div>}
           </section>
         </div>
       ) : (
-        <div className="flex-1 min-h-0 grid grid-cols-1 xl:grid-cols-[minmax(0,1fr)_320px] gap-4">
-          <div className="min-h-0 overflow-hidden rounded-2xl border border-outline-border bg-surface-card">
-            {activeTab === "list" ? (
-              <div className="h-full min-h-0 overflow-y-auto p-3 space-y-2">
-                {filteredTasks.length ? (
-                  filteredTasks.map(renderTaskRow)
-                ) : (
-                  <div className="h-full min-h-52 flex flex-col items-center justify-center text-center">
-                    <CheckSquare className="w-8 h-8 text-text-secondary" />
-                    <h2 className="mt-3 text-sm font-bold text-text-primary">Nenhuma tarefa neste filtro</h2>
-                    <p className="mt-1 text-xs text-text-secondary">
-                      A lista só exibe tarefas realmente registradas.
-                    </p>
-                  </div>
-                )}
-              </div>
-            ) : (
-              <div className="h-full min-h-0 overflow-x-auto p-3">
-                <div className="grid grid-cols-3 gap-3 min-w-[820px] h-full">
-                  {[
-                    ["A fazer", todoTasks],
-                    ["Em andamento", inProgressTasks],
-                    ["Concluídas", doneTasks],
-                  ].map(([label, group]) => (
-                    <div
-                      key={String(label)}
-                      className="rounded-xl border border-outline-border bg-surface-elevated/30 min-h-0 overflow-hidden flex flex-col"
-                    >
-                      <div className="shrink-0 px-3 py-2.5 border-b border-outline-border flex items-center justify-between">
-                        <span className="text-xs font-bold text-text-primary">{String(label)}</span>
-                        <span className="text-[10px] text-text-secondary">
-                          {(group as MarketingTask[]).length}
-                        </span>
-                      </div>
-                      <div className="p-2 space-y-2 overflow-y-auto min-h-0">
-                        {(group as MarketingTask[]).map(renderTaskRow)}
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              </div>
-            )}
+        <div className="grid min-h-0 flex-1 gap-4 xl:grid-cols-[minmax(0,1fr)_320px]">
+          <div className="min-h-0 overflow-y-auto rounded-2xl border border-outline-border bg-surface-card p-3">
+            {activeTab === "list" ? <div className="space-y-2">{filteredTasks.length ? filteredTasks.map(renderTask) : <EmptyTasks />}</div> : <div className="grid min-w-[760px] grid-cols-3 gap-3">{taskGroups.map((group) => <div key={group.key} className="rounded-xl border border-outline-border bg-surface-elevated/30 p-2"><div className="mb-2 flex items-center justify-between px-1 text-xs font-bold text-text-primary"><span>{group.label}</span><span className="text-[10px] text-text-secondary">{group.items.length}</span></div><div className="space-y-2">{group.items.map(renderTask)}</div></div>)}</div>}
           </div>
-
           <aside className="min-h-0 overflow-y-auto rounded-2xl border border-outline-border bg-surface-card p-4">
-            {activeTask ? (
-              <div className="space-y-4">
-                <div>
-                  <span className="text-[10px] uppercase tracking-wider font-bold text-text-secondary">Próxima ação</span>
-                  <h2 className="mt-1 text-lg font-black text-text-primary">{activeTask.title}</h2>
-                  {activeTask.description && (
-                    <p className="mt-2 text-xs leading-5 text-text-secondary">{activeTask.description}</p>
-                  )}
-                </div>
-
-                <div className="grid grid-cols-2 gap-2 text-[11px]">
-                  <div className="rounded-lg border border-outline-border p-2.5">
-                    <span className="block text-text-secondary">Prazo</span>
-                    <strong className="text-text-primary">{formatTaskDueLabel(activeTask, now)}</strong>
-                  </div>
-                  <div className="rounded-lg border border-outline-border p-2.5">
-                    <span className="block text-text-secondary">Prioridade</span>
-                    <strong className="text-text-primary">{priorityLabels[activeTask.priority]}</strong>
-                  </div>
-                </div>
-
-                {activeTask.tags?.length > 0 && (
-                  <div className="flex flex-wrap gap-1.5">
-                    {activeTask.tags.map((tag) => (
-                      <span key={tag} className="text-[10px] px-2 py-1 rounded-md border border-outline-border text-text-secondary">
-                        #{tag}
-                      </span>
-                    ))}
-                  </div>
-                )}
-
-                <div className="space-y-2">
-                  {activeTask.status === "todo" && onUpdateTask && (
-                    <button
-                      type="button"
-                      onClick={() => handleStartTask(activeTask)}
-                      className="w-full px-3 py-2 rounded-xl border border-primary-container/40 bg-primary-container/10 text-primary-fixed-dim text-xs font-bold flex items-center justify-center gap-1.5"
-                    >
-                      <Play className="w-3.5 h-3.5" /> Iniciar tarefa
-                    </button>
-                  )}
-                  <button
-                    type="button"
-                    onClick={() => onToggleTaskStatus(activeTask.id)}
-                    className="w-full px-3 py-2 rounded-xl bg-primary-container text-white text-xs font-bold flex items-center justify-center gap-1.5"
-                  >
-                    <CheckCircle2 className="w-3.5 h-3.5" />
-                    {activeTask.status === "done" ? "Reabrir" : "Concluir"}
-                  </button>
-                  {activeTask.status !== "done" && onUpdateTask && (
-                    <button
-                      type="button"
-                      onClick={() => handleDeferTask(activeTask)}
-                      className="w-full px-3 py-2 rounded-xl border border-outline-border text-text-primary text-xs font-semibold flex items-center justify-center gap-1.5"
-                    >
-                      <Clock3 className="w-3.5 h-3.5" /> Adiar para amanhã
-                    </button>
-                  )}
-                </div>
-
-                <div className="pt-3 border-t border-outline-border grid grid-cols-2 gap-2">
-                  <button
-                    type="button"
-                    onClick={() => handleCopyTask(activeTask)}
-                    disabled={!activeTask.obsidianTaskString}
-                    className="px-2.5 py-2 rounded-lg border border-outline-border text-[11px] text-text-primary disabled:opacity-40 flex items-center justify-center gap-1"
-                  >
-                    <Copy className="w-3 h-3" />
-                    {copiedTaskId === activeTask.id ? "Copiado" : "Copiar MD"}
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => handleOpenInObsidian(activeTask)}
-                    disabled={!activeTask.obsidianFilePath || !isConnected}
-                    className="px-2.5 py-2 rounded-lg border border-outline-border text-[11px] text-text-primary disabled:opacity-40 flex items-center justify-center gap-1"
-                  >
-                    <ExternalLink className="w-3 h-3" /> Abrir fonte
-                  </button>
-                </div>
-
-                <button
-                  type="button"
-                  onClick={() => onDeleteTask(activeTask.id)}
-                  className="w-full px-3 py-2 rounded-xl border border-error-sober/30 text-error-sober text-xs font-semibold flex items-center justify-center gap-1.5"
-                >
-                  <Trash2 className="w-3.5 h-3.5" /> Remover tarefa
-                </button>
-              </div>
-            ) : (
-              <div className="h-full min-h-52 flex flex-col items-center justify-center text-center">
-                <CheckCircle2 className="w-8 h-8 text-success-sober" />
-                <h2 className="mt-3 text-sm font-bold text-text-primary">Nenhuma ação pendente</h2>
-                <p className="mt-1 text-xs text-text-secondary">
-                  Crie uma tarefa somente quando houver uma ação real a executar.
-                </p>
-              </div>
-            )}
+            {activeTask ? <div className="space-y-4"><div><span className="text-[10px] font-bold uppercase tracking-wider text-text-secondary">Próxima ação</span><h2 className="mt-1 text-lg font-black text-text-primary">{activeTask.title}</h2>{activeTask.description && <p className="mt-2 text-xs leading-5 text-text-secondary">{activeTask.description}</p>}</div><div className="grid grid-cols-2 gap-2 text-[11px]"><InfoCell label="Prazo" value={formatTaskDueLabel(activeTask, now)} /><InfoCell label="Prioridade" value={priorityLabels[activeTask.priority]} /></div><div className="space-y-2">{activeTask.status === "todo" && onUpdateTask && <button type="button" onClick={() => updateTask(activeTask, { status: "in-progress" })} className="w-full rounded-xl border border-primary-container/40 bg-primary-container/10 px-3 py-2 text-xs font-bold text-primary-fixed-dim"><Play className="mr-1 inline h-3.5 w-3.5" />Iniciar</button>}<button type="button" onClick={() => onToggleTaskStatus(activeTask.id)} className="w-full rounded-xl bg-primary-container px-3 py-2 text-xs font-bold text-white"><CheckCircle2 className="mr-1 inline h-3.5 w-3.5" />{activeTask.status === "done" ? "Reabrir" : "Concluir"}</button>{activeTask.status !== "done" && onUpdateTask && <button type="button" onClick={() => onUpdateTask(moveTaskToNextDay(activeTask))} className="w-full rounded-xl border border-outline-border px-3 py-2 text-xs font-semibold text-text-primary"><Clock3 className="mr-1 inline h-3.5 w-3.5" />Adiar para amanhã</button>}</div><div className="grid grid-cols-2 gap-2 border-t border-outline-border pt-3"><button type="button" onClick={async () => { if (!activeTask.obsidianTaskString) return; await navigator.clipboard.writeText(activeTask.obsidianTaskString); setCopiedTaskId(activeTask.id); window.setTimeout(() => setCopiedTaskId(null), 1600); }} disabled={!activeTask.obsidianTaskString} className="rounded-lg border border-outline-border px-2 py-2 text-[11px] text-text-primary disabled:opacity-40"><Copy className="mr-1 inline h-3 w-3" />{copiedTaskId === activeTask.id ? "Copiado" : "Copiar MD"}</button><button type="button" onClick={() => activeTask.obsidianFilePath && (window.location.href = buildObsidianOpenUri(apiConfig.vaultName, activeTask.obsidianFilePath))} disabled={!activeTask.obsidianFilePath || !isConnected} className="rounded-lg border border-outline-border px-2 py-2 text-[11px] text-text-primary disabled:opacity-40"><ExternalLink className="mr-1 inline h-3 w-3" />Abrir fonte</button></div><button type="button" onClick={() => onDeleteTask(activeTask.id)} className="w-full rounded-xl border border-error-sober/30 px-3 py-2 text-xs font-semibold text-error-sober"><Trash2 className="mr-1 inline h-3.5 w-3.5" />Remover tarefa</button></div> : <EmptyTasks />}
           </aside>
         </div>
       )}
     </div>
   );
 };
+
+const TabButton: React.FC<{ active: boolean; onClick: () => void; icon: React.ReactNode; label: string }> = ({ active, onClick, icon, label }) => <button type="button" onClick={onClick} className={`inline-flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-xs font-semibold ${active ? "bg-surface-elevated text-text-primary" : "text-text-secondary"}`}>{icon}{label}</button>;
+const Metric: React.FC<{ label: string; value: number; icon: React.ReactNode }> = ({ label, value, icon }) => <div className="rounded-xl border border-outline-border bg-surface-card p-3.5"><div className="flex items-center justify-between gap-2"><span className="text-[10px] font-bold uppercase tracking-wider text-text-secondary">{label}</span><span className="text-primary-fixed-dim">{icon}</span></div><div className="mt-2 text-2xl font-black text-text-primary">{value}</div></div>;
+const InfoCell: React.FC<{ label: string; value: string }> = ({ label, value }) => <div className="rounded-lg border border-outline-border p-2.5"><span className="block text-text-secondary">{label}</span><strong className="text-text-primary">{value}</strong></div>;
+const EmptyTasks = () => <div className="flex min-h-48 flex-col items-center justify-center text-center"><CheckSquare className="h-8 w-8 text-text-secondary" /><h2 className="mt-2 text-sm font-bold text-text-primary">Nenhuma tarefa registrada</h2><p className="mt-1 text-xs text-text-secondary">A tela mostra somente tarefas persistidas.</p></div>;
