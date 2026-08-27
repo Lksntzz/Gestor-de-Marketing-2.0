@@ -1,35 +1,24 @@
-import React, { useState, useEffect } from "react";
+import React, { useMemo, useRef, useState } from "react";
 import {
-  FileText,
-  Image as ImageIcon,
-  Youtube,
-  Globe,
   AlignLeft,
-  UploadCloud,
+  Check,
   CheckCircle2,
-  ArrowRight,
-  Sparkles,
-  ExternalLink,
-  FolderOpen,
+  Cloud,
+  FileText,
+  Globe,
+  Image as ImageIcon,
   Link2,
-  Tag,
-  AlertCircle,
   Loader2,
   RotateCcw,
-  Check,
-  Edit3,
-  ShieldCheck,
-  FileCode,
-  Inbox,
-  Eye,
-  Cloud
+  Sparkles,
+  Tag,
+  Trash2,
+  UploadCloud,
+  Youtube,
 } from "lucide-react";
-import { ObsidianNote, ObsidianApiConfig, KnowledgeStatus, EngineMode } from "../types";
+import { EngineMode, KnowledgeStatus, ObsidianApiConfig, ObsidianNote } from "../types";
 import { STANDARD_VAULT_FOLDERS } from "../data/defaultVault";
-import { buildObsidianOpenUri } from "../utils/obsidianUri";
 import { GoogleDriveSelector } from "./GoogleDriveSelector";
-import { googleDriveService } from "../services/googleDriveService";
-import confetti from "canvas-confetti";
 
 interface AddKnowledgeViewProps {
   notes: ObsidianNote[];
@@ -40,14 +29,9 @@ interface AddKnowledgeViewProps {
   engineMode: EngineMode;
 }
 
-type KnowledgeType = "pdf" | "image" | "youtube" | "site" | "text" | "gdrive";
+type KnowledgeType = "site" | "pdf" | "youtube" | "image" | "text" | "gdrive";
 
-interface ProgressStep {
-  percentage: number;
-  message: string;
-}
-
-interface CurationProposal {
+type CurationProposal = {
   title: string;
   folder: string;
   status: KnowledgeStatus;
@@ -56,1062 +40,331 @@ interface CurationProposal {
   keywords: string[];
   wikilinks: string[];
   content: string;
-  evidence: string[];
-  marketingHypotheses: string[];
+  summary: string;
   sourceUrl?: string;
-  fileName?: string;
+};
+
+const TYPE_OPTIONS: Array<{ id: KnowledgeType; label: string; icon: React.ElementType }> = [
+  { id: "site", label: "URL Web", icon: Link2 },
+  { id: "pdf", label: "PDF Document", icon: FileText },
+  { id: "youtube", label: "YouTube", icon: Youtube },
+  { id: "image", label: "Imagem / OCR", icon: ImageIcon },
+  { id: "text", label: "Texto Livre", icon: AlignLeft },
+  { id: "gdrive", label: "Drive Sync", icon: Cloud },
+];
+
+function cleanBase64(value: string) {
+  const commaIndex = value.indexOf(",");
+  return commaIndex >= 0 ? value.slice(commaIndex + 1) : value;
+}
+
+async function callKnowledgeProcessor(type: KnowledgeType, payload: any, engineMode: EngineMode) {
+  const requestPayload = { type, payload, engineMode };
+  if (window.electronAPI?.processKnowledgeLocal) {
+    return window.electronAPI.processKnowledgeLocal(requestPayload);
+  }
+
+  const sessionResponse = await fetch("/api/auth/session", { cache: "no-store" });
+  const sessionData = await sessionResponse.json().catch(() => ({}));
+  const headers: Record<string, string> = { "Content-Type": "application/json" };
+  if (sessionData?.token) headers["x-app-session-token"] = sessionData.token;
+
+  const response = await fetch("/api/gemini/process-knowledge", {
+    method: "POST",
+    headers,
+    body: JSON.stringify(requestPayload),
+  });
+  const data = await response.json().catch(() => ({}));
+  if (!response.ok) throw new Error(data.error || `Erro HTTP ${response.status}`);
+  return data;
 }
 
 export const AddKnowledgeView: React.FC<AddKnowledgeViewProps> = ({
-  notes,
+  notes: _notes,
   onAddNote,
   apiConfig,
   onNavigateTab,
   onSelectNote,
-  engineMode
+  engineMode,
 }) => {
-  const [selectedType, setSelectedType] = useState<KnowledgeType | null>(null);
-  
-  // Google Drive Connection Status
-  const [isDriveConnected, setIsDriveConnected] = useState<boolean>(googleDriveService.isAuthenticated());
-
-  useEffect(() => {
-    // Initial check
-    setIsDriveConnected(googleDriveService.isAuthenticated());
-
-    // Periodically re-check (every 1.5s) to stay in sync with Settings Modal edits
-    const interval = setInterval(() => {
-      setIsDriveConnected(googleDriveService.isAuthenticated());
-    }, 1500);
-
-    return () => clearInterval(interval);
-  }, []);
-  
-  // Form values
-  const [pdfFile, setPdfFile] = useState<File | null>(null);
-  const [pdfFileName, setPdfFileName] = useState<string>("");
-  const [pdfTextSample, setPdfTextSample] = useState<string>("");
-  const [pdfBase64, setPdfBase64] = useState<string>("");
-  
-  const [imageUrl, setImageUrl] = useState<string>("");
-  const [imageTitle, setImageTitle] = useState<string>("");
-  const [imageDescription, setImageDescription] = useState<string>("");
-  const [imageCategory, setImageCategory] = useState<string>("07_Pesquisas");
-  const [imageKeywords, setImageKeywords] = useState<string>("");
-  const [imageFile, setImageFile] = useState<File | null>(null);
-  const [imageBase64, setImageBase64] = useState<string>("");
-
-  const [youtubeUrl, setYoutubeUrl] = useState<string>("");
-  const [youtubeTitle, setYoutubeTitle] = useState<string>("");
-  const [youtubeChannel, setYoutubeChannel] = useState<string>("");
-
-  const [siteUrl, setSiteUrl] = useState<string>("");
-  const [siteTitle, setSiteTitle] = useState<string>("");
-
-  const [rawText, setRawText] = useState<string>("");
-  const [rawTextTitle, setRawTextTitle] = useState<string>("");
-
-  // Processing & Curation pipeline states
-  const [isProcessing, setIsProcessing] = useState<boolean>(false);
-  const [progress, setProgress] = useState<number>(0);
-  const [progressMessage, setProgressMessage] = useState<string>("");
+  const [selectedType, setSelectedType] = useState<KnowledgeType>("site");
+  const [textValue, setTextValue] = useState("");
+  const [titleValue, setTitleValue] = useState("");
+  const [fileName, setFileName] = useState("");
+  const [fileBase64, setFileBase64] = useState("");
+  const [isProcessing, setIsProcessing] = useState(false);
+  const [progress, setProgress] = useState(0);
   const [error, setError] = useState<string | null>(null);
+  const [proposal, setProposal] = useState<CurationProposal | null>(null);
+  const [isSaving, setIsSaving] = useState(false);
+  const fileInputRef = useRef<HTMLInputElement>(null);
+  const connected = apiConfig.connectionStatus === "connected";
 
-  // Human-in-the-loop curation proposal
-  const [curationProposal, setCurationProposal] = useState<CurationProposal | null>(null);
-  const [curationViewMode, setCurationViewMode] = useState<"preview" | "edit">("preview");
+  const pipelineSteps = useMemo(() => [
+    { label: "Extração de Conteúdo", detail: progress >= 25 ? "Conteúdo recebido e preparado para análise." : "Aguardando fonte." },
+    { label: "Análise Semântica (LLM)", detail: progress >= 55 ? "Estrutura, tópicos e contexto identificados." : "Aguardando extração." },
+    { label: "Proposta de Curadoria", detail: proposal ? "Metadados, links e resumo prontos para revisão." : progress >= 80 ? "Gerando metadados e conexões..." : "Aguardando análise." },
+    { label: "Revisão Humana", detail: proposal ? "Aguardando aprovação antes de gravar no Vault." : "Aguardando proposta." },
+  ], [progress, proposal]);
 
-  // Success summary report states
-  const [createdNote, setCreatedNote] = useState<ObsidianNote | null>(null);
-  const [relations, setRelations] = useState<string[]>([]);
-  const [wasFallback, setWasFallback] = useState<boolean>(false);
-
-  // Example inputs tailored for Nisti Print Marketing
-  const useExampleInput = (type: KnowledgeType) => {
+  const reset = () => {
+    setTextValue("");
+    setTitleValue("");
+    setFileName("");
+    setFileBase64("");
+    setProposal(null);
+    setProgress(0);
     setError(null);
-    if (type === "pdf") {
-      setPdfFileName("Briefing_Tecnico_Planners_e_Devocionais_2026.pdf");
-      setPdfTextSample(`BRIEFING INDUSTRIAL & MARKETING NISTI PRINT 2026:
-PRODUTO: Linha Planners Autoriais e Devocionais Diários
-ACABAMENTO: Capa dura 2.0mm Soft Touch fosca, miolo offset 90g (sem vazamento de tinta), wire-o bronze 1 polegada.
-PROPOSTA DE VALOR: Tiragens sob demanda a partir de 10 unidades com preço de atacado para empreendedoras de papelaria e ministérios.
-PÚBLICO-ALVO: Mariana (Empreendedora Criativa) e Líderes Eclesiásticos.
-DIFERENCIAIS: Fidelidade de cor CMYK, elástico acetinado com passante metálico, bolsa interna dupla.`);
-    } else if (type === "image") {
-      setImageTitle("Foto de Prova - Planner Soft Touch e Wire-o Bronze");
-      setImageDescription("Ativo visual exibindo acabamento premium da capa com laminação Soft Touch e encadernação wire-o bronze da Nisti Print.");
-      setImageCategory("02_Produtos");
-      setImageKeywords("planner-2026, acabamento-luxo, wire-o, nisti-print");
-      setImageBase64("data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==");
-    } else if (type === "youtube") {
-      setYoutubeUrl("https://www.youtube.com/watch?v=dQw4w9WgXcQ");
-      setYoutubeTitle("Como Criar e Vender Planners Personalizados Sem Estoque Parado");
-      setYoutubeChannel("Papelaria Criativa & Negócios");
-    } else if (type === "site") {
-      setSiteUrl("https://nistiprint.com.br/blog/como-escolher-a-gramatura-certa-de-papel");
-      setSiteTitle("Guia de Papéis: Por que o Offset 90g é o queridinho para Planners e Devocionais");
-    } else if (type === "text") {
-      setRawTextTitle("Ideias de Ganchos para Carrossel de Planners no Instagram");
-      setRawText(`Ideias de copy para Nisti Print:
-1. "Você já desenhou o planner dos seus sonhos, mas a gráfica pediu 500 unidades mínimas?"
-2. "O teste definitivo: caneta marca-texto em papel 75g vs miolo Offset 90g da Nisti Print."
-3. "Como lucrar até 150% na temporada de fim de ano vendendo agendas e planners autorais sem risco financeiro."
-Vincular com [[Brand Voice & Posicionamento Nisti Print]] e [[Catálogo - Planners & Devocionais 2026]].`);
-    }
   };
 
-  const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    if (e.target.files && e.target.files[0]) {
-      const file = e.target.files[0];
-      setPdfFile(file);
-      setPdfFileName(file.name);
-      setPdfTextSample(`[Arquivo PDF '${file.name}' carregado - tamanho: ${Math.round(file.size / 1024)} KB]`);
-
-      const reader = new FileReader();
-      reader.onloadend = () => {
-        setPdfBase64(reader.result as string);
-      };
-      reader.readAsDataURL(file);
-    }
+  const handleTypeChange = (type: KnowledgeType) => {
+    setSelectedType(type);
+    reset();
   };
 
-  const handleImageFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    if (e.target.files && e.target.files[0]) {
-      const file = e.target.files[0];
-      setImageFile(file);
-      
-      if (!imageTitle) {
-        const titleWithoutExtension = file.name.replace(/\.[^/.]+$/, "").replace(/[-_]/g, " ");
-        const words = titleWithoutExtension.split(" ").map(w => w.charAt(0).toUpperCase() + w.slice(1)).join(" ");
-        setImageTitle(words);
-      }
-
-      const reader = new FileReader();
-      reader.onloadend = () => {
-        setImageBase64(reader.result as string);
-      };
-      reader.readAsDataURL(file);
-    }
+  const handleFile = (file?: File) => {
+    if (!file) return;
+    setFileName(file.name);
+    if (!titleValue) setTitleValue(file.name.replace(/\.[^/.]+$/, "").replace(/[-_]/g, " "));
+    const reader = new FileReader();
+    reader.onload = () => setFileBase64(String(reader.result || ""));
+    reader.readAsDataURL(file);
   };
 
-  const handleGoogleDriveFileSelected = (fileData: {
-    name: string;
-    contentText: string;
-    base64?: string;
-    isPdf?: boolean;
-    mimeType: string;
-  }) => {
-    if (fileData.isPdf || fileData.name.toLowerCase().endsWith(".pdf")) {
-      setSelectedType("pdf");
-      setPdfFileName(fileData.name);
-      setPdfTextSample(fileData.contentText || `[Arquivo PDF do Google Drive: ${fileData.name}]`);
-      if (fileData.base64) {
-        setPdfBase64(fileData.base64);
-      }
-    } else if (fileData.mimeType.startsWith("image/")) {
-      setSelectedType("image");
-      setImageTitle(fileData.name.replace(/\.[^/.]+$/, ""));
-      setImageDescription(`Ativo importado do Google Drive: ${fileData.name}`);
-      if (fileData.base64) {
-        setImageBase64(fileData.base64);
-      }
-    } else {
-      setSelectedType("text");
-      setRawTextTitle(fileData.name.replace(/\.[^/.]+$/, ""));
-      setRawText(fileData.contentText);
-    }
+  const buildPayload = () => {
+    if (selectedType === "site") return { url: textValue.trim(), pageTitle: titleValue.trim() || undefined };
+    if (selectedType === "youtube") return { url: textValue.trim(), videoTitle: titleValue.trim() || undefined };
+    if (selectedType === "text") return { text: textValue, title: titleValue.trim() };
+    if (selectedType === "pdf") return { fileName, textContentSample: titleValue.trim(), base64: cleanBase64(fileBase64) };
+    if (selectedType === "image") return { title: titleValue.trim() || fileName, description: textValue.trim(), imageBase64: fileBase64 || undefined };
+    return { text: textValue, title: titleValue.trim() || fileName };
   };
 
-  const handleStartProcessing = async () => {
+  const validate = () => {
+    if (selectedType === "site" || selectedType === "youtube") return Boolean(textValue.trim());
+    if (selectedType === "text") return Boolean(titleValue.trim() && textValue.trim());
+    if (selectedType === "pdf" || selectedType === "image") return Boolean(fileName || fileBase64);
+    return Boolean(textValue.trim() || fileName);
+  };
+
+  const processSource = async () => {
     setError(null);
-    setCreatedNote(null);
-    setCurationProposal(null);
-    setRelations([]);
-
-    // Validation
-    if (selectedType === "pdf" && !pdfFileName) {
-      setError("Por favor, faça o upload de um arquivo PDF ou clique em 'Usar Exemplo'.");
-      return;
-    }
-    if (selectedType === "image" && !imageTitle && !imageBase64) {
-      setError("Por favor, dê um título à nota ou faça o upload de uma imagem.");
-      return;
-    }
-    if (selectedType === "youtube" && !youtubeUrl) {
-      setError("O link do vídeo do YouTube é obrigatório.");
-      return;
-    }
-    if (selectedType === "site" && !siteUrl) {
-      setError("A URL do site é obrigatória.");
-      return;
-    }
-    if (selectedType === "text" && (!rawText || !rawTextTitle)) {
-      setError("Título e corpo do texto são obrigatórios.");
+    setProposal(null);
+    if (!validate()) {
+      setError("Preencha ou selecione a fonte antes de processar.");
       return;
     }
 
     setIsProcessing(true);
-    setProgress(0);
-    setProgressMessage("Carregando conteúdo bruto...");
-
-    const steps: ProgressStep[] = [
-      { percentage: 15, message: "Lendo e limpando formatação do conteúdo..." },
-      { percentage: 35, message: "Extraindo evidências técnicas e conceitos de marketing..." },
-      { percentage: 55, message: "Classificando taxonomia nas pastas do Obsidian..." },
-      { percentage: 75, message: "Mapeando backlinks atômicos com notas existentes..." },
-      { percentage: 90, message: "Gerando proposta de curadoria com Frontmatter estruturado..." },
-      { percentage: 100, message: "Pronto para revisão humana!" }
-    ];
-
-    let payload: any = {};
-    if (selectedType === "pdf") {
-      payload = { fileName: pdfFileName, textContentSample: pdfTextSample, base64: pdfBase64 };
-    } else if (selectedType === "image") {
-      payload = { 
-        title: imageTitle, 
-        description: imageDescription, 
-        category: imageCategory, 
-        keywords: imageKeywords.split(",").map(k => k.trim()).filter(Boolean),
-        imageBase64: imageBase64 || undefined
-      };
-    } else if (selectedType === "youtube") {
-      payload = { url: youtubeUrl, videoTitle: youtubeTitle, videoChannel: youtubeChannel };
-    } else if (selectedType === "site") {
-      payload = { url: siteUrl, pageTitle: siteTitle };
-    } else if (selectedType === "text") {
-      payload = { text: rawText, title: rawTextTitle };
-    }
-
-    let currentStepIdx = 0;
-    const progressInterval = setInterval(() => {
-      if (currentStepIdx < steps.length - 2) {
-        currentStepIdx++;
-        setProgress(steps[currentStepIdx].percentage);
-        setProgressMessage(steps[currentStepIdx].message);
-      }
-    }, 400);
-
+    setProgress(20);
+    const timer = window.setInterval(() => setProgress((value) => Math.min(value + 12, 88)), 350);
     try {
-      const response = await fetch("/api/gemini/process-knowledge", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ type: selectedType, payload, engineMode })
+      const result = await callKnowledgeProcessor(selectedType, buildPayload(), engineMode);
+      if (!result?.success || !result?.data) throw new Error(result?.error || "A IA não retornou uma proposta de curadoria.");
+      const data = result.data;
+      const folderCandidate = String(data.folder || "00_Inbox");
+      const folder = STANDARD_VAULT_FOLDERS.includes(folderCandidate) ? folderCandidate : "00_Inbox";
+      const content = String(data.content || data.summary || data.text || "").trim();
+      const summary = String(data.summary || content.split(/\n+/).filter(Boolean).slice(0, 3).join(" ")).slice(0, 900);
+      setProposal({
+        title: String(data.title || titleValue || fileName || "Novo Conhecimento").trim(),
+        folder,
+        status: folder === "00_Inbox" ? "NOVO" : "EM REVISÃO",
+        tipo: selectedType === "pdf" ? "Documento PDF" : selectedType === "image" ? "Imagem / OCR" : selectedType === "youtube" ? "Vídeo" : selectedType === "site" ? "Página Web" : "Texto",
+        category: String(data.category || "Conhecimento"),
+        keywords: Array.isArray(data.keywords) ? data.keywords.slice(0, 8) : Array.isArray(data.tags) ? data.tags.slice(0, 8) : [],
+        wikilinks: Array.isArray(data.wikilinks) ? data.wikilinks.slice(0, 8) : [],
+        content,
+        summary,
+        sourceUrl: selectedType === "site" || selectedType === "youtube" ? textValue.trim() : undefined,
       });
-
-      if (!response.ok) {
-        throw new Error(`Erro no servidor: Código ${response.status}`);
-      }
-
-      const resData = await response.json();
-      clearInterval(progressInterval);
       setProgress(100);
-      setProgressMessage("Curadoria pronta para validação!");
-
-      if (resData.success && resData.data) {
-        const aiData = resData.data;
-
-        // Map folder to standard folders
-        let targetFolder = aiData.folder || "00_Inbox";
-        if (!STANDARD_VAULT_FOLDERS.includes(targetFolder)) {
-          targetFolder = "00_Inbox";
-        }
-
-        // Build proposal for Human-in-the-Loop review
-        const proposal: CurationProposal = {
-          title: aiData.title || (payload.title || "Novo Conhecimento"),
-          folder: targetFolder,
-          status: targetFolder === "00_Inbox" ? "NOVO" : "EM REVISÃO",
-          tipo: selectedType === "pdf" ? "Documento PDF" : selectedType === "image" ? "Ativo Visual" : selectedType === "youtube" ? "Vídeo Referência" : selectedType === "site" ? "Artigo Web" : "Rascunho de Conteúdo",
-          category: aiData.category || "Marketing & Produtos",
-          keywords: aiData.keywords || aiData.tags || ["nisti-print", "marketing"],
-          wikilinks: aiData.wikilinks || ["Brand Voice & Posicionamento Nisti Print", "Catálogo - Planners & Devocionais 2026"],
-          content: aiData.content || "",
-          evidence: [
-            "Conteúdo estruturado com base nas diretrizes da Nisti Print.",
-            "Metadados YAML compatíveis com o padrão do cofre Obsidian.",
-            "Backlinks sugeridos para cruzar com personas e produtos."
-          ],
-          marketingHypotheses: [
-            "Pode ser transformado em post para Instagram (Carrossel ASMR ou prova de produto).",
-            "Pode servir de base para campanhas sazonais de Planners e Devocionais.",
-            "Fortalece o posicionamento de tiragens sob demanda a partir de 10 unidades."
-          ],
-          sourceUrl: payload.url || undefined,
-          fileName: payload.fileName || undefined
-        };
-
-        setCurationProposal(proposal);
-        setWasFallback(!!resData.wasFallback);
-      } else {
-        throw new Error("Resposta inválida da API do servidor");
-      }
     } catch (err: any) {
-      clearInterval(progressInterval);
-      setError(`Ocorreu um erro ao processar o conhecimento: ${err.message || err}`);
+      setError(err.message || "Falha ao processar conhecimento.");
+      setProgress(0);
     } finally {
+      window.clearInterval(timer);
       setIsProcessing(false);
     }
   };
 
-  // Confirm and persist note into Obsidian Vault
-  const handleConfirmAndSave = async (forceInbox: boolean = false) => {
-    if (!curationProposal) return;
-
-    const folderToUse = forceInbox ? "00_Inbox" : curationProposal.folder;
-    const statusToUse = forceInbox ? "NOVO" : curationProposal.status;
-    const todayStr = new Date().toISOString().replace("T", " ").substring(0, 16);
-    const noteId = `note-${Date.now().toString(36)}`;
-    const hash = `np_${Math.random().toString(36).substring(2, 8)}`;
-    const notePath = `${folderToUse}/${curationProposal.title}.md`;
-
-    // Ensure content has structured frontmatter
-    const frontmatterBlock = `---
-id: ${noteId}
-tipo: ${curationProposal.tipo}
-status: ${statusToUse}
-owner: Gestor de Marketing Nisti Print
-created_at: ${todayStr}
-updated_at: ${todayStr}
-validade: 2027-12-31
-confidencialidade: Interno
-produto: Linha Planners & Personalizados
-nicho: Papelaria Criativa & B2B
-canal: Omnichannel
-projeto: Gestão de Conhecimento
-tags:
-${curationProposal.keywords.map(k => `  - ${k}`).join("\n")}
-origem: ${curationProposal.fileName || curationProposal.sourceUrl || "Central de Conhecimento Nisti"}
-approved_by: ${statusToUse === "OFICIAL" ? "Gestor de Marketing" : ""}
-hash: ${hash}
----
-
-`;
-
-    let finalContent = curationProposal.content;
-    if (!finalContent.startsWith("---")) {
-      finalContent = frontmatterBlock + finalContent;
-    }
-
-    const newNote: ObsidianNote = {
-      id: noteId,
-      path: notePath,
-      title: curationProposal.title,
-      folder: folderToUse,
-      content: finalContent,
-      tags: curationProposal.keywords,
-      wikilinks: curationProposal.wikilinks,
-      frontmatter: {
-        id: noteId,
-        tipo: curationProposal.tipo,
-        status: statusToUse,
-        owner: "Gestor de Marketing Nisti Print",
-        created_at: todayStr,
-        updated_at: todayStr,
-        validade: "2027-12-31",
-        confidencialidade: "Interno",
-        produto: "Linha Planners & Personalizados",
-        nicho: "Papelaria Criativa & B2B",
-        canal: "Omnichannel",
-        projeto: "Gestão de Conhecimento",
-        tags: curationProposal.keywords,
-        origem: curationProposal.fileName || curationProposal.sourceUrl || "Central de Conhecimento Nisti",
-        approved_by: statusToUse === "OFICIAL" ? "Gestor de Marketing" : "",
-        hash: hash,
-      },
-      lastModified: todayStr,
-      syncedWithApi: true,
+  const approveAndSave = async () => {
+    if (!proposal || !connected) return;
+    setIsSaving(true);
+    setError(null);
+    const now = new Date().toISOString();
+    const safeTitle = proposal.title.replace(/[<>:"/\\|?*]/g, "_").trim() || "Novo Conhecimento";
+    const path = `${proposal.folder}/${safeTitle}.md`;
+    const frontmatter = {
+      id: `knowledge_${Date.now()}`,
+      tipo: proposal.tipo,
+      status: proposal.status,
+      category: proposal.category,
+      tags: proposal.keywords,
+      origem: proposal.sourceUrl || selectedType,
+      created_at: now.slice(0, 10),
+      updated_at: now.slice(0, 10),
     };
 
-    // Save to global state & local vault
-    onAddNote(newNote);
-
-    // Save directly to disk if running in Electron
-    if (window.electronAPI) {
-      try {
-        const vaultPath = await window.electronAPI.getVaultPath();
-        if (vaultPath) {
-          await window.electronAPI.writeNote(
-            vaultPath,
-            folderToUse,
-            curationProposal.title,
-            finalContent,
-            newNote.frontmatter
-          );
-        }
-      } catch (err) {
-        console.warn("Electron write error:", err);
+    try {
+      if (window.electronAPI?.writeNote) {
+        const writeResult = await window.electronAPI.writeNote(proposal.folder, safeTitle, proposal.content, frontmatter);
+        if (!writeResult.success) throw new Error(writeResult.error || "Não foi possível gravar a nota no Vault.");
       }
-    }
 
-    confetti({ particleCount: 40, spread: 60, origin: { y: 0.7 } });
-    setCreatedNote(newNote);
-    setRelations(curationProposal.wikilinks);
-    setCurationProposal(null);
-  };
-
-  const resetForm = () => {
-    setSelectedType(null);
-    setPdfFile(null);
-    setPdfFileName("");
-    setPdfTextSample("");
-    setImageUrl("");
-    setImageTitle("");
-    setImageDescription("");
-    setImageKeywords("");
-    setImageFile(null);
-    setImageBase64("");
-    setYoutubeUrl("");
-    setYoutubeTitle("");
-    setYoutubeChannel("");
-    setSiteUrl("");
-    setSiteTitle("");
-    setRawText("");
-    setRawTextTitle("");
-    setError(null);
-    setCurationProposal(null);
-    setCreatedNote(null);
-    setRelations([]);
-  };
-
-  const handleOpenNoteInVault = () => {
-    if (createdNote) {
-      onSelectNote(createdNote);
+      const newNote: ObsidianNote = {
+        id: String(frontmatter.id),
+        path,
+        title: safeTitle,
+        folder: proposal.folder,
+        content: proposal.content,
+        frontmatter,
+        tags: proposal.keywords,
+        wikilinks: proposal.wikilinks,
+        lastModified: now,
+        syncedWithApi: true,
+      };
+      onAddNote(newNote);
+      onSelectNote(newNote);
       onNavigateTab("vault");
+    } catch (err: any) {
+      setError(err.message || "Falha ao salvar no Vault.");
+    } finally {
+      setIsSaving(false);
     }
   };
 
-  const knowledgeOptions = [
-    {
-      id: "pdf" as const,
-      label: "Arquivo PDF / Briefing",
-      icon: FileText,
-      color: "bg-red-50 text-red-700 border-red-200 hover:border-red-400",
-      description: "Briefings técnicos de produtos, tabelas de preços ou manuais de acabamento."
-    },
-    {
-      id: "image" as const,
-      label: "Ativo de Imagem / Mockup",
-      icon: ImageIcon,
-      color: "bg-blue-50 text-blue-700 border-blue-200 hover:border-blue-400",
-      description: "Fotos de capas, mockups de planners, fotos de galpão e amostras físicas."
-    },
-    {
-      id: "youtube" as const,
-      label: "Vídeo do YouTube",
-      icon: Youtube,
-      color: "bg-rose-50 text-rose-700 border-rose-200 hover:border-rose-400",
-      description: "Vídeos tutoriais de papelaria, reviews de produtos e tendências de mercado."
-    },
-    {
-      id: "site" as const,
-      label: "Página Web / Artigo",
-      icon: Globe,
-      color: "bg-indigo-50 text-indigo-700 border-indigo-200 hover:border-indigo-400",
-      description: "Artigos de concorrentes, posts de blog ou notícias sobre o mercado gráfico."
-    },
-    {
-      id: "text" as const,
-      label: "Texto / Rascunho Livre",
-      icon: AlignLeft,
-      color: "bg-amber-50 text-amber-700 border-amber-200 hover:border-amber-400",
-      description: "Ideias de campanhas, atas de reuniões rápidas e insights de novos produtos."
-    },
-    ...(isDriveConnected
-      ? [
-          {
-            id: "gdrive" as const,
-            label: "Google Drive / Nuvem",
-            icon: Cloud,
-            color: "bg-blue-50 text-blue-700 border-blue-200 hover:border-blue-400",
-            description: "Navegue e importe briefings, docs, planilhas e relatórios da sua conta Google."
-          }
-        ]
-      : [])
-  ];
+  const renderInput = () => {
+    if (selectedType === "gdrive") {
+      return (
+        <div className="pt-2">
+          <GoogleDriveSelector
+            onFileSelected={(fileData: any) => {
+              setFileName(fileData.name || "Arquivo do Drive");
+              setTitleValue(String(fileData.name || "").replace(/\.[^/.]+$/, ""));
+              setTextValue(fileData.contentText || "");
+              setFileBase64(fileData.base64 || "");
+              if (fileData.isPdf) setSelectedType("pdf");
+              else if (String(fileData.mimeType || "").startsWith("image/")) setSelectedType("image");
+              else setSelectedType("text");
+            }}
+          />
+        </div>
+      );
+    }
+
+    if (selectedType === "pdf" || selectedType === "image") {
+      return (
+        <div className="space-y-3">
+          <input ref={fileInputRef} type="file" accept={selectedType === "pdf" ? ".pdf,application/pdf" : "image/*"} className="hidden" onChange={(event) => handleFile(event.target.files?.[0])} />
+          <button type="button" onClick={() => fileInputRef.current?.click()} className="w-full h-12 border border-dashed border-[#475569] bg-[#111827] hover:bg-[#182234] text-xs text-slate-300 flex items-center justify-center gap-2">
+            <UploadCloud className="w-4 h-4" /> {fileName || `Selecionar ${selectedType === "pdf" ? "PDF" : "imagem"}`}
+          </button>
+          <input value={titleValue} onChange={(event) => setTitleValue(event.target.value)} placeholder="Título opcional" className="w-full h-10 px-3 bg-[#111827] border border-[#334155] text-xs text-slate-200 outline-none focus:border-blue-500" />
+          {selectedType === "image" && <textarea value={textValue} onChange={(event) => setTextValue(event.target.value)} placeholder="Contexto opcional da imagem" className="w-full h-20 p-3 bg-[#111827] border border-[#334155] text-xs text-slate-200 outline-none resize-none focus:border-blue-500" />}
+        </div>
+      );
+    }
+
+    if (selectedType === "text") {
+      return (
+        <div className="space-y-3">
+          <input value={titleValue} onChange={(event) => setTitleValue(event.target.value)} placeholder="Título do conhecimento" className="w-full h-10 px-3 bg-[#111827] border border-[#334155] text-xs text-slate-200 outline-none focus:border-blue-500" />
+          <textarea value={textValue} onChange={(event) => setTextValue(event.target.value)} placeholder="Cole ou escreva o conteúdo..." className="w-full h-28 p-3 bg-[#111827] border border-[#334155] text-xs text-slate-200 outline-none resize-none focus:border-blue-500" />
+        </div>
+      );
+    }
+
+    return (
+      <div className="flex gap-2">
+        <input value={textValue} onChange={(event) => setTextValue(event.target.value)} placeholder={selectedType === "youtube" ? "https://youtube.com/watch?v=..." : "https://exemplo.com/artigo"} className="flex-1 h-10 px-3 bg-[#111827] border border-[#334155] text-xs text-slate-200 outline-none focus:border-blue-500" />
+        <button type="button" onClick={processSource} disabled={isProcessing} className="w-12 h-10 bg-[#182234] border border-[#334155] text-slate-300 hover:bg-[#26344b] flex items-center justify-center"><Globe className="w-4 h-4" /></button>
+      </div>
+    );
+  };
 
   return (
-    <div className="w-full px-4 md:px-8 lg:px-12 space-y-8 pb-20 animate-fadeIn">
-      
-      {/* 1. CABEÇALHO */}
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 pb-4 border-b border-stone-200/60">
-        <div>
-          <div className="flex items-center gap-2">
-            <span className="text-[10px] font-bold text-purple-700 uppercase tracking-widest bg-purple-50 px-2 py-0.5 rounded border border-purple-200">
-              Pipeline de Ingestão PKM
-            </span>
-            <span className="text-xs text-stone-400 font-medium">
-              Curadoria & Validação Humana
-            </span>
-          </div>
-          <h1 className="text-2xl font-black text-stone-900 tracking-tight mt-1">
-            Central de Conhecimento Nisti Print
-          </h1>
-          <p className="text-xs text-stone-500 mt-0.5">
-            Capture dados brutos. O sistema extrai evidências, propõe classificação e solicita confirmação antes de gravar no Obsidian.
-          </p>
+    <div className="min-h-[calc(100vh-4rem)] bg-[#0f131c] text-slate-100 -mx-4 sm:-mx-6 lg:-mx-8 -my-6 md:-my-8 p-6 md:p-7 font-sans">
+      <div className="max-w-[1500px] mx-auto">
+        <div className="mb-6">
+          <h1 className="text-2xl font-bold text-slate-50">Adicionar Conhecimento</h1>
+          <p className="text-sm text-slate-500 mt-1">Ingestão e processamento de novas fontes para o cofre Obsidian.</p>
         </div>
-        <div className="flex items-center gap-2">
-          <span className="text-xs font-mono font-bold text-stone-600 bg-stone-100 px-3 py-1.5 rounded-xl border border-stone-200/70">
-            📂 {notes.length} Notas no Cofre
-          </span>
-          <span className="text-xs font-bold text-purple-700 bg-purple-50 px-2.5 py-1.5 rounded-xl border border-purple-200 flex items-center gap-1">
-            <Sparkles className="w-3.5 h-3.5" />
-            <span>Curador Inteligente</span>
-          </span>
-        </div>
-      </div>
 
-      {/* 2. ERROR STATE */}
-      {error && (
-        <div className="p-4 bg-red-50 text-red-800 border border-red-200 rounded-2xl flex items-start gap-3 animate-fadeIn">
-          <AlertCircle className="w-5 h-5 text-red-600 shrink-0 mt-0.5" />
-          <div className="text-xs space-y-1">
-            <span className="font-bold">Aviso no Processamento:</span>
-            <p className="leading-relaxed">{error}</p>
-          </div>
-        </div>
-      )}
+        <div className="grid grid-cols-1 xl:grid-cols-[440px_minmax(0,1fr)] gap-6 items-stretch min-h-[720px]">
+          <div className="flex flex-col gap-6">
+            <section className="bg-[#182234] border border-[#334155] rounded-sm p-5">
+              <h2 className="text-sm font-semibold flex items-center gap-2"><UploadCloud className="w-4 h-4 text-cyan-400" /> Fonte de Entrada</h2>
+              <div className="grid grid-cols-3 gap-2 mt-4">
+                {TYPE_OPTIONS.map(({ id, label, icon: Icon }) => (
+                  <button key={id} type="button" onClick={() => handleTypeChange(id)} className={`min-h-[68px] px-2 py-3 border rounded-sm flex flex-col items-center justify-center gap-2 text-[11px] font-semibold transition-colors ${selectedType === id ? "border-[#b4c5ff] bg-[#1f2d44] text-[#b4c5ff]" : "border-[#334155] bg-[#111827] text-slate-400 hover:bg-[#1c2028] hover:text-slate-200"}`}>
+                    <Icon className="w-4 h-4" /> {label}
+                  </button>
+                ))}
+              </div>
+              <div className="mt-4">{renderInput()}</div>
+              <button type="button" onClick={processSource} disabled={isProcessing || selectedType === "gdrive"} className="w-full mt-3 h-9 bg-[#2563eb] hover:bg-blue-500 disabled:bg-slate-700 disabled:text-slate-500 text-white text-xs font-semibold flex items-center justify-center gap-2">
+                {isProcessing ? <Loader2 className="w-4 h-4 animate-spin" /> : <Sparkles className="w-4 h-4" />} {isProcessing ? "Processando..." : "Processar Fonte"}
+              </button>
+              {error && <p className="mt-3 text-xs text-red-300 bg-red-950/30 border border-red-900 p-2">{error}</p>}
+            </section>
 
-      {/* 3. CAPTURE FORM / SELECTION (WHEN NOT IN REVIEW OR RESULT) */}
-      {!curationProposal && !createdNote && !isProcessing && (
-        <div className="space-y-6">
-          
-          {/* Card Selection Grid */}
-          {!selectedType ? (
-            <div className="space-y-6">
-              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
-                {knowledgeOptions.map((opt) => {
-                  const IconComponent = opt.icon;
+            <section className="bg-[#182234] border border-[#334155] rounded-sm p-5 flex-1">
+              <div className="flex items-center justify-between">
+                <h2 className="text-sm font-semibold flex items-center gap-2"><Sparkles className="w-4 h-4 text-cyan-400" /> Pipeline de Processamento</h2>
+                <span className={`text-[10px] font-mono ${isProcessing ? "text-emerald-400" : proposal ? "text-cyan-400" : "text-slate-600"}`}>{isProcessing ? "● Em Processamento" : proposal ? "● Pronto para revisão" : "○ Aguardando"}</span>
+              </div>
+              <div className="mt-6 space-y-5">
+                {pipelineSteps.map((step, index) => {
+                  const threshold = [25, 55, 80, 100][index];
+                  const done = progress >= threshold || (index === 3 && Boolean(proposal));
+                  const active = isProcessing && !done && progress >= Math.max(0, threshold - 30);
                   return (
-                    <button
-                      key={opt.id}
-                      onClick={() => setSelectedType(opt.id)}
-                      className="p-5 bg-white hover:bg-stone-50/80 rounded-2xl border border-stone-200/80 hover:border-purple-300 shadow-3xs hover:shadow-xs transition-all text-left space-y-3 cursor-pointer group"
-                    >
-                      <div className={`w-10 h-10 rounded-xl flex items-center justify-center border ${opt.color}`}>
-                        <IconComponent className="w-5 h-5" />
-                      </div>
-                      <div>
-                        <h3 className="text-sm font-black text-stone-900 group-hover:text-purple-900 transition-colors">
-                          {opt.label}
-                        </h3>
-                        <p className="text-xs text-stone-500 mt-1 leading-relaxed">
-                          {opt.description}
-                        </p>
-                      </div>
-                      <div className="pt-2 flex items-center gap-1 text-[11px] font-bold text-purple-700">
-                        <span>Selecionar</span>
-                        <ArrowRight className="w-3 h-3 group-hover:translate-x-1 transition-transform" />
-                      </div>
-                    </button>
+                    <div key={step.label} className="flex gap-3">
+                      <span className={`w-6 h-6 rounded-full border flex items-center justify-center shrink-0 ${done ? "border-emerald-600 bg-emerald-950/30 text-emerald-400" : active ? "border-cyan-600 text-cyan-400" : "border-[#334155] text-slate-600"}`}>{done ? <Check className="w-3.5 h-3.5" /> : active ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <span className="text-[9px]">{index + 1}</span>}</span>
+                      <div><p className={`text-xs font-semibold ${done || active ? "text-slate-200" : "text-slate-600"}`}>{step.label}</p><p className="text-[11px] text-slate-500 mt-1">{step.detail}</p></div>
+                    </div>
                   );
                 })}
               </div>
+            </section>
+          </div>
 
-              {isDriveConnected && (
-                <div className="bg-white rounded-3xl border border-stone-200 p-6 sm:p-8 shadow-xs space-y-4 animate-fadeIn">
-                  <div className="flex items-center gap-2 pb-3 border-b border-stone-100">
-                    <div className="w-8 h-8 rounded-lg bg-blue-50 text-blue-600 flex items-center justify-center font-bold border border-blue-100">
-                      <FolderOpen className="w-4 h-4 text-blue-500" />
-                    </div>
-                    <div>
-                      <h3 className="text-xs font-black uppercase tracking-wider text-stone-900">
-                        📂 PASTA DO GOOGLE DRIVE (CONECTADO)
-                      </h3>
-                      <p className="text-[10px] text-stone-500 mt-0.5">
-                        Sua conta Google está conectada. Selecione qualquer arquivo listado abaixo para importação direta e curadoria automática.
-                      </p>
-                    </div>
-                  </div>
-                  <GoogleDriveSelector
-                    onSelectFile={handleGoogleDriveFileSelected}
-                    onCancel={() => {}}
-                  />
-                </div>
-              )}
+          <section className={`bg-[#182234] border border-[#334155] rounded-sm min-h-[720px] flex flex-col ${proposal ? "border-l-4 border-l-violet-500" : ""}`}>
+            <div className="p-5 border-b border-[#334155] flex items-center justify-between">
+              <h2 className="text-sm font-semibold flex items-center gap-2"><FileText className="w-4 h-4 text-violet-300" /> Proposta de Curadoria</h2>
+              <span className="text-xs text-slate-500">Revisão humana obrigatória</span>
             </div>
-          ) : (
-            /* Selected Capture Type Form */
-            <div className="bg-white rounded-3xl border border-stone-200/80 p-6 sm:p-8 shadow-xs space-y-6 animate-fadeIn">
-              
-              <div className="flex items-center justify-between pb-4 border-b border-stone-150">
-                <div className="flex items-center gap-3">
-                  <div className="p-2.5 bg-purple-50 text-purple-700 rounded-xl border border-purple-150">
-                    {selectedType === "pdf" && <FileText className="w-5 h-5" />}
-                    {selectedType === "image" && <ImageIcon className="w-5 h-5" />}
-                    {selectedType === "youtube" && <Youtube className="w-5 h-5" />}
-                    {selectedType === "site" && <Globe className="w-5 h-5" />}
-                    {selectedType === "text" && <AlignLeft className="w-5 h-5" />}
-                    {selectedType === "gdrive" && <Cloud className="w-5 h-5" />}
-                  </div>
-                  <div>
-                    <h2 className="text-base font-black text-stone-900">
-                      {knowledgeOptions.find((o) => o.id === selectedType)?.label}
-                    </h2>
-                    <p className="text-xs text-stone-500">
-                      {selectedType === "gdrive"
-                        ? "Selecione o arquivo da sua nuvem para importação e curadoria automática."
-                        : "Insira os dados brutos ou clique em 'Usar Exemplo Nisti' para testar."}
-                    </p>
-                  </div>
-                </div>
 
-                {selectedType !== "gdrive" && (
-                  <button
-                    onClick={() => useExampleInput(selectedType)}
-                    className="px-3 py-1.5 bg-stone-100 hover:bg-stone-200 text-stone-700 text-xs font-bold rounded-xl border border-stone-200 transition-colors flex items-center gap-1 cursor-pointer"
-                  >
-                    <Sparkles className="w-3.5 h-3.5 text-purple-600" />
-                    <span>Usar Exemplo Nisti Print</span>
-                  </button>
-                )}
+            {!proposal ? (
+              <div className="flex-1 flex items-center justify-center text-center p-10">
+                <div className="max-w-md"><Sparkles className="w-10 h-10 mx-auto text-slate-700" /><p className="text-sm text-slate-400 mt-4">Processe uma fonte para gerar título, pasta, tags, conexões e resumo. Nada será salvo no Vault sem sua aprovação.</p></div>
               </div>
-
-              {/* PDF FLOW */}
-              {selectedType === "pdf" && (
-                <div className="space-y-4">
-                  <div className="border-2 border-dashed border-stone-300 hover:border-purple-400 rounded-2xl p-6 text-center bg-stone-50/50 cursor-pointer relative">
-                    <input
-                      type="file"
-                      accept=".pdf"
-                      onChange={handleFileChange}
-                      className="absolute inset-0 opacity-0 cursor-pointer w-full h-full"
-                    />
-                    <UploadCloud className="w-8 h-8 text-purple-600 mx-auto mb-2" />
-                    <span className="text-xs font-bold text-stone-800 block">
-                      {pdfFileName ? pdfFileName : "Clique para selecionar o PDF ou arraste para cá"}
-                    </span>
-                    <span className="text-[10px] text-stone-400 block mt-0.5">
-                      Suporta briefings técnicos, orçamentos e manuais
-                    </span>
-                  </div>
-
-                  {pdfTextSample && (
-                    <div className="space-y-1.5">
-                      <label className="text-xs font-bold text-stone-700">Amostra do Texto Extraído</label>
-                      <textarea
-                        value={pdfTextSample}
-                        onChange={(e) => setPdfTextSample(e.target.value)}
-                        className="w-full h-28 p-3 bg-stone-50 border border-stone-200 rounded-xl font-mono text-xs text-stone-800 leading-relaxed focus:outline-none focus:border-purple-500"
-                      />
-                    </div>
-                  )}
-                </div>
-              )}
-
-              {/* IMAGE FLOW */}
-              {selectedType === "image" && (
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                  <div className="space-y-3">
-                    <label className="text-xs font-bold text-stone-700 block">Ativo de Imagem</label>
-                    {imageBase64 ? (
-                      <div className="border border-stone-200 rounded-2xl p-3 bg-stone-50 text-center space-y-2">
-                        <img src={imageBase64} alt="Preview" className="max-h-48 mx-auto rounded-lg object-contain" referrerPolicy="no-referrer" />
-                        <button
-                          type="button"
-                          onClick={() => { setImageFile(null); setImageBase64(""); }}
-                          className="text-xs text-red-600 hover:underline font-bold"
-                        >
-                          Remover Imagem
-                        </button>
-                      </div>
-                    ) : (
-                      <div className="border-2 border-dashed border-stone-300 hover:border-purple-400 rounded-2xl p-6 text-center bg-stone-50 cursor-pointer relative h-48 flex flex-col items-center justify-center">
-                        <input type="file" accept="image/*" onChange={handleImageFileChange} className="absolute inset-0 opacity-0 cursor-pointer" />
-                        <UploadCloud className="w-8 h-8 text-purple-600 mb-2" />
-                        <span className="text-xs font-bold text-stone-800">Selecione uma imagem de produto/capa</span>
-                      </div>
-                    )}
-                  </div>
-
-                  <div className="space-y-3">
-                    <div className="space-y-1">
-                      <label className="text-xs font-bold text-stone-700">Título do Ativo</label>
-                      <input
-                        type="text"
-                        value={imageTitle}
-                        onChange={(e) => setImageTitle(e.target.value)}
-                        placeholder="Ex: Mockup Planner Wire-o Bronze"
-                        className="w-full p-2.5 bg-stone-50 border border-stone-200 rounded-xl text-xs"
-                      />
-                    </div>
-                    <div className="space-y-1">
-                      <label className="text-xs font-bold text-stone-700">Descrição / Aplicação</label>
-                      <textarea
-                        value={imageDescription}
-                        onChange={(e) => setImageDescription(e.target.value)}
-                        placeholder="Detalhes visuais, gramatura do miolo e acabamento..."
-                        className="w-full h-24 p-2.5 bg-stone-50 border border-stone-200 rounded-xl text-xs resize-none"
-                      />
-                    </div>
-                  </div>
-                </div>
-              )}
-
-              {/* YOUTUBE FLOW */}
-              {selectedType === "youtube" && (
-                <div className="space-y-4 max-w-xl">
-                  <div className="space-y-1">
-                    <label className="text-xs font-bold text-stone-700">URL do Vídeo</label>
-                    <input
-                      type="text"
-                      value={youtubeUrl}
-                      onChange={(e) => setYoutubeUrl(e.target.value)}
-                      placeholder="https://www.youtube.com/watch?v=..."
-                      className="w-full p-3 bg-stone-50 border border-stone-200 rounded-xl text-xs"
-                    />
-                  </div>
-                  <div className="space-y-1">
-                    <label className="text-xs font-bold text-stone-700">Título / Tema (Opcional)</label>
-                    <input
-                      type="text"
-                      value={youtubeTitle}
-                      onChange={(e) => setYoutubeTitle(e.target.value)}
-                      placeholder="Ex: Como Vender Planners no Fim de Ano"
-                      className="w-full p-2.5 bg-stone-50 border border-stone-200 rounded-xl text-xs"
-                    />
-                  </div>
-                </div>
-              )}
-
-              {/* SITE FLOW */}
-              {selectedType === "site" && (
-                <div className="space-y-4 max-w-xl">
-                  <div className="space-y-1">
-                    <label className="text-xs font-bold text-stone-700">URL da Página / Artigo</label>
-                    <input
-                      type="text"
-                      value={siteUrl}
-                      onChange={(e) => setSiteUrl(e.target.value)}
-                      placeholder="https://exemplo.com/artigo-papelaria"
-                      className="w-full p-3 bg-stone-50 border border-stone-200 rounded-xl text-xs"
-                    />
-                  </div>
-                  <div className="space-y-1">
-                    <label className="text-xs font-bold text-stone-700">Título (Opcional)</label>
-                    <input
-                      type="text"
-                      value={siteTitle}
-                      onChange={(e) => setSiteTitle(e.target.value)}
-                      placeholder="Ex: Guia de Gramaturas de Papel"
-                      className="w-full p-2.5 bg-stone-50 border border-stone-200 rounded-xl text-xs"
-                    />
-                  </div>
-                </div>
-              )}
-
-              {/* TEXT FLOW */}
-              {selectedType === "text" && (
-                <div className="space-y-4">
-                  <div className="space-y-1">
-                    <label className="text-xs font-bold text-stone-700">Título da Nota / Ideia</label>
-                    <input
-                      type="text"
-                      value={rawTextTitle}
-                      onChange={(e) => setRawTextTitle(e.target.value)}
-                      placeholder="Ex: Roteiro para Stories de Tiragem Sob Demanda"
-                      className="w-full p-2.5 bg-stone-50 border border-stone-200 rounded-xl text-xs"
-                    />
-                  </div>
-                  <div className="space-y-1">
-                    <label className="text-xs font-bold text-stone-700">Conteúdo Bruto / Anotação</label>
-                    <textarea
-                      value={rawText}
-                      onChange={(e) => setRawText(e.target.value)}
-                      placeholder="Cole ou digite aqui suas anotações, ideias e dados brutos..."
-                      className="w-full h-40 p-3 bg-stone-50 border border-stone-200 rounded-xl text-xs leading-relaxed"
-                    />
-                  </div>
-                </div>
-              )}
-
-              {/* GOOGLE DRIVE FLOW */}
-              {selectedType === "gdrive" && (
-                <GoogleDriveSelector
-                  onSelectFile={handleGoogleDriveFileSelected}
-                  onCancel={() => setSelectedType(null)}
-                />
-              )}
-
-              {/* ACTIONS */}
-              {selectedType !== "gdrive" && (
-                <div className="pt-4 border-t border-stone-150 flex items-center justify-between">
-                  <button
-                    type="button"
-                    onClick={() => setSelectedType(null)}
-                    className="px-4 py-2 text-stone-500 hover:text-stone-800 text-xs font-bold rounded-xl"
-                  >
-                    Voltar
-                  </button>
-                  <button
-                    type="button"
-                    onClick={handleStartProcessing}
-                    className="px-5 py-2.5 bg-stone-900 hover:bg-stone-800 text-white text-xs font-bold rounded-xl shadow-xs transition-all flex items-center gap-1.5 cursor-pointer"
-                  >
-                    <Sparkles className="w-4 h-4 text-purple-400" />
-                    <span>Processar e Gerar Prévia de Curadoria</span>
-                  </button>
-                </div>
-              )}
-
-            </div>
-          )}
-
-        </div>
-      )}
-
-      {/* 4. PROCESSING STATE ANIMATION */}
-      {isProcessing && (
-        <div className="bg-white rounded-3xl border border-stone-200/80 p-8 sm:p-12 shadow-xs max-w-2xl mx-auto text-center space-y-6 animate-fadeIn">
-          <div className="w-14 h-14 bg-purple-50 text-purple-700 border border-purple-150 rounded-2xl flex items-center justify-center mx-auto animate-pulse">
-            <Loader2 className="w-6 h-6 animate-spin" />
-          </div>
-          <div>
-            <span className="text-[10px] font-bold text-purple-700 uppercase tracking-widest block">
-              Curador do Obsidian Ativo
-            </span>
-            <h2 className="text-lg font-black text-stone-900 mt-1">
-              Extraindo e Estruturando Conhecimento
-            </h2>
-            <p className="text-xs text-stone-500 mt-0.5">
-              Aplicando regras de taxonomia e preparando proposta de validação humana.
-            </p>
-          </div>
-          <div className="space-y-2">
-            <div className="w-full bg-stone-100 h-2 rounded-full overflow-hidden">
-              <div className="bg-purple-600 h-full transition-all duration-300" style={{ width: `${progress}%` }} />
-            </div>
-            <div className="flex justify-between text-[11px] text-stone-500">
-              <span className="font-mono font-bold text-purple-700">{progress}%</span>
-              <span className="italic">{progressMessage}</span>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* 5. HUMAN-IN-THE-LOOP CURATION PANEL (PRÉVIA & CONFIRMAÇÃO HUMANA) */}
-      {curationProposal && !isProcessing && (
-        <div className="bg-white rounded-3xl border border-stone-200/80 p-6 sm:p-8 shadow-xs max-w-4xl mx-auto space-y-6 animate-fadeIn">
-          
-          {/* Header */}
-          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 pb-4 border-b border-stone-150">
-            <div>
-              <div className="flex items-center gap-2">
-                <span className="text-[10px] font-bold text-purple-700 bg-purple-50 px-2 py-0.5 rounded border border-purple-200 uppercase">
-                  Validação Humana Obrigatória
-                </span>
-                <span className="text-xs text-stone-400 font-medium">
-                  Revise antes de gravar no Obsidian
-                </span>
-              </div>
-              <h2 className="text-xl font-black text-stone-900 tracking-tight mt-1">
-                Curadoria de Conhecimento: {curationProposal.title}
-              </h2>
-            </div>
-
-            <div className="flex items-center gap-2">
-              <button
-                onClick={() => setCurationViewMode(curationViewMode === "preview" ? "edit" : "preview")}
-                className="px-3 py-1.5 bg-stone-100 hover:bg-stone-200 text-stone-700 text-xs font-bold rounded-xl flex items-center gap-1.5 cursor-pointer"
-              >
-                {curationViewMode === "preview" ? <Edit3 className="w-3.5 h-3.5" /> : <Eye className="w-3.5 h-3.5" />}
-                <span>{curationViewMode === "preview" ? "Editar Markdown" : "Ver Formatado"}</span>
-              </button>
-            </div>
-          </div>
-
-          {/* Configuration Form: Destination Folder, Status, Title */}
-          <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 bg-stone-50/60 p-4 rounded-2xl border border-stone-200/70 text-xs">
-            <div className="space-y-1">
-              <label className="font-bold text-stone-700 block">Título da Nota</label>
-              <input
-                type="text"
-                value={curationProposal.title}
-                onChange={(e) => setCurationProposal({ ...curationProposal, title: e.target.value })}
-                className="w-full p-2 bg-white border border-stone-200 rounded-xl text-xs font-bold text-stone-900"
-              />
-            </div>
-
-            <div className="space-y-1">
-              <label className="font-bold text-stone-700 block">Pasta no Cofre Obsidian</label>
-              <select
-                value={curationProposal.folder}
-                onChange={(e) => setCurationProposal({ ...curationProposal, folder: e.target.value })}
-                className="w-full p-2 bg-white border border-stone-200 rounded-xl text-xs font-mono font-bold text-purple-900"
-              >
-                {STANDARD_VAULT_FOLDERS.map((f) => (
-                  <option key={f} value={f}>
-                    📁 {f}
-                  </option>
-                ))}
-              </select>
-            </div>
-
-            <div className="space-y-1">
-              <label className="font-bold text-stone-700 block">Estado do Conhecimento</label>
-              <select
-                value={curationProposal.status}
-                onChange={(e) => setCurationProposal({ ...curationProposal, status: e.target.value as KnowledgeStatus })}
-                className={`w-full p-2 bg-white border rounded-xl text-xs font-bold ${
-                  curationProposal.status === "OFICIAL"
-                    ? "border-emerald-300 text-emerald-800"
-                    : curationProposal.status === "EM REVISÃO"
-                    ? "border-amber-300 text-amber-800"
-                    : "border-blue-300 text-blue-800"
-                }`}
-              >
-                <option value="NOVO">NOVO (Rascunho inicial)</option>
-                <option value="EM REVISÃO">EM REVISÃO (Pendente de dados)</option>
-                <option value="OFICIAL">OFICIAL (Guia a IA automaticamente)</option>
-              </select>
-            </div>
-          </div>
-
-          {/* Highlights & Hypotheses Callouts */}
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 text-xs">
-            <div className="p-4 bg-purple-50/40 rounded-2xl border border-purple-150 space-y-2">
-              <span className="font-bold text-purple-950 uppercase text-[10px] tracking-wider flex items-center gap-1.5">
-                <ShieldCheck className="w-3.5 h-3.5 text-purple-600" />
-                <span>Evidências Extraídas</span>
-              </span>
-              <ul className="space-y-1 text-stone-700">
-                {curationProposal.evidence.map((ev, i) => (
-                  <li key={i} className="flex items-start gap-1.5">
-                    <span className="text-purple-600 font-bold">•</span>
-                    <span>{ev}</span>
-                  </li>
-                ))}
-              </ul>
-            </div>
-
-            <div className="p-4 bg-emerald-50/40 rounded-2xl border border-emerald-150 space-y-2">
-              <span className="font-bold text-emerald-950 uppercase text-[10px] tracking-wider flex items-center gap-1.5">
-                <Sparkles className="w-3.5 h-3.5 text-emerald-600" />
-                <span>Aplicações em Marketing Nisti</span>
-              </span>
-              <ul className="space-y-1 text-stone-700">
-                {curationProposal.marketingHypotheses.map((hyp, i) => (
-                  <li key={i} className="flex items-start gap-1.5">
-                    <span className="text-emerald-600 font-bold">•</span>
-                    <span>{hyp}</span>
-                  </li>
-                ))}
-              </ul>
-            </div>
-          </div>
-
-          {/* Content Viewer / Editor */}
-          <div className="space-y-2">
-            <span className="text-xs font-bold text-stone-700 block">Prévia do Conteúdo Markdown</span>
-            {curationViewMode === "edit" ? (
-              <textarea
-                value={curationProposal.content}
-                onChange={(e) => setCurationProposal({ ...curationProposal, content: e.target.value })}
-                className="w-full h-64 p-4 bg-stone-50 border border-stone-200 rounded-2xl font-mono text-xs text-stone-900 leading-relaxed"
-              />
             ) : (
-              <div className="p-5 bg-stone-50 border border-stone-200 rounded-2xl text-xs space-y-3 font-sans max-h-64 overflow-y-auto leading-relaxed text-stone-800">
-                {(curationProposal.content || "").split("\n\n").map((para, idx) => {
-                  if (para.startsWith("# ")) return <h1 key={idx} className="text-base font-black text-stone-900">{para.replace("# ", "")}</h1>;
-                  if (para.startsWith("## ")) return <h2 key={idx} className="text-sm font-bold text-stone-900 pt-1">{para.replace("## ", "")}</h2>;
-                  if (para.startsWith("- ")) return <p key={idx} className="pl-3 text-stone-700 font-mono">{para}</p>;
-                  return <p key={idx}>{para}</p>;
-                })}
+              <div className="flex-1 p-5 overflow-y-auto space-y-5">
+                <div className="grid md:grid-cols-2 gap-4">
+                  <label className="space-y-2"><span className="text-[10px] uppercase tracking-[0.1em] font-bold text-slate-500">Título sugerido</span><input value={proposal.title} onChange={(event) => setProposal({ ...proposal, title: event.target.value })} className="w-full h-10 px-3 bg-[#111827] border border-[#334155] text-xs text-slate-100 outline-none focus:border-blue-500" /></label>
+                  <label className="space-y-2"><span className="text-[10px] uppercase tracking-[0.1em] font-bold text-slate-500">Pasta destino</span><select value={proposal.folder} onChange={(event) => setProposal({ ...proposal, folder: event.target.value })} className="w-full h-10 px-3 bg-[#111827] border border-[#334155] text-xs text-slate-200 outline-none focus:border-blue-500">{STANDARD_VAULT_FOLDERS.map((folder) => <option key={folder}>{folder}</option>)}</select></label>
+                </div>
+
+                <div><span className="text-[10px] uppercase tracking-[0.1em] font-bold text-slate-500">Tags identificadas</span><div className="flex flex-wrap gap-2 mt-2">{proposal.keywords.length ? proposal.keywords.map((tag) => <span key={tag} className="px-2.5 py-1 bg-[#263140] border border-[#475569] text-xs font-mono text-slate-200 flex items-center gap-1"><Tag className="w-3 h-3" />#{tag}</span>) : <span className="text-xs text-slate-600">Nenhuma tag identificada.</span>}</div></div>
+
+                <div><span className="text-[10px] uppercase tracking-[0.1em] font-bold text-slate-500">Wikilinks sugeridos (conexões)</span><div className="mt-2 min-h-16 p-3 bg-[#111827] border border-[#334155] text-xs font-mono text-violet-300 space-y-1">{proposal.wikilinks.length ? proposal.wikilinks.map((link) => <div key={link}>[[{link}]]</div>) : <span className="text-slate-600">Nenhuma conexão sugerida.</span>}</div></div>
+
+                <div><span className="text-[10px] uppercase tracking-[0.1em] font-bold text-slate-500">Resumo executivo (extraído)</span><textarea value={proposal.summary} onChange={(event) => setProposal({ ...proposal, summary: event.target.value })} className="mt-2 w-full min-h-28 p-3 bg-[#111827] border border-[#334155] text-xs leading-5 text-slate-200 outline-none resize-y focus:border-blue-500" /></div>
+
+                <div className="grid grid-cols-2 gap-4 text-xs"><div className="bg-[#111827] border border-[#334155] p-3"><span className="text-slate-500">Estado epistemológico</span><div className="mt-2 text-amber-400 font-semibold">{proposal.status}</div></div><div className="bg-[#111827] border border-[#334155] p-3"><span className="text-slate-500">Categoria</span><div className="mt-2 text-slate-200 font-semibold">{proposal.category}</div></div></div>
               </div>
             )}
-          </div>
 
-          {/* Confirmation & Routing Buttons */}
-          <div className="pt-4 border-t border-stone-150 flex flex-wrap items-center justify-between gap-3">
-            <button
-              onClick={() => setCurationProposal(null)}
-              className="px-4 py-2 text-stone-500 hover:text-stone-800 text-xs font-bold rounded-xl"
-            >
-              Cancelar & Descartar
-            </button>
-
-            <div className="flex flex-wrap items-center gap-2">
-              <button
-                onClick={() => handleConfirmAndSave(true)}
-                className="px-4 py-2 bg-stone-100 hover:bg-stone-200 text-stone-800 text-xs font-bold rounded-xl border border-stone-200 transition-all flex items-center gap-1.5 cursor-pointer"
-                title="Salva na pasta 00_Inbox como rascunho NOVO"
-              >
-                <Inbox className="w-3.5 h-3.5 text-stone-500" />
-                <span>Salvar em 00_Inbox</span>
-              </button>
-
-              <button
-                onClick={() => handleConfirmAndSave(false)}
-                className="px-5 py-2.5 bg-emerald-700 hover:bg-emerald-800 text-white text-xs font-bold rounded-xl shadow-xs transition-all flex items-center gap-1.5 cursor-pointer"
-              >
-                <Check className="w-4 h-4" />
-                <span>Confirmar e Gravar no Obsidian</span>
-              </button>
+            <div className="p-4 border-t border-[#334155] flex flex-col sm:flex-row gap-3 justify-end">
+              <button type="button" onClick={reset} className="h-10 px-5 border border-[#334155] bg-[#182234] hover:bg-[#263140] text-xs font-semibold text-slate-300 flex items-center justify-center gap-2"><Trash2 className="w-4 h-4" /> Descartar</button>
+              <button type="button" onClick={processSource} disabled={!proposal || isProcessing} className="h-10 px-5 border border-[#334155] bg-[#182234] hover:bg-[#263140] disabled:opacity-40 text-xs font-semibold text-slate-300 flex items-center justify-center gap-2"><RotateCcw className="w-4 h-4" /> Reprocessar</button>
+              <button type="button" onClick={approveAndSave} disabled={!proposal || !connected || isSaving} className="h-10 px-6 bg-[#2563eb] hover:bg-blue-500 disabled:bg-slate-700 disabled:text-slate-500 text-xs font-semibold text-white flex items-center justify-center gap-2"><CheckCircle2 className="w-4 h-4" /> {isSaving ? "Salvando..." : connected ? "Aprovar e Salvar no Vault" : "Conecte o Obsidian para salvar"}</button>
             </div>
-          </div>
-
+          </section>
         </div>
-      )}
-
-      {/* 6. SUCCESS STATE */}
-      {createdNote && !isProcessing && (
-        <div className="bg-white rounded-3xl border border-stone-200/80 p-6 sm:p-8 shadow-xs max-w-2xl mx-auto space-y-6 animate-fadeIn">
-          <div className="flex items-start gap-4 pb-4 border-b border-stone-150">
-            <div className="w-12 h-12 bg-emerald-50 text-emerald-700 border border-emerald-150 rounded-2xl flex items-center justify-center shrink-0">
-              <CheckCircle2 className="w-6 h-6" />
-            </div>
-            <div>
-              <span className="text-[10px] font-bold text-emerald-700 uppercase tracking-wider block">
-                Nota Gravada com Sucesso no Cofre
-              </span>
-              <h2 className="text-lg font-black text-stone-900">
-                {createdNote.title}
-              </h2>
-              <p className="text-xs text-stone-500 font-mono mt-0.5">
-                📁 {createdNote.path} • Status: <span className="font-bold text-stone-800">{createdNote.frontmatter.status}</span>
-              </p>
-            </div>
-          </div>
-
-          <div className="p-4 bg-stone-50 rounded-2xl border border-stone-200/70 space-y-2 text-xs">
-            <span className="font-bold text-stone-700 block">Conexões Atômicas (Backlinks):</span>
-            <div className="flex flex-wrap gap-1.5">
-              {relations.map((rel, i) => (
-                <span key={i} className="px-2.5 py-1 bg-purple-50 text-purple-900 rounded-lg border border-purple-150 font-mono text-[11px] font-bold flex items-center gap-1">
-                  <Link2 className="w-3 h-3 text-purple-500" />
-                  <span>[[{rel}]]</span>
-                </span>
-              ))}
-            </div>
-          </div>
-
-          <div className="flex items-center justify-between pt-2">
-            <button
-              onClick={resetForm}
-              className="px-4 py-2 bg-stone-100 hover:bg-stone-200 text-stone-700 text-xs font-bold rounded-xl cursor-pointer"
-            >
-              + Adicionar Outra Nota
-            </button>
-
-            <div className="flex items-center gap-2">
-              <button
-                onClick={handleOpenNoteInVault}
-                className="px-4 py-2 bg-purple-700 hover:bg-purple-800 text-white text-xs font-bold rounded-xl cursor-pointer shadow-3xs"
-              >
-                Ver no Navegador de Notas
-              </button>
-              <a
-                href={buildObsidianOpenUri(apiConfig.vaultName, createdNote.path)}
-                className="px-4 py-2 bg-stone-900 hover:bg-stone-850 text-white text-xs font-bold rounded-xl cursor-pointer flex items-center gap-1"
-              >
-                <span>Abrir no Obsidian</span>
-                <ExternalLink className="w-3.5 h-3.5 text-purple-300" />
-              </a>
-            </div>
-          </div>
-        </div>
-      )}
-
+      </div>
     </div>
   );
 };
