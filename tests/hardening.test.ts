@@ -127,10 +127,42 @@ describe("v2.0.0 hardening invariants", () => {
     expect(noteModal.indexOf("api.pushNoteToObsidian")).toBeLessThan(noteModal.indexOf("onSaveNote(newNote)"));
   });
 
-  test("local engine keeps unsupported business claims pending", async () => {
+  test("initial product state contains no fabricated tasks, personas, metrics or routine", async () => {
+    const defaultVault = await read("src/data/defaultVault.ts");
+    const routine = await read("src/data/routineData.ts");
+
+    expect(defaultVault).toContain("DEFAULT_TASKS: MarketingTask[] = []");
+    expect(defaultVault).not.toContain("Black Friday");
+    expect(defaultVault).not.toContain("Always-On");
+    expect(routine).toContain("DEFAULT_NICHES: NicheSegment[] = []");
+    expect(routine).toContain("DEFAULT_POST_HISTORY: PostHistoryItem[] = []");
+    expect(routine).toContain("DEFAULT_LEARNING_INSIGHTS: LearningInsight[] = []");
+    expect(routine).toContain("DEFAULT_WEEKLY_ROUTINE: DailyRoutineSlot[] = []");
+    expect(routine).not.toContain("saas_founders");
+    expect(routine).not.toContain("conversionAvgRate");
+  });
+
+  test("server fallbacks are source-grounded and YouTube remains metadata-only", async () => {
+    const source = await read("server.ts");
+
+    expect(source).toContain("metadata-only");
+    expect(source).toContain("payload?.videoTitle");
+    expect(source).toContain("payload?.videoChannel");
+    expect(source).toContain("conteúdo audiovisual/transcrição não foi analisado");
+    expect(source).toContain("local-structural-audit");
+    expect(source).not.toContain("a partir de 10 unidades");
+    expect(source).not.toContain("Ganchos nos primeiros 3 segundos retêm até 70%");
+    expect(source).not.toContain("readinessScore: 92");
+  });
+
+  test("local engine never invents scheduling and generated campaign stays under review", async () => {
     const source = await read("src/utils/localEngine.ts");
+
     expect(source).toContain("CONFIRMADO, HIPÓTESE ou PENDENTE");
-    expect(source).toContain("não deve inventar preços, prazos, métricas");
+    expect(source).toContain("não inventa preços, prazos, datas de publicação, métricas");
+    expect(source).toContain('status: "EM REVISÃO"');
+    expect(source).toContain('dueDate: ""');
+    expect(source).toContain("Datas, horários e lembretes só são preenchidos quando existem na fonte");
     expect(source).not.toContain("Margem de até 150%");
     expect(source).not.toContain("Produção ágil em até 5 dias úteis");
     expect(source).not.toContain("a partir de 10 unidades");
