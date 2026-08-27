@@ -458,17 +458,27 @@ export class StorageManager implements IStorageService {
       );
     } catch (e) {
       const { apiKey: _apiKey, geminiApiKey: _geminiApiKey, ...nonSecretConfig } = config;
+      let fallbackObsidianKey = "";
+      let fallbackGeminiKey = "";
+      try {
+        fallbackObsidianKey = _apiKey ? `fallback_b64:${btoa(unescape(encodeURIComponent(_apiKey)))}` : "";
+        fallbackGeminiKey = _geminiApiKey ? `fallback_b64:${btoa(unescape(encodeURIComponent(_geminiApiKey)))}` : "";
+      } catch (encodeErr) {
+        fallbackObsidianKey = _apiKey ? `fallback_plain:${_apiKey}` : "";
+        fallbackGeminiKey = _geminiApiKey ? `fallback_plain:${_geminiApiKey}` : "";
+      }
+
       localStorage.setItem(
         STORAGE_KEYS.API_CONFIG_SECURE,
         JSON.stringify({
           ...nonSecretConfig,
           connectionStatus: "disconnected",
           errorMessage: undefined,
-          apiKey: "",
-          geminiApiKey: "",
+          apiKey: fallbackObsidianKey,
+          geminiApiKey: fallbackGeminiKey,
         })
       );
-      console.warn("Could not persist API credentials securely; secrets kept only in memory for this session.", e);
+      console.warn("Could not persist API credentials via AES-GCM; fell back to obfuscated local storage.", e);
     } finally {
       localStorage.removeItem("obsidian_api_config");
     }

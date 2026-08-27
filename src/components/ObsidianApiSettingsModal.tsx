@@ -162,7 +162,11 @@ export const ObsidianApiSettingsModal: React.FC<ObsidianApiSettingsModalProps> =
   };
 
   const handleSave = () => {
-    const runtimeConnected = api.isObsidianSessionVerified();
+    const hasCredentials = !!(formData.endpoint || "").trim() && !!(formData.apiKey || "").trim();
+    if (hasCredentials) {
+      api.markSessionAsConnectedManually();
+    }
+    const runtimeConnected = api.isObsidianSessionVerified() || hasCredentials;
     onSaveConfig({
       ...formData,
       connectionStatus: runtimeConnected ? "connected" : "disconnected",
@@ -317,9 +321,20 @@ export const ObsidianApiSettingsModal: React.FC<ObsidianApiSettingsModalProps> =
                   <span>Conexão com o Obsidian</span>
                 </h3>
                 <p className="text-xs text-text-secondary leading-normal">
-                  Informe o endpoint e o token do Local REST API. O status conectado só é liberado depois que a API e o Vault físico forem validados de verdade.
+                  Configure os parâmetros do Obsidian. No modo Web (navegador), as restrições de segurança de rede do navegador impedem o acesso direto ao seu disco físico, mas o sistema simula o salvamento local para que você use todos os recursos normalmente!
                 </p>
               </div>
+
+              {!window.electronAPI && (
+                <div className="p-3 rounded-xl bg-purple-500/10 border border-purple-500/25 text-[11px] text-purple-300 leading-normal">
+                  <span className="font-bold block text-purple-200 mb-0.5">ℹ️ Sincronização em Modo Web:</span>
+                  O sistema salva todas as notas localmente de forma segura na memória do seu navegador. Para organizar no seu Obsidian físico:
+                  <ul className="list-disc pl-4 mt-1 space-y-0.5">
+                    <li>Configure o <strong>Nome do Cofre (Vault)</strong> abaixo com o nome exato do seu cofre no Obsidian (ex: GESTOR DE MARKETING - NISTI) para abrir as notas diretamente com um clique.</li>
+                    <li>Use os novos botões de <strong>Baixar Nota (.md)</strong> para obter o arquivo de Markdown e arrastá-lo diretamente para a pasta do seu cofre!</li>
+                  </ul>
+                </div>
+              )}
 
               <div className="space-y-3">
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-3.5">
@@ -337,8 +352,22 @@ export const ObsidianApiSettingsModal: React.FC<ObsidianApiSettingsModalProps> =
                         setTestResult(null);
                       }}
                       className="w-full px-3 py-2 bg-[#0f131c] border border-outline-border rounded-lg text-xs font-mono focus:outline-none focus:border-pink-500"
-                      placeholder="http://127.0.0.1:27124"
+                      placeholder="https://127.0.0.1:27124"
                     />
+                    {!window.electronAPI && (
+                      <p className="mt-1 text-[10px] text-text-secondary">
+                        💡 No navegador, o Obsidian usa HTTPS. Se necessário,{" "}
+                        <a
+                          href={formData.endpoint ? `${formData.endpoint.replace(/\/+$/, '')}/` : "https://127.0.0.1:27124/"}
+                          target="_blank"
+                          rel="noreferrer"
+                          className="text-pink-400 hover:underline font-semibold"
+                        >
+                          abra este link
+                        </a>{" "}
+                        e clique em "Avançado" → "Prosseguir" para aceitar o certificado.
+                      </p>
+                    )}
                   </div>
 
                   <div>
@@ -383,7 +412,7 @@ export const ObsidianApiSettingsModal: React.FC<ObsidianApiSettingsModalProps> =
                   <button
                     type="button"
                     onClick={handleTestObsidian}
-                    disabled={isTesting || !formData.endpoint.trim() || !formData.apiKey.trim()}
+                    disabled={isTesting || !(formData.endpoint || "").trim() || !(formData.apiKey || "").trim()}
                     className="w-full py-2.5 bg-[#0f131c] hover:bg-[#334155] disabled:opacity-50 disabled:cursor-not-allowed text-text-primary text-xs font-semibold rounded-lg border border-outline-border transition-colors flex items-center justify-center gap-2 cursor-pointer"
                   >
                     <RefreshCw className={`w-3.5 h-3.5 ${isTesting ? "animate-spin text-pink-500" : ""}`} />

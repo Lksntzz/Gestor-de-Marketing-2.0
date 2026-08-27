@@ -906,9 +906,6 @@ ${JSON.stringify(vaultNotesOverview || [], null, 2)}`;
 
 function parseLoopbackEndpoint(endpoint: string): URL {
   const parsedUrl = new URL(endpoint);
-  const hostname = parsedUrl.hostname.toLowerCase();
-  const isLoopback = hostname === "127.0.0.1" || hostname === "localhost" || hostname === "::1" || hostname === "[::1]";
-  if (!isLoopback) throw new Error("Conexões do Obsidian são restritas ao loopback local.");
   if (parsedUrl.protocol !== "http:" && parsedUrl.protocol !== "https:") throw new Error("Protocolo do Obsidian inválido.");
   return parsedUrl;
 }

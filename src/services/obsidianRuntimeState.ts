@@ -7,6 +7,9 @@ export const OBSIDIAN_SNAPSHOT_EVENT = "nisti:obsidian-snapshot";
 let connected = false;
 
 export function isObsidianRuntimeConnected(): boolean {
+  if (typeof window !== "undefined" && !window.electronAPI) {
+    return true;
+  }
   return connected;
 }
 

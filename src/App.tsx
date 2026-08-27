@@ -45,7 +45,7 @@ import {
   DEFAULT_LEARNING_INSIGHTS,
   DEFAULT_WEEKLY_ROUTINE,
 } from "./data/routineData";
-import { api } from "./services/api";
+import { api, normalizeObsidianEndpoint } from "./services/api";
 import { APP_STATE_KEYS, StorageManager } from "./services/storage/StorageManager";
 import { usePersistentState, usePersistentTextState } from "./hooks/usePersistentState";
 import { AppStateSchemas, parseWorkspaceImport } from "./domain/appStateSchemas";
@@ -179,10 +179,10 @@ export default function App() {
   );
 
   const [apiConfig, setApiConfig] = useState<ObsidianApiConfig>({
-    endpoint: "http://127.0.0.1:27124",
+    endpoint: "https://127.0.0.1:27124",
     apiKey: "",
     vaultName: "MarketingVault",
-    useHttps: false,
+    useHttps: true,
     autoSync: true,
     syncIntervalSeconds: 60,
     connectionStatus: "disconnected",
@@ -192,7 +192,15 @@ export default function App() {
   const updateAndSaveApiConfig = useCallback((update: ObsidianApiConfig | ((prev: ObsidianApiConfig) => ObsidianApiConfig)) => {
     setApiConfig((prev) => {
       const next = typeof update === "function" ? update(prev) : update;
-      void storage.saveApiConfig(next);
+      
+      // Defer side effects to ensure they run outside the state update/render phase
+      setTimeout(() => {
+        void storage.saveApiConfig(next);
+        if (next.connectionStatus !== "connected" || !next.apiKey?.trim() || !next.endpoint?.trim()) {
+          api.disconnectObsidianSession("Configuração do Obsidian revogada ou inválida.");
+        }
+      }, 0);
+
       return next;
     });
   }, []);
@@ -200,8 +208,32 @@ export default function App() {
   useEffect(() => {
     storage
       .loadApiConfig(apiConfig)
-      .then((loaded) => {
-        if (loaded) setApiConfig(loaded);
+      .then(async (loaded) => {
+        if (loaded) {
+          if (loaded.endpoint?.trim() && loaded.apiKey?.trim()) {
+            try {
+              const res = await api.probeObsidianConnection(loaded);
+              if (res.success) {
+                const connectedConfig: ObsidianApiConfig = {
+                  ...loaded,
+                  connectionStatus: "connected",
+                  errorMessage: undefined,
+                  vaultName: res.detectedVaultName || loaded.vaultName || "MarketingVault",
+                };
+                setApiConfig(connectedConfig);
+                return;
+              }
+            } catch (err) {
+              console.warn("Auto-reconnection to Obsidian on startup failed:", err);
+            }
+          }
+          // Fallback: Disconnected / fail-closed
+          setApiConfig({
+            ...loaded,
+            connectionStatus: "disconnected",
+          });
+          api.disconnectObsidianSession("Sessão inicializada como desconectada.");
+        }
       });
   }, []);
 
@@ -574,26 +606,31 @@ export default function App() {
     const dailyPath = storage.getDailyNotePath(today);
     const safeBody = body.trim() || "_Nenhum item pendente._";
 
-    setNotes((prev) => {
-      const existingDaily = prev.find((n) => n.path === dailyPath);
-      if (existingDaily) {
-        const updated: ObsidianNote = {
-          ...existingDaily,
-          content: upsertManagedSection(existingDaily.content, sectionId, heading, safeBody),
-          lastModified: new Date().toISOString().replace("T", " ").slice(0, 16),
-        };
-        return prev.map((n) => (n.id === existingDaily.id ? updated : n));
-      }
-
-      const content = `# 📅 Daily Note: ${today}\n\n${upsertManagedSection("", sectionId, heading, safeBody)}`;
-      return [createDailyNote(today, content), ...prev];
-    });
-
     const remoteResult = await api
       .upsertDailyNoteSection(apiConfig, sectionId, heading, safeBody)
       .catch(() => ({ success: false }));
 
-    return Boolean(remoteResult?.success);
+    const success = Boolean(remoteResult?.success);
+
+    if (success) {
+      setNotes((prev) => {
+        const existingDaily = prev.find((n) => n.path === dailyPath);
+        if (existingDaily) {
+          const updated: ObsidianNote = {
+            ...existingDaily,
+            content: upsertManagedSection(existingDaily.content, sectionId, heading, safeBody),
+            lastModified: new Date().toISOString().replace("T", " ").slice(0, 16),
+            syncedWithApi: true,
+          };
+          return prev.map((n) => (n.id === existingDaily.id ? updated : n));
+        }
+
+        const content = `# 📅 Daily Note: ${today}\n\n${upsertManagedSection("", sectionId, heading, safeBody)}`;
+        return [createDailyNote(today, content), ...prev];
+      });
+    }
+
+    return success;
   };
 
   const syncPendingTasksToDaily = async (silent = false): Promise<boolean> => {
@@ -712,33 +749,75 @@ export default function App() {
     }
     setIsSyncing(true);
     try {
-      const desktopNotes = await storage.readDesktopNotesForApp();
-      if (desktopNotes) {
+      let detectedVault = apiConfig.vaultName;
+      if (window.electronAPI) {
+        const vaultPath = await window.electronAPI.getVaultPath();
+        if (vaultPath) {
+          const pathSegments = vaultPath.replace(/\\/g, '/').split('/');
+          const baseName = pathSegments.filter(Boolean).pop();
+          if (baseName && baseName !== apiConfig.vaultName) {
+            detectedVault = baseName;
+          }
+        }
+      } else {
+        // Query GET / to identify the physical vault name automatically!
+        try {
+          const targetEndpoint = normalizeObsidianEndpoint(apiConfig.endpoint);
+          const testRes = await fetch(`${targetEndpoint}/`, {
+            method: "GET",
+            headers: {
+              Authorization: `Bearer ${apiConfig.apiKey}`,
+              Accept: "application/json",
+            },
+          });
+          if (testRes.ok) {
+            const serverData = await testRes.json();
+            if (serverData.vault) {
+              detectedVault = serverData.vault;
+            }
+          }
+        } catch (e) {
+          console.warn("Could not query root endpoint for vault name:", e);
+        }
+      }
+
+      let desktopNotes: ObsidianNote[] | null = null;
+      if (window.electronAPI) {
+        desktopNotes = await storage.readDesktopNotesForApp();
+      } else {
+        try {
+          desktopNotes = await api.syncWebObsidianNotes(apiConfig);
+        } catch (e: any) {
+          console.warn("Could not sync web notes:", e);
+          throw new Error(`Erro ao conectar com o Obsidian local: ${e.message || e}. Certifique-se de que o Obsidian está aberto e o certificado de segurança foi aceito.`);
+        }
+      }
+
+      if (Array.isArray(desktopNotes)) {
         setNotes((prev) => {
           const merged = mergeByPath(prev, desktopNotes);
           setSelectedNote((selected) => {
             if (!selected) return merged[0] || null;
-            return merged.find((note) => note.path === selected.path) || selected;
+            return merged.find((note) => note.path === selected.path) || merged[0] || null;
           });
           return merged;
         });
       }
 
-      const remoteSuccess = await syncPendingTasksToDaily(true);
       const syncedAt = new Date().toISOString();
-      updateAndSaveApiConfig((prev) => ({ ...prev, lastSyncTime: syncedAt }));
+      updateAndSaveApiConfig((prev) => ({ ...prev, lastSyncTime: syncedAt, vaultName: detectedVault }));
 
-      if (remoteSuccess) {
-        await storage.logAudit({
-          action: "VAULT_SYNCED",
-          entityType: "VAULT",
-          entityId: apiConfig.vaultName || "MarketingVault",
-          details: `Sincronização real concluída em ${syncedAt}. Notas do Electron atualizadas e tarefas reconciliadas na Daily Note.`,
-        });
-        showToast("success", "Sincronização Concluída", "Vault lido e Daily Note reconciliada sem duplicação.");
-      } else {
-        showToast("warning", "Sincronização Parcial", "Dados locais foram reconciliados, mas o Obsidian não confirmou a gravação remota.");
-      }
+      await storage.logAudit({
+        action: "VAULT_SYNCED",
+        entityType: "VAULT",
+        entityId: detectedVault || "MarketingVault",
+        details: `Sincronização real concluída em ${syncedAt}.`,
+      });
+      showToast(
+        "success",
+        "Sincronização Concluída",
+        `Cofre "${detectedVault}" sincronizado com sucesso.`
+      );
     } catch (err: any) {
       showToast("warning", "Erro de Sincronização", err.message || "Falha ao sincronizar com o Vault.");
     } finally {
@@ -752,7 +831,11 @@ export default function App() {
       apiKey: cfg.apiKey,
     });
     if (res.success) {
-      updateAndSaveApiConfig((prev) => ({ ...prev, connectionStatus: "connected" }));
+      updateAndSaveApiConfig((prev) => ({
+        ...prev,
+        connectionStatus: "connected",
+        vaultName: res.detectedVaultName || prev.vaultName || "MarketingVault"
+      }));
     } else {
       updateAndSaveApiConfig((prev) => ({ ...prev, connectionStatus: "disconnected" }));
     }
@@ -795,11 +878,40 @@ export default function App() {
       if (prev.some((r) => r.id === ruleId)) {
         return prev.map((r) => (r.id === ruleId ? { ...r, enabled: !r.enabled } : r));
       }
-      return [...prev, { id: ruleId, name: ruleId, enabled: false, executionCount: 0 }];
+      
+      // Default rule metadata that strictly satisfies PersistedAutomationRuleSchema
+      let name = ruleId;
+      let description = "Regra de automação do Vault";
+      let trigger: "on_campaign_created" | "daily_schedule" | "on_note_tagged" | "reminder_triggered" = "daily_schedule";
+      let action: "create_tasks_in_daily_note" | "schedule_reminders" | "push_to_obsidian_api" | "generate_status_report" = "create_tasks_in_daily_note";
+      
+      if (ruleId === "rule_daily_sync") {
+        name = "Sincronizador da Nota Diária";
+        description = "Sincroniza tarefas concluídas e pendentes na nota diária.";
+        trigger = "daily_schedule";
+        action = "create_tasks_in_daily_note";
+      } else if (ruleId === "rule_auto_tasks") {
+        name = "Gerador de Subtarefas por Campanha";
+        description = "Gera e agenda tarefas padrões do processo para novas campanhas.";
+        trigger = "on_campaign_created";
+        action = "schedule_reminders";
+      } else if (ruleId === "rule_vault_audit") {
+        name = "Auditoria e Indexação Contínua";
+        description = "Mapeia tom e diretrizes para o motor local.";
+        trigger = "on_note_tagged";
+        action = "push_to_obsidian_api";
+      }
+      
+      return [...prev, { id: ruleId, name, description, trigger, action, enabled: false, executionCount: 0 }];
     });
   };
 
   const handleRunRuleNow = async (ruleId: string) => {
+    if (apiConfig.connectionStatus !== "connected") {
+      showToast("warning", "Obsidian Desconectado", "O cofre do Obsidian deve estar conectado para executar automações.");
+      return;
+    }
+
     const today = localDateKey();
 
     if (ruleId === "rule_auto_tasks") {
@@ -928,7 +1040,43 @@ export default function App() {
             : r
         );
       }
-      return [...prev, { id: ruleId, name: ruleId, enabled: true, executionCount: 1, lastRun: new Date().toISOString().replace("T", " ").slice(0, 16) }];
+
+      // Default rule metadata that strictly satisfies PersistedAutomationRuleSchema
+      let name = ruleId;
+      let description = "Regra de automação do Vault";
+      let trigger: "on_campaign_created" | "daily_schedule" | "on_note_tagged" | "reminder_triggered" = "daily_schedule";
+      let action: "create_tasks_in_daily_note" | "schedule_reminders" | "push_to_obsidian_api" | "generate_status_report" = "create_tasks_in_daily_note";
+
+      if (ruleId === "rule_daily_sync") {
+        name = "Sincronizador da Nota Diária";
+        description = "Sincroniza tarefas concluídas e pendentes na nota diária.";
+        trigger = "daily_schedule";
+        action = "create_tasks_in_daily_note";
+      } else if (ruleId === "rule_auto_tasks") {
+        name = "Gerador de Subtarefas por Campanha";
+        description = "Gera e agenda tarefas padrões do processo para novas campanhas.";
+        trigger = "on_campaign_created";
+        action = "schedule_reminders";
+      } else if (ruleId === "rule_vault_audit") {
+        name = "Auditoria e Indexação Contínua";
+        description = "Mapeia tom e diretrizes para o motor local.";
+        trigger = "on_note_tagged";
+        action = "push_to_obsidian_api";
+      }
+
+      return [
+        ...prev,
+        {
+          id: ruleId,
+          name,
+          description,
+          trigger,
+          action,
+          enabled: true,
+          executionCount: 1,
+          lastRun: new Date().toISOString().replace("T", " ").slice(0, 16),
+        },
+      ];
     });
     confetti({ particleCount: 25 });
   };

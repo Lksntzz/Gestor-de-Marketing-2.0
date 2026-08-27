@@ -14,11 +14,11 @@ import type { ObsidianApiConfig } from "./types";
 
 const storage = StorageManager.getInstance();
 const DEFAULT_API_CONFIG: ObsidianApiConfig = {
-  endpoint: "http://127.0.0.1:27124",
+  endpoint: "https://127.0.0.1:27124",
   apiKey: "",
   geminiApiKey: "",
   vaultName: "MarketingVault",
-  useHttps: false,
+  useHttps: true,
   autoSync: true,
   syncIntervalSeconds: 60,
   connectionStatus: "disconnected",
@@ -38,22 +38,33 @@ function triggerVaultSync() {
 }
 
 function ObsidianRuntimeGate({ children }: { children: ReactNode }) {
-  const [connected, setConnected] = useState(() => isObsidianRuntimeConnected());
-  const [checking, setChecking] = useState(true);
+  const isWeb = typeof window !== "undefined" && !window.electronAPI;
+  const [connected, setConnected] = useState(() => isWeb || isObsidianRuntimeConnected());
+  const [checking, setChecking] = useState(() => !isWeb);
   const [reason, setReason] = useState("Conecte o Obsidian Local REST API e selecione o Vault físico para liberar o banco de conhecimento.");
 
   useEffect(() => {
-    const onConnected = () => {
+    if (isWeb) {
       setConnected(true);
       setChecking(false);
-      setReason("");
-      triggerVaultSync();
+      return;
+    }
+
+    const onConnected = () => {
+      setTimeout(() => {
+        setConnected(true);
+        setChecking(false);
+        setReason("");
+        triggerVaultSync();
+      }, 0);
     };
     const onDisconnected = (event: Event) => {
       const detail = (event as CustomEvent<{ reason?: string }>).detail;
-      setConnected(false);
-      setChecking(false);
-      setReason(detail?.reason || "A conexão com o Obsidian foi perdida.");
+      setTimeout(() => {
+        setConnected(false);
+        setChecking(false);
+        setReason(detail?.reason || "A conexão com o Obsidian foi perdida.");
+      }, 0);
     };
 
     window.addEventListener(OBSIDIAN_CONNECTED_EVENT, onConnected);
@@ -82,7 +93,7 @@ function ObsidianRuntimeGate({ children }: { children: ReactNode }) {
       window.removeEventListener(OBSIDIAN_CONNECTED_EVENT, onConnected);
       window.removeEventListener(OBSIDIAN_DISCONNECTED_EVENT, onDisconnected as EventListener);
     };
-  }, []);
+  }, [isWeb]);
 
   return (
     <>

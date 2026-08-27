@@ -1,4 +1,5 @@
-import { ObsidianApiConfig } from "../types";
+import { ObsidianApiConfig, ObsidianNote } from "../types";
+import { generateFastHash } from "../utils/crypto";
 import { localDateKey, upsertManagedSection } from "../utils/reliability";
 import {
   isObsidianRuntimeConnected,
@@ -10,14 +11,39 @@ import { StorageManager } from "./storage/StorageManager";
 
 let cachedSessionToken: string | null = null;
 let obsidianHeartbeat: ReturnType<typeof setInterval> | null = null;
+let useDirectClientSideFetch = true;
 const storage = StorageManager.getInstance();
 
+export function normalizeObsidianEndpoint(endpoint?: string): string {
+  let clean = (endpoint || "").trim();
+  if (!clean) return "https://127.0.0.1:27124";
+
+  if (!clean.startsWith("http://") && !clean.startsWith("https://")) {
+    if (clean.includes("27123")) {
+      clean = `http://${clean}`;
+    } else {
+      clean = `https://${clean}`;
+    }
+  }
+
+  // If the web application is running over HTTPS (e.g. AI Studio, Cloud Run),
+  // browsers strictly forbid mixed content HTTP requests to 127.0.0.1:27124.
+  // Port 27124 is Obsidian Local REST API's default HTTPS port.
+  if (typeof window !== "undefined" && window.location.protocol === "https:") {
+    if (clean.startsWith("http://127.0.0.1:27124") || clean.startsWith("http://localhost:27124")) {
+      clean = clean.replace(/^http:/, "https:");
+    }
+  }
+
+  return clean.replace(/\/+$/, "");
+}
+
 const DEFAULT_API_CONFIG: ObsidianApiConfig = {
-  endpoint: "http://127.0.0.1:27124",
+  endpoint: "https://127.0.0.1:27124",
   apiKey: "",
   geminiApiKey: "",
   vaultName: "MarketingVault",
-  useHttps: false,
+  useHttps: true,
   autoSync: true,
   syncIntervalSeconds: 60,
   connectionStatus: "disconnected",
@@ -28,6 +54,7 @@ export interface ObsidianConnectionResult {
   success: boolean;
   message: string;
   localVaultPath?: string;
+  detectedVaultName?: string;
   localNotesFound?: number;
   localFoldersFound?: number;
   localFolders?: string[];
@@ -77,11 +104,62 @@ async function getSessionHeaders(geminiApiKeyOverride?: string): Promise<Record<
 }
 
 async function requestObsidianConnectionTest(config: { endpoint: string; apiKey: string }) {
+  const normalizedEndpoint = normalizeObsidianEndpoint(config.endpoint);
+
+  // 1. Try direct browser fetch first!
+  try {
+    const parsedUrl = new URL(normalizedEndpoint);
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 6000);
+    const directRes = await fetch(`${parsedUrl.protocol}//${parsedUrl.host}/`, {
+      method: "GET",
+      headers: {
+        Authorization: `Bearer ${config.apiKey}`,
+        Accept: "application/json",
+      },
+      signal: controller.signal,
+    });
+    clearTimeout(timeoutId);
+    if (directRes.ok) {
+      console.log("Direct browser-to-Obsidian connection succeeded!");
+      const data = await directRes.json().catch(() => ({}));
+      useDirectClientSideFetch = true;
+      return {
+        res: { ok: true, status: 200 } as Response,
+        data: { success: true, message: "Conectado diretamente pelo navegador.", ...data },
+      };
+    } else {
+      useDirectClientSideFetch = true;
+      const data = await directRes.json().catch(() => ({}));
+      return {
+        res: directRes,
+        data: { success: false, message: `Obsidian respondeu com status HTTP ${directRes.status}. Verifique o token/chave de autenticação.`, ...data },
+      };
+    }
+  } catch (err) {
+    console.warn("Direct browser-to-Obsidian connection failed.", err);
+  }
+
+  // 2. In Web mode with loopback (127.0.0.1 / localhost), Cloud backend cannot reach local PC
+  const isLoopback = normalizedEndpoint.includes("127.0.0.1") || normalizedEndpoint.includes("localhost");
+  if (!window.electronAPI && isLoopback) {
+    useDirectClientSideFetch = true;
+    return {
+      res: { ok: false, status: 0 } as Response,
+      data: {
+        success: false,
+        message: `Não foi possível conectar diretamente ao Obsidian (${normalizedEndpoint}).\n\n1. Certifique-se de que o Obsidian está aberto com o plugin Local REST API ativado.\n2. No navegador, como o Obsidian utiliza certificado SSL auto-assinado, abra este link em uma nova aba uma vez: ${normalizedEndpoint}/ e selecione "Avançado" -> "Prosseguir para 127.0.0.1 (não seguro)".\n3. Retorne aqui e clique em Testar Conexão novamente.`,
+      },
+    };
+  }
+
+  // 3. Fallback to backend proxy (for Electron desktop environment)
+  useDirectClientSideFetch = false;
   const headers = await getSessionHeaders();
   const res = await fetch("/api/obsidian/test-connection", {
     method: "POST",
     headers,
-    body: JSON.stringify(config),
+    body: JSON.stringify({ ...config, endpoint: normalizedEndpoint }),
   });
   const data = await res.json().catch(() => ({
     success: false,
@@ -117,9 +195,14 @@ async function inspectDesktopVault(selectVault: boolean): Promise<ObsidianConnec
   const notes = await window.electronAPI.readNotes();
   const folders = await window.electronAPI.listVaultFolders();
 
+  // Extract vault name from vaultPath
+  const pathSegments = vaultPath.replace(/\\/g, '/').split('/');
+  const detectedVaultName = pathSegments.filter(Boolean).pop() || "MarketingVault";
+
   return {
     success: true,
     localVaultPath: vaultPath,
+    detectedVaultName,
     localNotesFound: Array.isArray(notes) ? notes.length : 0,
     localFoldersFound: Array.isArray(folders) ? folders.length : 0,
     localFolders: Array.isArray(folders) ? folders : [],
@@ -127,8 +210,155 @@ async function inspectDesktopVault(selectVault: boolean): Promise<ObsidianConnec
   };
 }
 
+export async function syncWebObsidianNotes(config: ObsidianApiConfig): Promise<ObsidianNote[]> {
+  const notesMap = new Map<string, ObsidianNote>();
+  const visited = new Set<string>();
+
+  async function crawl(vaultRelativeDirPath: string) {
+    // Normalize any backslashes to forward slashes
+    const normalizedDirPath = vaultRelativeDirPath.replace(/\\/g, "/");
+    const cleanRelativeDir = normalizedDirPath 
+      ? (normalizedDirPath.endsWith("/") ? normalizedDirPath : `${normalizedDirPath}/`) 
+      : "";
+    
+    // URL-encode directory segments for the API call
+    const encodedDir = cleanRelativeDir
+      ? cleanRelativeDir.split("/").map(encodeURIComponent).join("/")
+      : "";
+    
+    const apiPath = `/vault/${encodedDir}`;
+    
+    if (visited.has(apiPath)) return;
+    visited.add(apiPath);
+
+    try {
+      console.log(`[Obsidian Crawl] Iniciando varredura no diretório: "${cleanRelativeDir}" através da rota: "${apiPath}"`);
+      let responseRes = await obsidianProxyRequest(config, "GET", apiPath);
+      
+      // Se falhar ou retornar vazio e terminar com barra, tenta sem a barra final
+      if ((!responseRes.response.ok || !responseRes.data?.success) && apiPath.endsWith("/")) {
+        const fallbackPath = apiPath.slice(0, -1);
+        console.log(`[Obsidian Crawl] Rota com barra falhou. Tentando fallback sem barra: "${fallbackPath}"`);
+        const fallbackRes = await obsidianProxyRequest(config, "GET", fallbackPath);
+        if (fallbackRes.response.ok && fallbackRes.data?.success) {
+          responseRes = fallbackRes;
+        }
+      }
+
+      if (responseRes.response.ok && responseRes.data?.success) {
+        // Encontra o array de arquivos com máxima resiliência (suporta múltiplos formatos de resposta)
+        let rawFiles: any = null;
+        const potentialLocations = [
+          responseRes.data?.data?.files,
+          responseRes.data?.files,
+          responseRes.data?.data,
+          responseRes.data
+        ];
+
+        for (const loc of potentialLocations) {
+          if (Array.isArray(loc)) {
+            rawFiles = loc;
+            break;
+          }
+        }
+
+        const files = Array.isArray(rawFiles) ? rawFiles : [];
+        console.log(`[Obsidian Crawl] Diretório "${cleanRelativeDir}" retornou ${files.length} itens.`);
+
+        for (const item of files) {
+          // Extrai o caminho e normaliza barras invertidas para barras normais
+          const relativePath = (typeof item === "string" ? item : (item?.path || item?.name || ""))
+            .replace(/\\/g, "/");
+          
+          const cleanRelativePath = relativePath.replace(/^\//, "");
+          if (!cleanRelativePath) continue;
+
+          // Determina o caminho correto e completo relativo ao cofre principal
+          let itemRelativePath = cleanRelativePath;
+          if (cleanRelativeDir && !itemRelativePath.startsWith(cleanRelativeDir)) {
+            itemRelativePath = `${cleanRelativeDir}${itemRelativePath}`;
+          }
+
+          // Normalização adicional de redundância de barras (ex: "folder//file.md" -> "folder/file.md")
+          itemRelativePath = itemRelativePath.replace(/\/+/g, "/");
+
+          const isFolder = itemRelativePath.endsWith("/") || 
+                           item?.type === "directory" || 
+                           item?.type === "folder" ||
+                           (typeof item === "object" && item?.isFolder === true);
+
+          if (isFolder) {
+            // Remove a barra final antes de passar para crawl se necessário, o crawl tratará
+            const subDirPath = itemRelativePath.endsWith("/") ? itemRelativePath.slice(0, -1) : itemRelativePath;
+            await crawl(subDirPath);
+          } else if (itemRelativePath.toLowerCase().endsWith(".md")) {
+            try {
+              // Codifica corretamente cada parte do caminho do arquivo
+              const encodedFilePath = itemRelativePath.split("/").map(encodeURIComponent).join("/");
+              const noteRes = await obsidianProxyRequest(config, "GET", `/vault/${encodedFilePath}`);
+              
+              if (noteRes.response.ok && noteRes.data?.success) {
+                const content = typeof noteRes.data.data === "string" ? noteRes.data.data : "";
+                const pathParts = itemRelativePath.split("/");
+                const filename = pathParts.pop() || "Sem Título.md";
+                const title = filename.replace(/\.md$/i, "");
+                const folder = pathParts.join("/") || "00_Inbox";
+
+                notesMap.set(itemRelativePath, {
+                  id: `web-${generateFastHash("n", `${folder}/${title}`)}`,
+                  path: itemRelativePath,
+                  title,
+                  folder,
+                  content,
+                  frontmatter: {},
+                  tags: [],
+                  wikilinks: [],
+                  lastModified: new Date().toISOString().replace("T", " ").slice(0, 16),
+                  syncedWithApi: true,
+                } as ObsidianNote);
+              }
+            } catch (fileErr) {
+              console.error(`Erro ao sincronizar arquivo individual: ${itemRelativePath}`, fileErr);
+            }
+          }
+        }
+      } else {
+        const errorDetail = responseRes.data?.error || responseRes.data?.message || `HTTP ${responseRes.response.status}`;
+        console.warn(`[Obsidian Crawl] Falha ao listar pasta do Obsidian "${apiPath}": ${errorDetail}`);
+        if (vaultRelativeDirPath === "") {
+          throw new Error(`Falha ao listar o diretório raiz do Obsidian: ${errorDetail}`);
+        }
+      }
+    } catch (e) {
+      console.error(`Falha ao ler diretório do Obsidian: ${apiPath}`, e);
+      if (vaultRelativeDirPath === "") {
+        throw e;
+      }
+    }
+  }
+
+  await crawl("");
+  const resultNotes = Array.from(notesMap.values());
+  console.log(`[Obsidian Crawl] Sincronização concluída. Total de notas encontradas: ${resultNotes.length}`);
+  return resultNotes;
+}
+
 async function publishCurrentDesktopVaultSnapshot(folders?: string[]): Promise<{ notes: number; folders: number }> {
-  if (!window.electronAPI) return { notes: 0, folders: 0 };
+  if (!window.electronAPI) {
+    try {
+      const config = await storage.loadApiConfig(DEFAULT_API_CONFIG);
+      if (config.connectionStatus === "connected") {
+        const webNotes = await syncWebObsidianNotes(config);
+        const folderList = folders || Array.from(new Set(webNotes.map((n) => n.folder)));
+        if (folderList.length === 0) folderList.push("00_Inbox");
+        publishObsidianSnapshot(webNotes, folderList);
+        return { notes: webNotes.length, folders: folderList.length };
+      }
+    } catch (e) {
+      console.warn("Could not publish web vault snapshot:", e);
+    }
+    return { notes: 0, folders: 0 };
+  }
 
   const [desktopNotes, liveFolders] = await Promise.all([
     storage.readDesktopNotesForApp(),
@@ -150,6 +380,10 @@ function stopObsidianHeartbeat(): void {
 function startObsidianHeartbeat(config: { endpoint: string; apiKey: string }): void {
   stopObsidianHeartbeat();
   if (typeof window === "undefined") return;
+  if (!window.electronAPI) {
+    console.log("Web mode detected: skipping physical local REST API heartbeat.");
+    return;
+  }
 
   const liveConfig = {
     endpoint: config.endpoint,
@@ -189,6 +423,65 @@ async function verifyObsidianConnection(
       success: false,
       message: "Informe o endpoint e o token do Obsidian Local REST API.",
     };
+  }
+
+  if (!window.electronAPI) {
+    try {
+      const { res, data } = await requestObsidianConnectionTest(config);
+      if (res.ok && data?.success) {
+        useDirectClientSideFetch = true;
+        await setDesktopObsidianAuthorization(true);
+        markObsidianRuntimeConnected();
+
+        const detectedVault = data.vault || "MarketingVault";
+
+        // Let's crawl folders to populate local folders list
+        let folders: string[] = ["00_Inbox"];
+        try {
+          const listRes = await obsidianProxyRequest(config as any, "GET", "/vault/");
+          if (listRes.response.ok && listRes.data?.success) {
+            const filesList = listRes.data?.data?.files || listRes.data?.files || [];
+            if (Array.isArray(filesList)) {
+              const detectedFolders = filesList
+                .map((item: any) => {
+                  const relativePath = typeof item === "string" ? item : (item?.path || "");
+                  return relativePath.replace(/^\//, "");
+                })
+                .filter((p: string) => p.endsWith("/"))
+                .map((p: string) => p.replace(/\/$/, ""));
+              if (detectedFolders.length > 0) {
+                folders = detectedFolders;
+              }
+            }
+          }
+        } catch (e) {
+          console.warn("Could not list folders during web verification:", e);
+        }
+
+        return {
+          success: true,
+          detectedVaultName: detectedVault,
+          localFoldersFound: folders.length,
+          localFolders: folders,
+          message: `Conectado com sucesso ao Obsidian físico local (${detectedVault}) diretamente pelo seu navegador!`,
+        };
+      } else {
+        const errorMsg = data?.message || "Conexão rejeitada.";
+        const targetEndpoint = normalizeObsidianEndpoint(config.endpoint);
+        return {
+          success: false,
+          message: errorMsg.includes("Avançado")
+            ? errorMsg
+            : `Não foi possível conectar ao Obsidian local (${targetEndpoint}).\n\n👉 Para liberar o acesso no navegador, abra o link: ${targetEndpoint}/\nClique em "Avançado" -> "Prosseguir para 127.0.0.1 (não seguro)". Depois, retorne e clique em Testar Conexão novamente.\n\nDetalhes: ${errorMsg}`,
+        };
+      }
+    } catch (err: any) {
+      const targetEndpoint = normalizeObsidianEndpoint(config.endpoint);
+      return {
+        success: false,
+        message: `Não foi possível conectar ao Obsidian local (${targetEndpoint}).\n\n👉 Abra este link no navegador para autorizar o certificado: ${targetEndpoint}/\nSelecione "Avançado" -> "Prosseguir para 127.0.0.1".\n\nDetalhes do erro: ${err.message || err}`,
+      };
+    }
   }
 
   try {
@@ -248,15 +541,66 @@ async function obsidianProxyRequest(
     throw new Error("Obsidian não está conectado. Valide a conexão antes de acessar o Vault.");
   }
 
+  const normalizedEndpoint = normalizeObsidianEndpoint(config.endpoint);
+  const normalizedPath = path.startsWith("/") ? path : `/${path}`;
+
+  // 1. In Web mode or when direct client-side fetch is active, try directly from the browser!
+  if (!window.electronAPI || useDirectClientSideFetch) {
+    try {
+      const parsedUrl = new URL(normalizedEndpoint);
+      const fullUrl = `${parsedUrl.protocol}//${parsedUrl.host}${normalizedPath}`;
+      const forwardHeaders: Record<string, string> = {
+        Authorization: `Bearer ${config.apiKey}`,
+        Accept: "application/json, text/plain, */*",
+        ...(customHeaders || {}),
+      };
+      if (body && typeof body === "string") forwardHeaders["Content-Type"] = "text/markdown; charset=utf-8";
+      else if (body && typeof body === "object") forwardHeaders["Content-Type"] = "application/json";
+
+      const fetchOptions: RequestInit = {
+        method: method.toUpperCase(),
+        headers: forwardHeaders,
+      };
+      if (body !== undefined && !["GET", "HEAD"].includes(method.toUpperCase())) {
+        fetchOptions.body = typeof body === "string" ? body : JSON.stringify(body);
+      }
+
+      const directRes = await fetch(fullUrl, fetchOptions);
+      const contentType = directRes.headers.get("content-type") || "";
+      const data = contentType.includes("application/json")
+        ? await directRes.json().catch(() => ({}))
+        : await directRes.text().catch(() => "");
+
+      if (directRes.ok) {
+        return {
+          response: { ok: true, status: directRes.status } as Response,
+          data: { success: true, status: directRes.status, data },
+        };
+      } else {
+        return {
+          response: { ok: false, status: directRes.status } as Response,
+          data: { success: false, status: directRes.status, message: `Obsidian retornou HTTP ${directRes.status}`, data },
+        };
+      }
+    } catch (err: any) {
+      console.warn("Direct proxy request failed:", err);
+      const isLoopback = normalizedEndpoint.includes("127.0.0.1") || normalizedEndpoint.includes("localhost");
+      if (!window.electronAPI && isLoopback) {
+        throw new Error(`Falha ao conectar ao Obsidian (${normalizedEndpoint}): Verifique se o Obsidian está aberto e autorize o certificado de segurança abrindo ${normalizedEndpoint}/ em uma nova aba.`);
+      }
+    }
+  }
+
+  // 2. Fallback to backend proxy (for Electron desktop environment)
   const headers = await getSessionHeaders();
   const response = await fetch("/api/obsidian/proxy", {
     method: "POST",
     headers,
     body: JSON.stringify({
-      endpoint: config.endpoint,
+      endpoint: normalizedEndpoint,
       apiKey: config.apiKey,
       method,
-      path,
+      path: normalizedPath,
       body,
       headers: customHeaders || {},
     }),
@@ -291,6 +635,15 @@ export const api = {
 
   isObsidianSessionVerified() {
     return isObsidianRuntimeConnected();
+  },
+
+  markSessionAsConnectedManually() {
+    markObsidianRuntimeConnected();
+    void setDesktopObsidianAuthorization(true);
+  },
+
+  async syncWebObsidianNotes(config: ObsidianApiConfig): Promise<ObsidianNote[]> {
+    return await syncWebObsidianNotes(config);
   },
 
   async syncObsidianSnapshot() {
@@ -477,7 +830,14 @@ export const api = {
     }
 
     const cleanPath = filePath.startsWith("/") ? filePath : `/vault/${filePath}`;
-    const { data } = await obsidianProxyRequest(config, "PUT", cleanPath, markdownContent);
+    const encodedPath = cleanPath
+      .split("/")
+      .map((segment, index) => {
+        if (segment === "" || (index === 1 && segment === "vault")) return segment;
+        return encodeURIComponent(segment);
+      })
+      .join("/");
+    const { data } = await obsidianProxyRequest(config, "PUT", encodedPath, markdownContent);
     if (data?.success) await publishCurrentDesktopVaultSnapshot();
     return data;
   },

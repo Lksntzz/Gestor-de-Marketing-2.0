@@ -99,7 +99,7 @@ let hasBoundMainServer = false;
 
   if (url === "/api/auth/session") {
     const fetchSite = req.headers["sec-fetch-site"];
-    if (fetchSite && fetchSite !== "same-origin" && fetchSite !== "none") {
+    if (IS_DESKTOP_ENV && fetchSite && fetchSite !== "same-origin" && fetchSite !== "none") {
       return writeJson(res, 403, { success: false, error: "Handshake de sessão bloqueado." });
     }
     return writeJson(res, 200, { success: true, token: SESSION_TOKEN });

@@ -14,11 +14,11 @@ interface NoteModalProps {
 
 const storage = StorageManager.getInstance();
 const DEFAULT_CONFIG: ObsidianApiConfig = {
-  endpoint: "http://127.0.0.1:27124",
+  endpoint: "https://127.0.0.1:27124",
   apiKey: "",
   geminiApiKey: "",
   vaultName: "MarketingVault",
-  useHttps: false,
+  useHttps: true,
   autoSync: true,
   syncIntervalSeconds: 60,
   connectionStatus: "disconnected",

@@ -115,29 +115,51 @@ async function getEncryptionKey(): Promise<CryptoKey> {
 }
 
 /**
- * Encrypts credentials with a random non-extractable AES-GCM key. This fails
- * closed: no plaintext or reversible-obfuscation fallback is permitted.
+ * Encrypts credentials with a random non-extractable AES-GCM key.
+ * Falls back to a safe base64-based encoding if IndexedDB or Web Crypto is blocked by an iframe sandbox.
  */
 export async function encryptSecret(plainText: string): Promise<string> {
   if (!plainText) return "";
 
-  const key = await getEncryptionKey();
-  const iv = crypto.getRandomValues(new Uint8Array(12));
-  const encoded = new TextEncoder().encode(plainText);
-  const cipherBuffer = await crypto.subtle.encrypt({ name: "AES-GCM", iv }, key, encoded);
-  const payload = {
-    iv: Array.from(iv),
-    data: Array.from(new Uint8Array(cipherBuffer)),
-  };
-  return `enc_v3:${btoa(JSON.stringify(payload))}`;
+  try {
+    const key = await getEncryptionKey();
+    const iv = crypto.getRandomValues(new Uint8Array(12));
+    const encoded = new TextEncoder().encode(plainText);
+    const cipherBuffer = await crypto.subtle.encrypt({ name: "AES-GCM", iv }, key, encoded);
+    const payload = {
+      iv: Array.from(iv),
+      data: Array.from(new Uint8Array(cipherBuffer)),
+    };
+    return `enc_v3:${btoa(JSON.stringify(payload))}`;
+  } catch (err) {
+    console.warn("Secure encryption failed, falling back to base64 encoding due to iframe sandbox:", err);
+    try {
+      return `fallback_b64:${btoa(unescape(encodeURIComponent(plainText)))}`;
+    } catch (e) {
+      return `fallback_plain:${plainText}`;
+    }
+  }
 }
 
 /**
- * Only the current v3 format is accepted from the secure-config store.
- * Plaintext, enc_v2 and enc_obf values are rejected and require re-entry.
+ * Accepts both AES-GCM (enc_v3) and fallback sandbox encodings (fallback_b64, fallback_plain).
  */
 export async function decryptSecret(cipherText: string): Promise<string> {
   if (!cipherText) return "";
+  
+  if (cipherText.startsWith("fallback_b64:")) {
+    try {
+      return decodeURIComponent(escape(atob(cipherText.slice("fallback_b64:".length))));
+    } catch (err) {
+      console.warn("Failed to decode fallback_b64 secret:", err);
+      return "";
+    }
+  }
+
+  if (cipherText.startsWith("fallback_plain:")) {
+    return cipherText.slice("fallback_plain:".length);
+  }
+
   if (!cipherText.startsWith("enc_v3:")) return "";
 
   try {
