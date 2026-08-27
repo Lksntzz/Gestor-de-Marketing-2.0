@@ -1,42 +1,52 @@
-# Nisti Print PKM Marketing Hub 🚀
+# Nisti Marketing
 
-Gestor de Marketing e PKM Local-First integrado ao **Obsidian**, com suporte a **IA Gemini**, automação de tarefas e roteiros criativos de campanhas.
+Sistema local-first de gestão de marketing integrado ao Obsidian e IA Gemini.
 
----
+## Versão 1.0.1
 
-## 📥 Download do Instalador Pronto (.exe)
+A versão 1.0.1 consolida o aplicativo desktop **Nisti Marketing** com backend local protegido, integração com Gemini e Obsidian e um workspace de conhecimento orientado à síntese.
 
-Você pode baixar os instaladores prontos para Windows diretamente pelo GitHub:
+### Obsidian como fonte de verdade
 
-1. Acesse a aba **[Releases / Lançamentos](../../releases)** do repositório no GitHub.
-2. Na versão mais recente, clique no arquivo executável:
-   - **`Nisti Print PKM Marketing Hub Setup X.X.X.exe`** (Instalador NSIS completo do Windows com assistente).
-   - **`Nisti Print PKM Marketing Hub X.X.X.exe`** (Versão portátil para rodar direto sem instalar).
-3. Dê 2 cliques no arquivo baixado e instale normalmente no seu computador!
+O acesso ao banco de conhecimento permanece bloqueado até a conexão com o Obsidian Local REST API ser validada e a pasta física do Vault ser selecionada. Depois da conexão, o aplicativo varre recursivamente pastas e subpastas do Vault.
 
----
+O cofre do Nisti Marketing usa uma interface fixa em três áreas: pastas, arquivos e painel de síntese. O conteúdo integral continua no Obsidian; o aplicativo prioriza resumo, pontos importantes, origem e estado epistemológico.
 
-## ⚙️ Como os Instaladores são Gerados Automaticamente no GitHub
+### Análise de conhecimento
 
-Este repositório possui uma automação configurada via **GitHub Actions** (`.github/workflows/release.yml`):
+No desktop, a sincronização reconhece arquivos Markdown e também fontes `.pdf`, `.png`, `.jpg`, `.jpeg`, `.webp` e `.txt` existentes no Vault. Quando uma chave Gemini está configurada, fontes novas ou alteradas podem ser analisadas para gerar:
 
-- Sempre que uma nova tag/versão for lançada (ou acionada manualmente na aba **Actions > Release & Build Installers**), o GitHub compila o código em uma máquina Windows na nuvem e anexa o arquivo `.exe` pronto para download nos **Releases**.
+- resumo curto;
+- pontos importantes;
+- texto visível relevante, quando aplicável;
+- categoria e palavras-chave;
+- estado `CONFIRMADO`, `HIPÓTESE` ou `PENDENTE`.
 
----
+A análise não deve promover inferências a fatos. Arquivos sem chave de IA, acima do limite automático ou que falhem no processamento permanecem como análise pendente, sem fabricação de conteúdo.
 
-## 💻 Desenvolvimento Local (Opcional)
+Para reduzir chamadas de API, o índice analítico é armazenado localmente e reutilizado enquanto caminho, tamanho e data de modificação do arquivo não mudarem.
 
-Se preferir rodar ou compilar em sua máquina local:
+### Interface
+
+- navegação lateral fixa no desktop;
+- barra inferior compacta com estado do Obsidian e do motor de IA;
+- Início reorganizado em prioridades, indicadores e conhecimento recente;
+- Cofre dentro da altura da janela com rolagem interna;
+- Planejamento em interface clara, sem recomendações comerciais inventadas quando não houver dados reais.
+
+## Segurança
+
+As credenciais do Gemini e do Obsidian não devem ser persistidas em texto puro. No Electron, o armazenamento de segredos utiliza `safeStorage` do sistema operacional. O backend de produção é local, limitado ao loopback e usa sessão autenticada para as rotas protegidas.
+
+## Desenvolvimento
 
 ```bash
-# 1. Instalar dependências
-bun install # ou npm install
-
-# 2. Rodar em modo desenvolvimento
-bun run dev
-
-# 3. Gerar instalador localmente
-bun run electron:build
+bun install --frozen-lockfile
+bun run verify
 ```
 
-Os executáveis gerados localmente ficarão na pasta `dist-electron/`.
+Para gerar os executáveis Windows:
+
+```bash
+bun run electron:build
+```
