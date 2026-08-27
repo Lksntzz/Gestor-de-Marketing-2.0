@@ -39,3 +39,6 @@ jobs:
 
       - name: Build Web Client, Hardened Backend & Electron Entrypoints
         run: bun run build
+
+      - name: Smoke Test Self-Contained Production Backend
+        run: node scripts/runtime-smoke.mjs

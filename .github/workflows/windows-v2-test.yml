@@ -1,0 +1,63 @@
+name: Windows v2 Runtime Test
+
+on:
+  push:
+    branches:
+      - "fix/v2.0-stabilization"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: windows-v2-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  windows-runtime-and-installer:
+    runs-on: windows-latest
+    timeout-minutes: 35
+
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: latest
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Install Dependencies
+        run: bun install --frozen-lockfile
+
+      - name: Verify TypeScript, Tests and Production Build
+        run: bun run verify
+
+      - name: Smoke Test Self-Contained Production Backend
+        run: node scripts/runtime-smoke.mjs
+
+      - name: Build Unsigned Windows NSIS and Portable Test Artifacts
+        env:
+          CSC_IDENTITY_AUTO_DISCOVERY: "false"
+        run: bunx electron-builder@26.0.12 --win --x64 --publish never
+
+      - name: List Windows Artifacts
+        shell: pwsh
+        run: |
+          Get-ChildItem -Path dist-electron -Filter *.exe | ForEach-Object {
+            $hash = (Get-FileHash $_.FullName -Algorithm SHA256).Hash
+            Write-Host ("{0} | {1} bytes | SHA256 {2}" -f $_.Name, $_.Length, $hash)
+          }
+
+      - name: Upload Windows Test Artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: Nisti-Marketing-2.0.0-Windows-Test
+          path: dist-electron/*.exe
+          if-no-files-found: error
+          retention-days: 14

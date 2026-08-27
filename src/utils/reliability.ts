@@ -1,6 +1,6 @@
 import type { MarketingTask } from "../types";
 
-export const APP_VERSION = "1.0.0";
+export const APP_VERSION = "2.0.0";
 export const DAILY_TASKS_SECTION_ID = "daily-pending-tasks";
 export const AUTOMATION_HIGH_PRIORITY_SECTION_ID = "automation-high-priority";
 
@@ -98,13 +98,8 @@ export function upsertItemsById<T extends { id: string }>(existing: T[], incomin
     const itemRecord = item as Record<string, unknown>;
     const merged = { ...previousRecord, ...itemRecord };
 
-    if ("status" in previousRecord) {
-      merged.status = previousRecord.status;
-    }
-    if ("completedAt" in previousRecord) {
-      merged.completedAt = previousRecord.completedAt;
-    }
-
+    if ("status" in previousRecord) merged.status = previousRecord.status;
+    if ("completedAt" in previousRecord) merged.completedAt = previousRecord.completedAt;
     return merged as T;
   });
 
@@ -113,9 +108,15 @@ export function upsertItemsById<T extends { id: string }>(existing: T[], incomin
   return [...mergedIncoming, ...preserved];
 }
 
-export function mergeByPath<T extends { path: string }>(localItems: T[], incomingItems: T[]): T[] {
-  const incomingPaths = new Set(incomingItems.map((item) => item.path));
-  return [...incomingItems, ...localItems.filter((item) => !incomingPaths.has(item.path))];
+/**
+ * For Vault knowledge, Obsidian is the source of truth. Once a verified
+ * snapshot arrives, local-only notes must not survive and masquerade as Vault
+ * content. Duplicate incoming paths are collapsed to the last value.
+ */
+export function mergeByPath<T extends { path: string }>(_localItems: T[], incomingItems: T[]): T[] {
+  const byPath = new Map<string, T>();
+  for (const item of incomingItems) byPath.set(item.path, item);
+  return Array.from(byPath.values());
 }
 
 export function reminderEventKey(task: Pick<MarketingTask, "id" | "reminderDate" | "reminderTime">): string | null {
@@ -128,16 +129,11 @@ export function isReminderDue(
   now: Date = new Date(),
   graceMinutes = 5
 ): boolean {
-  if (!task.isReminderActive || task.status === "done" || !task.reminderDate || !task.reminderTime) {
-    return false;
-  }
-
+  if (!task.isReminderActive || task.status === "done" || !task.reminderDate || !task.reminderTime) return false;
   const match = task.reminderTime.match(/^(\d{2}):(\d{2})$/);
   if (!match) return false;
-
   const [year, month, day] = task.reminderDate.split("-").map(Number);
   if (!year || !month || !day) return false;
-
   const due = new Date(year, month - 1, day, Number(match[1]), Number(match[2]), 0, 0);
   const diffMs = now.getTime() - due.getTime();
   return diffMs >= 0 && diffMs < graceMinutes * 60_000;

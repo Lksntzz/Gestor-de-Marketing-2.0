@@ -1,23 +1,23 @@
-name: Release & Build Installers
+name: Release Nisti Marketing 2.x
 
 on:
   push:
     tags:
-      - "v*"
+      - "v2.*"
   workflow_dispatch:
     inputs:
       version:
-        description: "Versão do Release (ex: v1.0.0)"
+        description: "Versão do release (ex: v2.0.0)"
         required: true
-        default: "v1.0.0"
+        default: "v2.0.0"
 
 permissions:
   contents: write
 
 jobs:
-  build-and-release:
+  build-sign-and-release:
     runs-on: windows-latest
-    timeout-minutes: 30
+    timeout-minutes: 40
 
     steps:
       - name: Checkout Code
@@ -31,7 +31,7 @@ jobs:
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: 20
+          node-version: 22
 
       - name: Install Dependencies
         run: bun install --frozen-lockfile
@@ -39,26 +39,57 @@ jobs:
       - name: Verify TypeScript, Tests and Production Build
         run: bun run verify
 
-      - name: Build Windows NSIS & Portable Installer
-        env:
-          CSC_IDENTITY_AUTO_DISCOVERY: "false"
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: bunx electron-builder@26.0.12 --win --x64 --publish never
+      - name: Smoke Test Self-Contained Production Backend
+        run: node scripts/runtime-smoke.mjs
 
-      - name: Upload Artifacts to GitHub Actions
+      - name: Require Trusted Windows Signing Credentials
+        shell: pwsh
+        env:
+          WIN_CSC_LINK: ${{ secrets.WIN_CSC_LINK }}
+          WIN_CSC_KEY_PASSWORD: ${{ secrets.WIN_CSC_KEY_PASSWORD }}
+        run: |
+          if ([string]::IsNullOrWhiteSpace($env:WIN_CSC_LINK)) {
+            throw "WIN_CSC_LINK não configurado. Release público sem assinatura é bloqueado."
+          }
+          if ([string]::IsNullOrWhiteSpace($env:WIN_CSC_KEY_PASSWORD)) {
+            throw "WIN_CSC_KEY_PASSWORD não configurado. Release público sem assinatura é bloqueado."
+          }
+
+      - name: Build Signed Windows NSIS and Portable Installers
+        env:
+          WIN_CSC_LINK: ${{ secrets.WIN_CSC_LINK }}
+          WIN_CSC_KEY_PASSWORD: ${{ secrets.WIN_CSC_KEY_PASSWORD }}
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: bunx electron-builder@26.0.12 --win --x64 --publish never --config.win.forceCodeSigning=true
+
+      - name: Verify Authenticode Signatures
+        shell: pwsh
+        run: |
+          $executables = Get-ChildItem -Path dist-electron -Filter *.exe
+          if ($executables.Count -eq 0) { throw "Nenhum executável Windows foi gerado." }
+          foreach ($exe in $executables) {
+            $signature = Get-AuthenticodeSignature $exe.FullName
+            if ($signature.Status -ne "Valid") {
+              throw "Assinatura Authenticode inválida em $($exe.Name): $($signature.Status)"
+            }
+            $hash = (Get-FileHash $exe.FullName -Algorithm SHA256).Hash
+            Write-Host ("{0} | Publisher {1} | SHA256 {2}" -f $exe.Name, $signature.SignerCertificate.Subject, $hash)
+          }
+
+      - name: Upload Signed Artifacts to GitHub Actions
         uses: actions/upload-artifact@v4
         with:
-          name: Nisti-Print-PKM-Windows-Installer-v1
+          name: Nisti-Marketing-${{ github.event_name == 'workflow_dispatch' && inputs.version || github.ref_name }}-Windows-Signed
           path: dist-electron/*.exe
+          if-no-files-found: error
+          retention-days: 30
 
-      - name: Create GitHub Release and Attach Installers
+      - name: Create GitHub Release and Attach Signed Installers
         uses: softprops/action-gh-release@v2
         with:
-          name: Nisti Print PKM Marketing Hub ${{ github.event_name == 'workflow_dispatch' && inputs.version || github.ref_name }}
+          name: Nisti Marketing ${{ github.event_name == 'workflow_dispatch' && inputs.version || github.ref_name }}
           tag_name: ${{ github.event_name == 'workflow_dispatch' && inputs.version || github.ref_name }}
-          files: |
-            dist-electron/*.exe
-            dist-electron/*.zip
+          files: dist-electron/*.exe
           draft: false
           prerelease: false
           generate_release_notes: true

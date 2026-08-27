@@ -1,8 +1,15 @@
 import { ObsidianApiConfig } from "../types";
 import { localDateKey, upsertManagedSection } from "../utils/reliability";
+import {
+  isObsidianRuntimeConnected,
+  markObsidianRuntimeConnected,
+  markObsidianRuntimeDisconnected,
+  publishObsidianSnapshot,
+} from "./obsidianRuntimeState";
 import { StorageManager } from "./storage/StorageManager";
 
 let cachedSessionToken: string | null = null;
+let obsidianHeartbeat: ReturnType<typeof setInterval> | null = null;
 const storage = StorageManager.getInstance();
 
 const DEFAULT_API_CONFIG: ObsidianApiConfig = {
@@ -16,6 +23,24 @@ const DEFAULT_API_CONFIG: ObsidianApiConfig = {
   connectionStatus: "disconnected",
   allowSelfSignedCerts: true,
 };
+
+export interface ObsidianConnectionResult {
+  success: boolean;
+  message: string;
+  localVaultPath?: string;
+  localNotesFound?: number;
+  localFoldersFound?: number;
+  localFolders?: string[];
+}
+
+async function setDesktopObsidianAuthorization(connected: boolean): Promise<void> {
+  if (!window.electronAPI) return;
+  try {
+    await window.electronAPI.setObsidianConnectionState(connected);
+  } catch (err) {
+    console.warn("Could not update Electron Obsidian connection gate:", err);
+  }
+}
 
 async function getSessionHeaders(geminiApiKeyOverride?: string): Promise<Record<string, string>> {
   if (!cachedSessionToken) {
@@ -51,6 +76,167 @@ async function getSessionHeaders(geminiApiKeyOverride?: string): Promise<Record<
   return headers;
 }
 
+async function requestObsidianConnectionTest(config: { endpoint: string; apiKey: string }) {
+  const headers = await getSessionHeaders();
+  const res = await fetch("/api/obsidian/test-connection", {
+    method: "POST",
+    headers,
+    body: JSON.stringify(config),
+  });
+  const data = await res.json().catch(() => ({
+    success: false,
+    message: `Obsidian retornou HTTP ${res.status}.`,
+  }));
+  return { res, data };
+}
+
+async function inspectDesktopVault(selectVault: boolean): Promise<ObsidianConnectionResult> {
+  if (!window.electronAPI) {
+    return {
+      success: true,
+      message: "REST API do Obsidian conectada.",
+    };
+  }
+
+  let vaultPath = await window.electronAPI.getVaultPath();
+
+  if (selectVault || !vaultPath) {
+    const selection = await window.electronAPI.selectVault();
+    if (selection?.vaultPath) {
+      vaultPath = selection.vaultPath;
+    }
+  }
+
+  if (!vaultPath) {
+    return {
+      success: false,
+      message: "A REST API respondeu, mas falta selecionar a pasta física do Vault usada pelo Obsidian.",
+    };
+  }
+
+  const notes = await window.electronAPI.readNotes();
+  const folders = await window.electronAPI.listVaultFolders();
+
+  return {
+    success: true,
+    localVaultPath: vaultPath,
+    localNotesFound: Array.isArray(notes) ? notes.length : 0,
+    localFoldersFound: Array.isArray(folders) ? folders.length : 0,
+    localFolders: Array.isArray(folders) ? folders : [],
+    message: `Vault local confirmado: ${vaultPath}. ${Array.isArray(notes) ? notes.length : 0} itens indexados em ${Array.isArray(folders) ? folders.length : 0} pastas.`,
+  };
+}
+
+async function publishCurrentDesktopVaultSnapshot(folders?: string[]): Promise<{ notes: number; folders: number }> {
+  if (!window.electronAPI) return { notes: 0, folders: 0 };
+
+  const [desktopNotes, liveFolders] = await Promise.all([
+    storage.readDesktopNotesForApp(),
+    folders ? Promise.resolve(folders) : window.electronAPI.listVaultFolders(),
+  ]);
+  const notes = desktopNotes || [];
+  const normalizedFolders = Array.isArray(liveFolders) ? liveFolders : [];
+  publishObsidianSnapshot(notes, normalizedFolders);
+  return { notes: notes.length, folders: normalizedFolders.length };
+}
+
+function stopObsidianHeartbeat(): void {
+  if (obsidianHeartbeat) {
+    clearInterval(obsidianHeartbeat);
+    obsidianHeartbeat = null;
+  }
+}
+
+function startObsidianHeartbeat(config: { endpoint: string; apiKey: string }): void {
+  stopObsidianHeartbeat();
+  if (typeof window === "undefined") return;
+
+  const liveConfig = {
+    endpoint: config.endpoint,
+    apiKey: config.apiKey,
+  };
+
+  obsidianHeartbeat = setInterval(async () => {
+    try {
+      const { res, data } = await requestObsidianConnectionTest(liveConfig);
+      const vaultPath = window.electronAPI ? await window.electronAPI.getVaultPath() : "web";
+      if (!res.ok || !data?.success || !vaultPath) {
+        stopObsidianHeartbeat();
+        await setDesktopObsidianAuthorization(false);
+        markObsidianRuntimeDisconnected(
+          data?.message || "A conexão com o Obsidian foi perdida. Reconecte para acessar o banco de conhecimento."
+        );
+      }
+    } catch (err: any) {
+      stopObsidianHeartbeat();
+      await setDesktopObsidianAuthorization(false);
+      markObsidianRuntimeDisconnected(
+        err.message || "A conexão com o Obsidian foi perdida. Reconecte para acessar o banco de conhecimento."
+      );
+    }
+  }, 15_000);
+}
+
+async function verifyObsidianConnection(
+  config: { endpoint: string; apiKey: string },
+  selectVault: boolean
+): Promise<ObsidianConnectionResult> {
+  if (!config.endpoint.trim() || !config.apiKey.trim()) {
+    stopObsidianHeartbeat();
+    await setDesktopObsidianAuthorization(false);
+    markObsidianRuntimeDisconnected("Endpoint ou token do Obsidian não configurado.");
+    return {
+      success: false,
+      message: "Informe o endpoint e o token do Obsidian Local REST API.",
+    };
+  }
+
+  try {
+    const { res, data } = await requestObsidianConnectionTest(config);
+    if (!res.ok || !data?.success) {
+      stopObsidianHeartbeat();
+      await setDesktopObsidianAuthorization(false);
+      const message = data?.message || data?.error || `Obsidian retornou HTTP ${res.status}.`;
+      markObsidianRuntimeDisconnected(message);
+      return { success: false, message };
+    }
+
+    await setDesktopObsidianAuthorization(true);
+    const desktop = await inspectDesktopVault(selectVault);
+    if (!desktop.success) {
+      stopObsidianHeartbeat();
+      await setDesktopObsidianAuthorization(false);
+      markObsidianRuntimeDisconnected(desktop.message);
+      return desktop;
+    }
+
+    markObsidianRuntimeConnected();
+    const snapshot = await publishCurrentDesktopVaultSnapshot(desktop.localFolders);
+    startObsidianHeartbeat(config);
+
+    return {
+      ...desktop,
+      success: true,
+      localNotesFound: snapshot.notes || desktop.localNotesFound,
+      localFoldersFound: snapshot.folders || desktop.localFoldersFound,
+      message: `${data.message || "REST API do Obsidian conectada."} ${desktop.message} Base sincronizada automaticamente.`.trim(),
+    };
+  } catch (err: any) {
+    stopObsidianHeartbeat();
+    await setDesktopObsidianAuthorization(false);
+    const message = err.message || "Não foi possível confirmar a conexão com o Obsidian.";
+    markObsidianRuntimeDisconnected(message);
+    return { success: false, message };
+  }
+}
+
+async function requireVerifiedObsidian(config: ObsidianApiConfig): Promise<ObsidianConnectionResult> {
+  return await verifyObsidianConnection(
+    { endpoint: config.endpoint, apiKey: config.apiKey },
+    false
+  );
+}
+
 async function obsidianProxyRequest(
   config: ObsidianApiConfig,
   method: string,
@@ -58,51 +244,10 @@ async function obsidianProxyRequest(
   body?: unknown,
   customHeaders?: Record<string, string>
 ): Promise<{ response: Response; data: any }> {
-  // 1. Try DIRECT fetch from browser to Localhost Obsidian first!
-  try {
-    const normalizedPath = path.startsWith("/") ? path : `/${path}`;
-    const fullUrl = `${config.endpoint}${normalizedPath}`;
-    
-    const forwardHeaders: Record<string, string> = {
-      Authorization: `Bearer ${config.apiKey || ""}`,
-      Accept: "application/json, text/plain, */*",
-      ...customHeaders,
-    };
-
-    if (body && typeof body === "string") {
-      forwardHeaders["Content-Type"] = "text/markdown; charset=utf-8";
-    } else if (body && typeof body === "object") {
-      forwardHeaders["Content-Type"] = "application/json";
-    }
-
-    const fetchOptions: any = {
-      method: method.toUpperCase(),
-      headers: forwardHeaders,
-    };
-
-    if (body && method.toUpperCase() !== "GET" && method.toUpperCase() !== "HEAD") {
-      fetchOptions.body = typeof body === "string" ? body : JSON.stringify(body);
-    }
-
-    const response = await fetch(fullUrl, fetchOptions);
-    const contentType = response.headers.get("content-type") || "";
-    let rawData: any;
-    if (contentType.includes("application/json")) {
-      rawData = await response.json().catch(() => ({}));
-    } else {
-      rawData = await response.text().catch(() => "");
-    }
-    
-    const formattedData = response.ok
-      ? { success: true, status: response.status, data: rawData }
-      : { success: false, status: response.status, error: `HTTP ${response.status}`, data: rawData };
-
-    return { response, data: formattedData };
-  } catch (directErr) {
-    console.warn("Direct connection from browser to Obsidian failed, falling back to server-side proxy:", directErr);
+  if (!isObsidianRuntimeConnected()) {
+    throw new Error("Obsidian não está conectado. Valide a conexão antes de acessar o Vault.");
   }
 
-  // 2. FALLBACK to the server-side proxy
   const headers = await getSessionHeaders();
   const response = await fetch("/api/obsidian/proxy", {
     method: "POST",
@@ -138,12 +283,30 @@ export interface ExtractTasksPayload {
 }
 
 export const api = {
+  disconnectObsidianSession(reason?: string) {
+    stopObsidianHeartbeat();
+    void setDesktopObsidianAuthorization(false);
+    markObsidianRuntimeDisconnected(reason || "Obsidian desconectado.");
+  },
+
+  isObsidianSessionVerified() {
+    return isObsidianRuntimeConnected();
+  },
+
+  async syncObsidianSnapshot() {
+    if (!isObsidianRuntimeConnected()) {
+      throw new Error("Obsidian não está conectado.");
+    }
+    return await publishCurrentDesktopVaultSnapshot();
+  },
+
   async checkHealth() {
     try {
-      const [res, config] = await Promise.all([
-        fetch("/api/health", { cache: "no-store" }),
+      const [headers, config] = await Promise.all([
+        getSessionHeaders(),
         storage.loadApiConfig(DEFAULT_API_CONFIG),
       ]);
+      const res = await fetch("/api/health", { cache: "no-store", headers });
       const health = await res.json();
       return {
         ...health,
@@ -193,16 +356,32 @@ export const api = {
     }
   },
 
-    async generateGuidelines(payload: { campaignName: string; objective: string; engineMode: string }) {
+  async generateGuidelines(payload: { campaignName: string; objective: string; engineMode: string }) {
     const headers = await getSessionHeaders();
     const res = await fetch("/api/gemini/generate-guidelines", {
       method: "POST",
       headers,
       body: JSON.stringify(payload),
     });
-    const result = await res.json();
-    if (!result.success) throw new Error(result.error);
-    return result;
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({}));
+      throw new Error(err.error || `Erro HTTP ${res.status}`);
+    }
+    return await res.json();
+  },
+
+  async processKnowledge(type: string, payload: unknown, engineMode: string) {
+    const headers = await getSessionHeaders();
+    const res = await fetch("/api/gemini/process-knowledge", {
+      method: "POST",
+      headers,
+      body: JSON.stringify({ type, payload, engineMode }),
+    });
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({}));
+      throw new Error(err.error || `Erro HTTP ${res.status}`);
+    }
+    return await res.json();
   },
 
   async generateCampaign(payload: GenerateCampaignPayload) {
@@ -247,77 +426,48 @@ export const api = {
     return await res.json();
   },
 
-  async testObsidianConnection(config: { endpoint: string; apiKey: string }) {
-    // 1. Try DIRECT fetch from browser first to reach Localhost/Loopback
-    try {
-      const url = `${config.endpoint.endsWith("/") ? config.endpoint : config.endpoint + "/"}`;
-      const response = await fetch(url, {
-        method: "GET",
-        headers: {
-          Authorization: `Bearer ${config.apiKey}`,
-          Accept: "application/json",
-        },
-      });
-      if (response.ok) {
-        return {
-          success: true,
-          message: "Conectado com sucesso ao Obsidian local diretamente do seu navegador!",
-        };
-      } else {
-        return {
-          success: false,
-          message: `Obsidian local retornou HTTP ${response.status}`,
-        };
-      }
-    } catch (directErr) {
-      console.warn("Direct test connection to Obsidian failed, trying proxy server:", directErr);
-    }
-
-    // 2. Fallback to server-side connection test
-    try {
-      const headers = await getSessionHeaders();
-      const res = await fetch("/api/obsidian/test-connection", {
-        method: "POST",
-        headers,
-        body: JSON.stringify(config),
-      });
-      if (!res.ok) {
-        return {
-          success: false,
-          message: `O proxy do servidor retornou erro HTTP ${res.status}. Conexão local restrita.`,
-        };
-      }
-      return await res.json().catch(() => ({
-        success: false,
-        message: "Não foi possível interpretar a resposta JSON do servidor proxy.",
-      }));
-    } catch (err: any) {
-      return {
-        success: false,
-        message: err.message || "Erro de conexão ao testar endpoint via proxy",
-      };
-    }
+  async probeObsidianConnection(config: { endpoint: string; apiKey: string }) {
+    return await verifyObsidianConnection(config, false);
   },
 
-  async pushNoteToObsidian(config: ObsidianApiConfig, filePath: string, markdownContent: string) {
+  async testObsidianConnection(config: { endpoint: string; apiKey: string }) {
+    return await verifyObsidianConnection(config, true);
+  },
+
+  async pushNoteToObsidian(
+    config: ObsidianApiConfig,
+    filePath: string,
+    markdownContent: string,
+    frontmatter?: Record<string, unknown>
+  ) {
+    const verified = await requireVerifiedObsidian(config);
+    if (!verified.success) {
+      return { success: false, message: verified.message };
+    }
+
     if (window.electronAPI) {
       try {
         const vaultPath = await window.electronAPI.getVaultPath();
         if (vaultPath) {
-          const cleanPath = filePath.replace(/^\//, "").replace(/^vault\//, "");
-          const pathParts = cleanPath.split("/");
+          const cleanPath = filePath
+            .replace(/^\//, "")
+            .replace(/^vault\//, "")
+            .replace(/\\/g, "/");
+          const pathParts = cleanPath.split("/").filter(Boolean);
+          const filename = pathParts.pop() || "Nova Nota.md";
+          const folder = pathParts.join("/") || "00_Inbox";
+          const title = filename.replace(/\.md$/i, "");
+          const contentHasFrontmatter = markdownContent.trimStart().startsWith("---");
 
-          let folder = "00_Inbox";
-          let title = cleanPath.replace(/\.md$/, "");
-
-          if (pathParts.length > 1) {
-            folder = pathParts[0];
-            title = pathParts.slice(1).join("/").replace(/\.md$/, "");
-          }
-
-          const writeRes = await window.electronAPI.writeNote(folder, title, markdownContent);
+          const writeRes = await window.electronAPI.writeNote(
+            folder,
+            title,
+            markdownContent,
+            contentHasFrontmatter ? undefined : frontmatter
+          );
           if (writeRes.success) {
-            return { success: true, message: "Nota gravada diretamente via Electron" };
+            await publishCurrentDesktopVaultSnapshot();
+            return { success: true, message: "Nota gravada diretamente no Vault do Obsidian" };
           }
           throw new Error(writeRes.error || "Erro desconhecido ao gravar nota");
         }
@@ -328,6 +478,7 @@ export const api = {
 
     const cleanPath = filePath.startsWith("/") ? filePath : `/vault/${filePath}`;
     const { data } = await obsidianProxyRequest(config, "PUT", cleanPath, markdownContent);
+    if (data?.success) await publishCurrentDesktopVaultSnapshot();
     return data;
   },
 
@@ -337,6 +488,11 @@ export const api = {
     heading: string,
     sectionContent: string
   ) {
+    const verified = await requireVerifiedObsidian(config);
+    if (!verified.success) {
+      return { success: false, message: verified.message };
+    }
+
     const today = localDateKey();
 
     if (window.electronAPI?.upsertNoteSection) {
@@ -351,6 +507,7 @@ export const api = {
             sectionContent
           );
           if (result.success) {
+            await publishCurrentDesktopVaultSnapshot();
             return { success: true, message: "Daily Note atualizada de forma idempotente via Electron" };
           }
           throw new Error(result.error || "Falha ao atualizar seção da Daily Note");
@@ -378,10 +535,16 @@ export const api = {
 
     const updatedContent = upsertManagedSection(existingContent, sectionId, heading, sectionContent);
     const putResult = await obsidianProxyRequest(config, "PUT", targetPath, updatedContent);
+    if (putResult.data?.success) await publishCurrentDesktopVaultSnapshot();
     return putResult.data;
   },
 
   async appendToDailyNote(config: ObsidianApiConfig, contentToAppend: string) {
+    const verified = await requireVerifiedObsidian(config);
+    if (!verified.success) {
+      return { success: false, message: verified.message };
+    }
+
     if (window.electronAPI) {
       try {
         const vaultPath = await window.electronAPI.getVaultPath();
@@ -393,6 +556,7 @@ export const api = {
             `\n${contentToAppend}`
           );
           if (appendRes && appendRes.success) {
+            await publishCurrentDesktopVaultSnapshot();
             return { success: true, message: "Conteúdo inserido no Daily Note via Electron" };
           }
         }
@@ -408,6 +572,7 @@ export const api = {
       `\n${contentToAppend}`,
       { Heading: "📋 Tarefas Sincronizadas (Obsidian Tasks Plugin)" }
     );
+    if (data?.success) await publishCurrentDesktopVaultSnapshot();
     return data;
   },
 };

@@ -304,6 +304,8 @@ declare global {
       isElectron: () => boolean;
       selectVault: () => Promise<{ vaultPath: string; foldersCreated: string[] } | null>;
       getVaultPath: () => Promise<string | null>;
+      setObsidianConnectionState: (connected: boolean) => Promise<{ success: boolean; connected: boolean }>;
+      listVaultFolders: () => Promise<string[]>;
       readNotes: () => Promise<any[]>;
       writeNote: {
         (folder: string, title: string, content: string, frontmatter?: any): ElectronWriteResult;

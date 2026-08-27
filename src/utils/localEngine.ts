@@ -1,6 +1,5 @@
 import type {
   MarketingChannelContent,
-  MarketingReminder,
   MarketingTask,
   ObsidianNote,
   VaultAuditInsight,
@@ -23,13 +22,6 @@ export interface LocalExtractionInput {
   noteContent: string;
 }
 
-function addLocalDays(base: Date, days: number): string {
-  const date = new Date(base);
-  date.setHours(12, 0, 0, 0);
-  date.setDate(date.getDate() + days);
-  return localDateKey(date);
-}
-
 function normalizeTag(value: string): string {
   return value
     .normalize("NFD")
@@ -42,8 +34,8 @@ function normalizeTag(value: string): string {
 
 /**
  * Grounded local campaign generator.
- * It never supplies commercial numbers, prices, deadlines, product attributes
- * or promises that are not explicitly represented by notes marked OFICIAL.
+ * It may structure a plan, but it never invents commercial facts or scheduling.
+ * Every generated campaign remains EM REVISÃO until a human explicitly approves it.
  */
 export function generateLocalCampaign(input: LocalCampaignInput) {
   const {
@@ -56,9 +48,8 @@ export function generateLocalCampaign(input: LocalCampaignInput) {
     customInstructions,
   } = input;
 
-  const now = new Date();
-  const today = localDateKey(now);
-  const selectedChannels = channels.length > 0 ? channels : ["Canal pendente"];
+  const today = localDateKey();
+  const selectedChannels = channels.filter(Boolean);
   const officialNotes = contextNotesList.filter((note) => note.frontmatter?.status === "OFICIAL");
   const hasConfirmedBase = officialNotes.length > 0;
   const knowledgeRefs = officialNotes.slice(0, 5).map((note) => `[[${note.title}]]`);
@@ -69,103 +60,74 @@ export function generateLocalCampaign(input: LocalCampaignInput) {
   const targetTone = tone.trim() || "PENDENTE: tom de voz não informado";
   const objectiveText = objective.trim() || "PENDENTE: objetivo não informado";
 
-  const channelsContent: MarketingChannelContent[] = selectedChannels.map((channel, index) => {
-    const safeChannel = channel || "Canal pendente";
-    const publishDate = addLocalDays(now, index + 1);
+  const channelsContent: MarketingChannelContent[] = selectedChannels.map((channel) => ({
+    channel,
+    title: `${campaignName} — ${channel}`,
+    copy: hasConfirmedBase
+      ? [
+          `Campanha: ${campaignName}.`,
+          `Objetivo informado: ${objectiveText}.`,
+          `Público informado: ${targetAudience}.`,
+          `Base OFICIAL disponível para consulta: ${evidenceLabel}.`,
+          "Rascunho: usar no texto final somente promessas, números, prazos, preços, diferenciais e características explicitamente confirmados nessas notas.",
+        ].join("\n\n")
+      : [
+          `Campanha: ${campaignName}.`,
+          `Objetivo informado: ${objectiveText}.`,
+          `Público informado: ${targetAudience}.`,
+          "PENDENTE: a base selecionada não contém notas OFICIAL.",
+          "Não publicar alegações comerciais, números, preços, prazos ou características de produto até validar a informação no Vault.",
+        ].join("\n\n"),
+    callToAction: "PENDENTE: definir CTA depois de validar oferta e objetivo.",
+    hashtagsOrKeywords: [
+      normalizeTag(campaignName) || "campanha",
+      normalizeTag(channel) || "canal",
+      hasConfirmedBase ? "base-confirmada" : "pendente-validacao",
+    ],
+  }));
 
-    return {
-      channel: safeChannel,
-      title: `${campaignName} — ${safeChannel}`,
-      copy: hasConfirmedBase
-        ? [
-            `Campanha: ${campaignName}.`,
-            `Objetivo: ${objectiveText}.`,
-            `Público: ${targetAudience}.`,
-            `Base confirmada para consulta: ${evidenceLabel}.`,
-            "Use no texto final somente promessas, números, prazos, preços, diferenciais e características explicitamente confirmados nessas notas.",
-          ].join("\n\n")
-        : [
-            `Campanha: ${campaignName}.`,
-            `Objetivo: ${objectiveText}.`,
-            `Público: ${targetAudience}.`,
-            "PENDENTE: a base selecionada não contém notas marcadas como OFICIAL.",
-            "Não publicar alegações comerciais, números, preços, prazos ou características de produto até validar a informação no Vault.",
-          ].join("\n\n"),
-      callToAction: hasConfirmedBase
-        ? "Definir CTA final após revisar a oferta confirmada na base oficial."
-        : "PENDENTE: validar oferta e CTA antes da publicação.",
-      hashtagsOrKeywords: [
-        "marketing",
-        normalizeTag(campaignName) || "campanha",
-        normalizeTag(safeChannel) || "canal",
-        hasConfirmedBase ? "base-confirmada" : "pendente-validacao",
-      ],
-      suggestedPublishDate: publishDate,
-      mediaType: "single_image",
-    };
-  });
-
-  const firstDueDate = addLocalDays(now, 1);
-  const secondDueDate = addLocalDays(now, 2);
   const campaignSlug = normalizeTag(campaignName) || "campanha";
-
   const tasks: MarketingTask[] = [
     {
       id: `task-local-${campaignSlug}-validar-${today}`,
       title: `Validar fatos e oferta da campanha ${campaignName}`,
       description: hasConfirmedBase
-        ? `Revisar ${evidenceLabel} e marcar o que está CONFIRMADO, HIPÓTESE ou PENDENTE antes da publicação.`
-        : "Adicionar notas OFICIAL à base e validar oferta, público, diferenciais e restrições antes de produzir a peça final.",
-      channel: "Planejamento",
-      priority: hasConfirmedBase ? "high" : "urgent",
+        ? `Revisar ${evidenceLabel} e confirmar o que pode ser usado antes da publicação.`
+        : "Adicionar uma base OFICIAL e validar oferta, público, diferenciais e restrições antes de produzir a peça final.",
+      channel: "Interno",
+      priority: "high",
       status: "todo",
-      dueDate: firstDueDate,
-      dueTime: "10:00",
-      reminderDate: firstDueDate,
-      reminderTime: "09:00",
-      obsidianTaskString: `- [ ] Validar fatos e oferta da campanha ${campaignName} 📅 ${firstDueDate} ⏰ 10:00 #marketing #validacao`,
-      tags: ["marketing", "validacao", hasConfirmedBase ? "base-confirmada" : "pendente"],
-      isReminderActive: true,
+      dueDate: "",
+      obsidianTaskString: `- [ ] Validar fatos e oferta da campanha ${campaignName} #revisao #pendente`,
+      tags: ["revisao", hasConfirmedBase ? "base-confirmada" : "pendente"],
+      isReminderActive: false,
     },
     {
       id: `task-local-${campaignSlug}-produzir-${today}`,
       title: `Produzir conteúdo da campanha ${campaignName}`,
-      description: `Produzir as peças para ${selectedChannels.join(", ")} usando apenas informações confirmadas na base.`,
-      channel: selectedChannels[0],
-      priority: "high",
+      description: selectedChannels.length
+        ? `Produzir peças para ${selectedChannels.join(", ")} usando somente informações validadas.`
+        : "PENDENTE: definir canais antes de produzir as peças.",
+      channel: selectedChannels[0] || "",
+      priority: "medium",
       status: "todo",
-      dueDate: secondDueDate,
-      dueTime: "14:00",
-      reminderDate: secondDueDate,
-      reminderTime: "13:00",
-      obsidianTaskString: `- [ ] Produzir conteúdo da campanha ${campaignName} 📅 ${secondDueDate} ⏰ 14:00 #marketing #conteudo`,
-      tags: ["marketing", "conteudo", campaignSlug],
-      isReminderActive: true,
+      dueDate: "",
+      obsidianTaskString: `- [ ] Produzir conteúdo da campanha ${campaignName} #conteudo #pendente-agendamento`,
+      tags: ["conteudo", campaignSlug],
+      isReminderActive: false,
     },
   ];
 
-  const reminders: MarketingReminder[] = tasks.map((task, index) => ({
-    id: `rem-local-${campaignSlug}-${index + 1}-${today}`,
-    taskId: task.id,
-    taskTitle: task.title,
-    channel: task.channel,
-    triggerDate: task.reminderDate || task.dueDate,
-    triggerTime: task.reminderTime || task.dueTime || "09:00",
-    status: "pending",
-    obsidianReminderString: `- [ ] ${task.title} (@${task.reminderDate || task.dueDate} ${task.reminderTime || task.dueTime || "09:00"})`,
-  }));
-
-  const frontmatterStatus = hasConfirmedBase ? "OFICIAL" : "PENDENTE";
-  const approval = hasConfirmedBase ? "Gestor de Marketing" : "";
   const customBlock = customInstructions?.trim()
-    ? `\n## Instruções adicionais\n${customInstructions.trim()}\n`
+    ? `\n## Instruções adicionais informadas\n${customInstructions.trim()}\n`
     : "";
 
   const obsidianMarkdownNote = `---
 id: "camp_${campaignSlug}_${today}"
 tipo: "Plano de Campanha"
-status: "${frontmatterStatus}"
-owner: "Gestor de Marketing Nisti Print"
+status: "EM REVISÃO"
+epistemic_status: "${hasConfirmedBase ? "HIPÓTESE" : "PENDENTE"}"
+owner: "Nisti Marketing"
 created_at: "${today}"
 updated_at: "${today}"
 confidencialidade: "Interno"
@@ -174,72 +136,70 @@ canal: "${selectedChannels.join(", ").replace(/"/g, "'")}"
 projeto: "${campaignName.replace(/"/g, "'")}"
 tags:
   - campanha
-  - marketing
+  - revisao
   - ${hasConfirmedBase ? "base-confirmada" : "pendente-validacao"}
 origem: "Motor Local Grounded"
-approved_by: "${approval}"
+approved_by: ""
 ---
 
 # ${campaignName}
 
 > [!summary] Estado epistemológico
-> - **Status**: ${frontmatterStatus}
-> - **Objetivo**: ${objectiveText}
-> - **Público-alvo**: ${targetAudience}
-> - **Tom de voz**: ${targetTone}
-> - **Base utilizada**: ${evidenceLabel}
+> - **Status editorial**: EM REVISÃO
+> - **Status epistemológico**: ${hasConfirmedBase ? "HIPÓTESE" : "PENDENTE"}
+> - **Objetivo informado**: ${objectiveText}
+> - **Público informado**: ${targetAudience}
+> - **Tom informado**: ${targetTone}
+> - **Base OFICIAL consultável**: ${evidenceLabel}
 
 > [!warning] Regra de segurança de conteúdo
-> O Motor Local não deve inventar preços, prazos, métricas, características, diferenciais ou promessas. Qualquer informação não confirmada na base permanece **PENDENTE**.
+> O Motor Local não inventa preços, prazos, datas de publicação, métricas, características, diferenciais ou promessas. A existência de notas OFICIAL como fonte não torna o plano gerado automaticamente OFICIAL.
 ${customBlock}
 ## Conteúdos por canal
 
-${channelsContent
-  .map(
-    (content) => `### ${content.channel}\n**Data sugerida:** ${content.suggestedPublishDate}\n\n${content.copy}\n\n**CTA:** ${content.callToAction}`
-  )
-  .join("\n\n---\n\n")}
+${channelsContent.length
+  ? channelsContent.map((content) => `### ${content.channel}\n${content.copy}\n\n**CTA:** ${content.callToAction}`).join("\n\n---\n\n")
+  : "PENDENTE: nenhum canal definido."}
 
-## Tarefas
+## Tarefas sugeridas
 ${tasks.map((task) => task.obsidianTaskString).join("\n")}
 `;
 
   return {
     summary: hasConfirmedBase
-      ? `Campanha '${campaignName}' estruturada localmente com rastreabilidade para notas OFICIAL.`
-      : `Campanha '${campaignName}' criada como PENDENTE porque ainda não há base OFICIAL suficiente para afirmar fatos comerciais.`,
-    strategy: `Objetivo: ${objectiveText}. Público: ${targetAudience}. Base: ${evidenceLabel}.`,
+      ? `Campanha '${campaignName}' estruturada como HIPÓTESE com rastreabilidade para notas OFICIAL.`
+      : `Campanha '${campaignName}' mantida como PENDENTE porque não há base OFICIAL selecionada.`,
+    strategy: `Objetivo informado: ${objectiveText}. Público informado: ${targetAudience}. Base: ${evidenceLabel}.`,
     channelsContent,
     tasks,
-    reminders,
+    reminders: [],
     obsidianMarkdownNote,
     usedEngine: "Motor Local Grounded (0 tokens)",
-    epistemicStatus: hasConfirmedBase ? "CONFIRMADO" : "PENDENTE",
+    epistemicStatus: hasConfirmedBase ? "HIPÓTESE" : "PENDENTE",
   };
 }
 
-/** Extract explicit Markdown tasks without inventing task content from the note. */
+/** Extract explicit Markdown tasks without inventing missing dates, times or reminders. */
 export function extractLocalTasksFromNote(input: LocalExtractionInput) {
   const { noteTitle, noteContent } = input;
   const lines = noteContent.split("\n");
   const extractedTasks: any[] = [];
   const suggestedReminders: any[] = [];
-  const now = new Date();
 
   lines.forEach((line) => {
     const trimmed = line.trim();
-    if (!trimmed.startsWith("- [ ]") && !trimmed.startsWith("- [x]")) return;
+    if (!trimmed.startsWith("- [ ]") && !trimmed.startsWith("- [x]") && !trimmed.startsWith("- [X]")) return;
 
     const rest = trimmed.slice(5).trim();
     const dateMatch = rest.match(/📅\s*(\d{4}-\d{2}-\d{2})/);
-    const dueDate = dateMatch ? dateMatch[1] : addLocalDays(now, 1);
+    const dueDate = dateMatch?.[1] || "";
     const timeMatch = rest.match(/⏰\s*(\d{1,2}:\d{2})/);
-    const dueTime = timeMatch ? timeMatch[1] : "14:00";
+    const dueTime = timeMatch?.[1] || "";
     const reminderMatch = rest.match(/\(@(\d{4}-\d{2}-\d{2})\s*(\d{1,2}:\d{2})\)/);
-    const reminderDate = reminderMatch ? reminderMatch[1] : dueDate;
-    const reminderTime = reminderMatch ? reminderMatch[2] : "10:00";
+    const reminderDate = reminderMatch?.[1] || "";
+    const reminderTime = reminderMatch?.[2] || "";
 
-    let priority = "medium";
+    let priority: "low" | "medium" | "high" | "urgent" = "medium";
     if (rest.includes("🔺") || rest.toLowerCase().includes("urgente")) priority = "urgent";
     else if (rest.includes("⏫") || rest.toLowerCase().includes("alta")) priority = "high";
     else if (rest.includes("🔽") || rest.toLowerCase().includes("baixa")) priority = "low";
@@ -256,22 +216,24 @@ export function extractLocalTasksFromNote(input: LocalExtractionInput) {
 
     extractedTasks.push({
       title: cleanTitle,
-      channel: "Geral",
+      channel: "",
       priority,
       dueDate,
       dueTime,
       obsidianTaskString: trimmed,
       reminderDate,
       reminderTime,
-      category: "Planejamento",
+      category: "Extraída da fonte",
     });
 
-    suggestedReminders.push({
-      title: cleanTitle,
-      triggerDate: reminderDate,
-      triggerTime: reminderTime,
-      obsidianReminderString: `- [ ] ${cleanTitle} (@${reminderDate} ${reminderTime})`,
-    });
+    if (reminderMatch) {
+      suggestedReminders.push({
+        title: cleanTitle,
+        triggerDate: reminderDate,
+        triggerTime: reminderTime,
+        obsidianReminderString: `- [ ] ${cleanTitle} (@${reminderDate} ${reminderTime})`,
+      });
+    }
   });
 
   return {
@@ -279,15 +241,18 @@ export function extractLocalTasksFromNote(input: LocalExtractionInput) {
     suggestedReminders,
     summaryInsights:
       extractedTasks.length > 0
-        ? `Extraídas ${extractedTasks.length} ações explícitas e ${suggestedReminders.length} lembretes a partir de [[${noteTitle}]].`
+        ? `Extraídas ${extractedTasks.length} tarefa(s) explícita(s) de [[${noteTitle}]]. Datas, horários e lembretes só são preenchidos quando existem na fonte.`
         : `Nenhuma tarefa explícita foi encontrada em [[${noteTitle}]]. O Motor Local não criou ações por inferência.`,
     usedEngine: "Motor Local Grounded (0 tokens)",
   };
 }
 
-/** Audit structure and only suggest campaigns when an official note supports a theme. */
+/**
+ * Structural audit. The score is transparent: each of five knowledge pillars
+ * contributes exactly 20 points only when at least one OFICIAL note exists there.
+ * This is not a marketing-performance score.
+ */
 export function analyzeLocalVault(notes: ObsidianNote[]): VaultAuditInsight {
-  let score = 50;
   const knowledgeGaps: VaultAuditInsight["knowledgeGaps"] = [];
   const suggestedCampaigns: VaultAuditInsight["suggestedCampaigns"] = [];
 
@@ -300,48 +265,42 @@ export function analyzeLocalVault(notes: ObsidianNote[]): VaultAuditInsight {
   const campaignNotes = inFolder("04_Campanhas");
   const learningNotes = inFolder("08_Aprendizados");
 
-  if (strategyNotes.length > 0) score += 12;
-  else knowledgeGaps.push({ topic: "Brand Voice e Público", recommendation: "Crie uma nota OFICIAL em 01_Estrategia com público, posicionamento e tom de voz confirmados.", urgency: "alta" });
+  const pillars = [strategyNotes, productNotes, contentNotes, campaignNotes, learningNotes];
+  const coveredPillars = pillars.filter((group) => group.length > 0).length;
+  const score = coveredPillars * 20;
 
-  if (productNotes.length > 0) score += 12;
-  else knowledgeGaps.push({ topic: "Produtos e Oferta", recommendation: "Documente em 02_Produtos somente especificações, preços, prazos e diferenciais confirmados.", urgency: "alta" });
-
-  if (contentNotes.length > 0) score += 10;
-  else knowledgeGaps.push({ topic: "Playbook de Conteúdo", recommendation: "Adicione modelos e diretrizes aprovadas em 03_Conteudos.", urgency: "media" });
-
-  if (campaignNotes.length > 0) score += 10;
-  else knowledgeGaps.push({ topic: "Histórico de Campanhas", recommendation: "Registre planos e campanhas executadas em 04_Campanhas.", urgency: "media" });
-
-  if (learningNotes.length > 0) score += 6;
-  else knowledgeGaps.push({ topic: "Aprendizados e Resultados", recommendation: "Registre resultados reais e aprendizados em 08_Aprendizados.", urgency: "baixa" });
-
-  score = Math.min(100, Math.max(20, score));
+  if (strategyNotes.length === 0) knowledgeGaps.push({ topic: "Estratégia", recommendation: "Criar uma nota OFICIAL em 01_Estrategia com posicionamento, público e tom de voz confirmados.", urgency: "alta" });
+  if (productNotes.length === 0) knowledgeGaps.push({ topic: "Produtos e Oferta", recommendation: "Documentar em 02_Produtos somente especificações, preços, prazos e diferenciais confirmados.", urgency: "alta" });
+  if (contentNotes.length === 0) knowledgeGaps.push({ topic: "Conteúdo", recommendation: "Adicionar modelos ou diretrizes aprovadas em 03_Conteudos.", urgency: "media" });
+  if (campaignNotes.length === 0) knowledgeGaps.push({ topic: "Campanhas", recommendation: "Registrar planos e campanhas realmente executadas em 04_Campanhas.", urgency: "media" });
+  if (learningNotes.length === 0) knowledgeGaps.push({ topic: "Aprendizados", recommendation: "Registrar resultados reais e aprendizados em 08_Aprendizados.", urgency: "baixa" });
 
   if (productNotes.length > 0 && strategyNotes.length > 0) {
     suggestedCampaigns.push({
-      title: `Campanha baseada em ${productNotes[0].title}`,
-      rationale: `Há base OFICIAL de produto ([[${productNotes[0].title}]]) e estratégia ([[${strategyNotes[0].title}]]). Validar a oferta e transformar esses dados confirmados em campanha.`,
+      title: `Hipótese de campanha baseada em ${productNotes[0].title}`,
+      rationale: `Existe uma fonte OFICIAL de produto ([[${productNotes[0].title}]]) e uma de estratégia ([[${strategyNotes[0].title}]]). A hipótese ainda exige briefing e aprovação humana.`,
       recommendedChannels: [],
-      estimatedEffort: "PENDENTE: definir após briefing",
+      estimatedEffort: "PENDENTE",
     });
   }
 
   if (contentNotes.length > 0 && learningNotes.length > 0) {
     suggestedCampaigns.push({
-      title: `Reaproveitamento orientado por ${learningNotes[0].title}`,
-      rationale: `Cruzar o aprendizado OFICIAL [[${learningNotes[0].title}]] com o playbook [[${contentNotes[0].title}]] antes de definir formato e canal.`,
+      title: `Hipótese de reaproveitamento baseada em ${learningNotes[0].title}`,
+      rationale: `Existe um aprendizado OFICIAL [[${learningNotes[0].title}]] e uma referência OFICIAL de conteúdo [[${contentNotes[0].title}]]. Formato, canal e esforço permanecem PENDENTES.`,
       recommendedChannels: [],
-      estimatedEffort: "PENDENTE: definir após briefing",
+      estimatedEffort: "PENDENTE",
     });
   }
 
   const automatedWorkflowRecommendations = [
-    "Sincronizar tarefas confirmadas na Daily Note do Obsidian.",
     "Classificar novas informações como CONFIRMADO, HIPÓTESE ou PENDENTE antes de usá-las em conteúdo.",
-    "Registrar resultados reais em 08_Aprendizados para melhorar próximas decisões.",
+    "Registrar resultados reais em 08_Aprendizados antes de derivar novos aprendizados.",
   ];
 
-  const scoreAnalysis = `O cofre possui ${notes.length} notas, sendo ${officialNotes.length} marcadas como OFICIAL. A maturidade estrutural calculada é ${score}/100.`;
+  const scoreAnalysis = notes.length === 0
+    ? "Vault sem notas. Prontidão estrutural: 0/100."
+    : `Prontidão estrutural: ${score}/100. ${coveredPillars} de 5 pilares possuem ao menos uma nota OFICIAL. O indicador não mede performance de marketing.`;
 
   return {
     readinessScore: score,

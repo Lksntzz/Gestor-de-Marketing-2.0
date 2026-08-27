@@ -5,6 +5,8 @@ contextBridge.exposeInMainWorld("electronAPI", {
 
   selectVault: () => ipcRenderer.invoke("vault:select"),
   getVaultPath: () => ipcRenderer.invoke("vault:get-path"),
+  setObsidianConnectionState: (connected: boolean) => ipcRenderer.invoke("vault:connection-state", connected),
+  listVaultFolders: () => ipcRenderer.invoke("vault:list-folders"),
 
   readNotes: () => ipcRenderer.invoke("notes:read-all"),
   writeNote: (...args: any[]) => {

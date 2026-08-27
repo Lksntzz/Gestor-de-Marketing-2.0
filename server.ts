@@ -8,7 +8,6 @@ import * as pdfParseModule from "pdf-parse";
 
 dotenv.config();
 
-// Direct buffer parsing without createRequire/import.meta.url
 async function parsePdfBuffer(buffer: Buffer): Promise<string> {
   try {
     const parseFn: any = (pdfParseModule as any).default || pdfParseModule;
@@ -22,11 +21,8 @@ async function parsePdfBuffer(buffer: Buffer): Promise<string> {
 
 const app = express();
 const PORT = 3000;
-
-// Internal Session Authentication Secret
 const SERVER_SESSION_SECRET = process.env.API_SESSION_SECRET || crypto.randomBytes(32).toString("hex");
 
-// Security Headers
 app.use((req, res, next) => {
   res.setHeader("X-Content-Type-Options", "nosniff");
   res.setHeader("X-Frame-Options", "SAMEORIGIN");
@@ -34,16 +30,15 @@ app.use((req, res, next) => {
   next();
 });
 
-// Basic in-memory rate limiting for API endpoints (120 req / min per IP)
 const rateLimitMap = new Map<string, { count: number; resetTime: number }>();
 app.use("/api/", (req, res, next) => {
   const ip = req.ip || req.socket.remoteAddress || "unknown";
   const now = Date.now();
   const entry = rateLimitMap.get(ip);
   if (!entry || now > entry.resetTime) {
-    rateLimitMap.set(ip, { count: 1, resetTime: now + 60000 });
+    rateLimitMap.set(ip, { count: 1, resetTime: now + 60_000 });
   } else {
-    entry.count++;
+    entry.count += 1;
     if (entry.count > 120) {
       return res.status(429).json({ success: false, error: "Limite de requisições excedido. Tente novamente em 1 minuto." });
     }
@@ -51,20 +46,14 @@ app.use("/api/", (req, res, next) => {
   next();
 });
 
-// Handshake endpoint for UI to acquire session token
-app.get("/api/auth/session", (req, res) => {
-  res.json({
-    success: true,
-    token: SERVER_SESSION_SECRET,
-  });
+app.get("/api/auth/session", (_req, res) => {
+  res.json({ success: true, token: SERVER_SESSION_SECRET });
 });
 
-// Session verification middleware for protected API endpoints
 app.use("/api/gemini/", (req, res, next) => {
-  const clientToken = req.headers["x-app-session-token"] || req.headers["authorization"]?.replace("Bearer ", "");
-  // Allow same-origin client requests or valid session token
-  const isDirectUi = req.headers["sec-fetch-site"] === "same-origin" || req.headers["sec-fetch-mode"] === "cors" || req.headers["user-agent"]?.includes("Mozilla");
-  if (clientToken === SERVER_SESSION_SECRET || isDirectUi || process.env.NODE_ENV !== "production") {
+  const bearer = req.headers["authorization"]?.replace(/^Bearer\s+/i, "");
+  const clientToken = String(req.headers["x-app-session-token"] || bearer || "");
+  if (clientToken === SERVER_SESSION_SECRET || process.env.NODE_ENV !== "production") {
     return next();
   }
   return res.status(401).json({ success: false, error: "Acesso não autorizado ao backend da API." });
@@ -72,21 +61,13 @@ app.use("/api/gemini/", (req, res, next) => {
 
 app.use(express.json({ limit: "25mb" }));
 
-// SSRF Guard: Validate that a URL is a legitimate public web destination
 function isSafePublicUrl(urlString: string): boolean {
   try {
     const parsed = new URL(urlString);
-    if (parsed.protocol !== "http:" && parsed.protocol !== "https:") {
-      return false;
-    }
-
-    // Only allow standard web ports (80, 443, or default empty port)
-    if (parsed.port && parsed.port !== "80" && parsed.port !== "443" && parsed.port !== "") {
-      return false;
-    }
+    if (parsed.protocol !== "http:" && parsed.protocol !== "https:") return false;
+    if (parsed.port && parsed.port !== "80" && parsed.port !== "443") return false;
 
     const hostname = parsed.hostname.toLowerCase();
-    // Block loopback, localhost, cloud metadata, and private/internal ranges
     if (
       hostname === "localhost" ||
       hostname.endsWith(".localhost") ||
@@ -100,7 +81,7 @@ function isSafePublicUrl(urlString: string): boolean {
       hostname.startsWith("10.") ||
       hostname.startsWith("192.168.") ||
       hostname.startsWith("169.254.") ||
-      hostname.startsWith("224.") || // Multicast
+      hostname.startsWith("224.") ||
       hostname === "metadata.google.internal" ||
       hostname === "metadata" ||
       hostname.includes("instance-data")
@@ -108,97 +89,70 @@ function isSafePublicUrl(urlString: string): boolean {
       return false;
     }
 
-    // Check 172.16.0.0 - 172.31.255.255
     const match172 = hostname.match(/^172\.(\d+)\./);
     if (match172) {
-      const secondOctet = parseInt(match172[1], 10);
-      if (secondOctet >= 16 && secondOctet <= 31) {
-        return false;
-      }
+      const secondOctet = Number(match172[1]);
+      if (secondOctet >= 16 && secondOctet <= 31) return false;
     }
-
     return true;
   } catch {
     return false;
   }
 }
 
-// Safe Web Fetch with Manual Redirect Validation and SSRF Guards
 async function fetchSafeWebPage(targetUrl: string, maxRedirects = 3): Promise<{ title: string; text: string }> {
   let currentUrl = targetUrl;
-  let hops = 0;
-
-  while (hops < maxRedirects) {
+  for (let hop = 0; hop <= maxRedirects; hop += 1) {
     if (!isSafePublicUrl(currentUrl)) {
       throw new Error("URL inválida ou direcionada para rede privada/bloqueada.");
     }
 
     const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), 4000);
-
+    const timeoutId = setTimeout(() => controller.abort(), 5_000);
     try {
-      const res = await fetch(currentUrl, {
+      const response = await fetch(currentUrl, {
         method: "GET",
-        headers: { "User-Agent": "Nisti-PKM-Bot/2.0" },
+        headers: { "User-Agent": "Nisti-Marketing/2.0" },
         redirect: "manual",
         signal: controller.signal,
       });
-      clearTimeout(timeoutId);
 
-      // Handle Redirects safely
-      if ([301, 302, 303, 307, 308].includes(res.status)) {
-        const location = res.headers.get("location");
-        if (!location) throw new Error("Redirect sem header location");
-        const nextUrl = new URL(location, currentUrl).toString();
-        currentUrl = nextUrl;
-        hops++;
+      if ([301, 302, 303, 307, 308].includes(response.status)) {
+        const location = response.headers.get("location");
+        if (!location) throw new Error("Redirecionamento sem destino.");
+        currentUrl = new URL(location, currentUrl).toString();
         continue;
       }
 
-      if (!res.ok) {
-        throw new Error(`HTTP error ${res.status}`);
-      }
-
-      const html = await res.text();
+      if (!response.ok) throw new Error(`HTTP ${response.status}`);
+      const html = await response.text();
       const titleMatch = html.match(/<title[^>]*>([^<]+)<\/title>/i);
-      const title = titleMatch ? titleMatch[1].trim() : "Artigo da Web";
-
+      const title = titleMatch?.[1]?.trim() || "Artigo da Web";
       const text = html
         .replace(/<script\b[^<]*(?:(?!<\/script>)<[^<]*)*<\/script>/gi, "")
         .replace(/<style\b[^<]*(?:(?!<\/style>)<[^<]*)*<\/style>/gi, "")
         .replace(/<[^>]+>/g, " ")
         .replace(/\s+/g, " ")
         .trim()
-        .slice(0, 5000);
-
+        .slice(0, 12_000);
       return { title, text };
-    } catch (err: any) {
+    } finally {
       clearTimeout(timeoutId);
-      throw err;
     }
   }
-
   throw new Error("Número máximo de redirecionamentos excedido.");
 }
 
-
-// Helper to create a Gemini Client with dynamic or fallback API key
 function createGeminiClient(customApiKey?: string): GoogleGenAI {
-  const apiKey = customApiKey;
+  const apiKey = customApiKey?.trim();
+  if (!apiKey) throw new Error("Chave de API do Gemini não configurada.");
   return new GoogleGenAI({
-    apiKey: apiKey || "dummy_key",
-    httpOptions: {
-      headers: {
-        "User-Agent": "nisti-pkm-build",
-      },
-    },
+    apiKey,
+    httpOptions: { headers: { "User-Agent": "nisti-marketing-2.0" } },
   });
 }
 
-// ==========================================
-// 1. HEALTH & METADATA
-// ==========================================
-app.get("/api/health", (req, res) => {
+app.get("/api/health", (_req, res) => {
   res.json({
     status: "ok",
     hasApiKey: !!process.env.GEMINI_API_KEY,
@@ -208,7 +162,6 @@ app.get("/api/health", (req, res) => {
 });
 
 const wait = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
-
 const GEMINI_TEXT_MODELS = [
   "gemini-3.1-flash-lite",
   "gemini-flash-latest",
@@ -216,186 +169,166 @@ const GEMINI_TEXT_MODELS = [
   "gemini-3.1-pro-preview",
 ];
 
-// Helper to sanitize folder names into the 10 official categories
 function sanitizeOfficialFolder(title: string, category: string, bodyText: string): string {
   const text = `${title} ${category} ${bodyText}`.toLowerCase();
-  if (text.includes("estratégia") || text.includes("estrategia") || text.includes("branding") || text.includes("posicionamento") || text.includes("missão") || text.includes("persona") || text.includes("avatar")) {
-    return "01_Estrategia";
-  }
-  if (text.includes("produto") || text.includes("pricing") || text.includes("preço") || text.includes("planner") || text.includes("devocional") || text.includes("catálogo") || text.includes("impressão") || text.includes("brinde")) {
-    return "02_Produtos";
-  }
-  if (text.includes("copywriting") || text.includes("copy") || text.includes("post") || text.includes("roteiro") || text.includes("artigo") || text.includes("headline") || text.includes("carrossel")) {
-    return "03_Conteudos";
-  }
-  if (text.includes("campanha") || text.includes("lançamento") || text.includes("meta ads") || text.includes("tráfego pago") || text.includes("cronograma")) {
-    return "04_Campanhas";
-  }
-  if (text.includes("reunião") || text.includes("reuniao") || text.includes("ata") || text.includes("alinhamento") || text.includes("briefing")) {
-    return "05_Reunioes";
-  }
-  if (text.includes("influenciador") || text.includes("ugc") || text.includes("parceria") || text.includes("afiliado")) {
-    return "06_Influenciadores_UGC";
-  }
-  if (text.includes("pesquisa") || text.includes("benchmark") || text.includes("concorrente") || text.includes("estudo de mercado")) {
-    return "07_Pesquisas";
-  }
-  if (text.includes("aprendizado") || text.includes("relatório") || text.includes("métrica") || text.includes("post-mortem") || text.includes("pós-campanha")) {
-    return "08_Aprendizados";
-  }
-  if (text.includes("template") || text.includes("modelo") || text.includes("estrutura padrão")) {
-    return "99_Templates";
-  }
+  if (/estrat[eé]gia|branding|posicionamento|miss[aã]o|persona|avatar/.test(text)) return "01_Estrategia";
+  if (/produto|pricing|pre[cç]o|cat[aá]logo|impress[aã]o|brinde/.test(text)) return "02_Produtos";
+  if (/copywriting|copy|post|roteiro|artigo|headline|carrossel/.test(text)) return "03_Conteudos";
+  if (/campanha|lan[cç]amento|meta ads|tr[aá]fego pago|cronograma/.test(text)) return "04_Campanhas";
+  if (/reuni[aã]o|ata|alinhamento|briefing/.test(text)) return "05_Reunioes";
+  if (/influenciador|ugc|parceria|afiliado/.test(text)) return "06_Influenciadores_UGC";
+  if (/pesquisa|benchmark|concorrente|estudo de mercado/.test(text)) return "07_Pesquisas";
+  if (/aprendizado|relat[oó]rio|m[eé]trica|post-mortem|p[oó]s-campanha/.test(text)) return "08_Aprendizados";
+  if (/template|modelo|estrutura padr[aã]o/.test(text)) return "99_Templates";
   return "00_Inbox";
 }
 
-// Resilient executor with backoff & model fallback
+function yamlSafe(value: unknown): string {
+  return String(value ?? "").replace(/[\r\n]+/g, " ").replace(/"/g, "'").trim();
+}
+
+function todayKey(): string {
+  return new Date().toISOString().slice(0, 10);
+}
+
+function sourceFrontmatter(params: {
+  id: string;
+  type: string;
+  status?: string;
+  epistemicStatus?: string;
+  category?: string;
+  source?: string;
+  tags?: string[];
+}): string {
+  const tags = params.tags || [];
+  return [
+    "---",
+    `id: "${yamlSafe(params.id)}"`,
+    `tipo: "${yamlSafe(params.type)}"`,
+    `status: "${yamlSafe(params.status || "NOVO")}"`,
+    `epistemic_status: "${yamlSafe(params.epistemicStatus || "PENDENTE")}"`,
+    `category: "${yamlSafe(params.category || "Não classificado")}"`,
+    'owner: "Nisti Marketing"',
+    `created_at: "${todayKey()}"`,
+    `updated_at: "${todayKey()}"`,
+    "tags:",
+    ...(tags.length ? tags.map((tag) => `  - "${yamlSafe(tag)}"`) : ["  - conhecimento"]),
+    `origem: "${yamlSafe(params.source || "Entrada manual")}"`,
+    'approved_by: ""',
+    "---",
+  ].join("\n");
+}
+
 async function executeGeminiWithFallback<T>(
   buildParams: (model: string) => any,
-  fallbackGenerator: () => T,
+  safeFallback: () => T,
   customApiKey?: string
 ): Promise<{ data: T; usedModel: string; wasFallback: boolean }> {
-  const apiKey = customApiKey;
-
-  if (!apiKey || apiKey === "dummy_key" || apiKey.trim() === "") {
-    throw new Error("Chave de API do Gemini não configurada. Registre sua chave nas Configurações para usar os recursos de IA.");
-  }
-
-  const ai = createGeminiClient(apiKey);
-  let lastError: any = null;
-
+  const ai = createGeminiClient(customApiKey);
   for (const model of GEMINI_TEXT_MODELS) {
     try {
-      const params = buildParams(model);
-      const response = await ai.models.generateContent(params);
+      const response = await ai.models.generateContent(buildParams(model));
       const text = response.text || "{}";
-      const parsed = JSON.parse(text);
-      return { data: parsed as T, usedModel: model, wasFallback: false };
-    } catch (err: any) {
-      lastError = err;
+      return { data: JSON.parse(text) as T, usedModel: model, wasFallback: false };
+    } catch (err) {
+      console.warn(`Gemini model ${model} failed:`, err);
       await wait(250);
     }
   }
-
-  return { data: fallbackGenerator(), usedModel: "resilient-domain-engine", wasFallback: true };
+  return { data: safeFallback(), usedModel: "grounded-safe-fallback", wasFallback: true };
 }
 
-// ==========================================
-// 2. CAMPAIGN GENERATION (RESPECTS engineMode)
-// ==========================================
+function groundedCampaignFallback(input: {
+  name: string;
+  objective: string;
+  channels: string[];
+  audience?: string;
+  tone?: string;
+}) {
+  const { name, objective, channels, audience, tone } = input;
+  const today = todayKey();
+  const contextLines = [
+    `- **Objetivo informado**: ${objective}`,
+    audience ? `- **Público informado**: ${audience}` : "- **Público**: PENDENTE",
+    tone ? `- **Tom informado**: ${tone}` : "- **Tom**: PENDENTE",
+    `- **Canais informados**: ${channels.join(", ")}`,
+  ];
+
+  return {
+    summary: `Plano provisório para "${name}" baseado somente nos dados informados pelo usuário.`,
+    strategy: "Antes de publicar, validar no Vault preços, prazos, diferenciais, métricas, produtos, disponibilidade e qualquer outra promessa comercial.",
+    channelsContent: channels.map((channel) => ({
+      channel,
+      title: `${name} — rascunho para ${channel}`,
+      copy: `Comunicar o objetivo "${objective}" usando apenas fatos CONFIRMADOS na base de conhecimento. Itens sem evidência devem permanecer como HIPÓTESE ou PENDENTE.`,
+      callToAction: "PENDENTE — definir CTA após validação do objetivo e da oferta.",
+      hashtagsOrKeywords: [],
+      suggestedPublishDate: "",
+    })),
+    tasks: [
+      {
+        title: `Validar fatos e promessas da campanha ${name}`,
+        channel: "Interno",
+        priority: "high",
+        dueDate: "",
+        obsidianTaskString: `- [ ] Validar fatos e promessas da campanha ${name} #revisao #pendente`,
+      },
+    ],
+    suggestedReminders: [],
+    obsidianNoteMarkdown: `${sourceFrontmatter({
+      id: `camp_${Date.now().toString(36)}`,
+      type: "Plano de Campanha",
+      status: "EM REVISÃO",
+      epistemicStatus: "PENDENTE",
+      category: "Campanha",
+      source: "Briefing informado no Nisti Marketing",
+      tags: ["campanha", "revisao"],
+    })}\n\n# Plano de Campanha: ${name}\n\n${contextLines.join("\n")}\n\n## Regra de evidência\nNão publicar nenhuma afirmação comercial que não esteja CONFIRMADA no Vault.\n\n_Registro criado em ${today}._`,
+  };
+}
+
 app.post("/api/gemini/generate-campaign", async (req, res) => {
   try {
-    const { campaignName, objective, channels, audience, tone, contextNotes, customInstructions, engineMode } = req.body;
-    const name = campaignName || "Campanha Estratégica Nisti Print";
-    const chList: string[] = Array.isArray(channels) && channels.length > 0
-      ? channels
-      : ["Instagram", "WhatsApp B2B", "Email Marketing", "TikTok / Reels"];
-    const targetAudience = audience || "Empreendedoras de Papelaria e Líderes Ministeriais";
-    const targetTone = tone || "Profissional, acolhedor, sofisticado e focado em alta qualidade de acabamento";
-
-    const fallbackGenerator = () => {
-      const today = new Date().toISOString().split("T")[0];
-      const tomorrow = new Date(Date.now() + 86400000).toISOString().split("T")[0];
-      const inThreeDays = new Date(Date.now() + 86400000 * 3).toISOString().split("T")[0];
-
-      return {
-        summary: `Campanha '${name}' focada em posicionar a Nisti Print como gráfica boutique de alta precisão para ${targetAudience}.`,
-        strategy: `Abordagem multicanal enfatizando acabamentos premium (Soft Touch, Hot Stamping, Wire-o Bronze) e pedidos mínimos flexíveis (a partir de 10 unidades).`,
-        channelsContent: chList.map((ch: string) => ({
-          channel: ch,
-          title: `Lançamento ${name} - ${ch}`,
-          copy: `Seu projeto editorial merece acabamento de livraria. Na Nisti Print, produzimos tiragens a partir de 10 unidades com laminação aveludada e impressão impecável. Solicite seu kit de amostras.`,
-          callToAction: `Clique no link da bio e receba nossa tabela exclusiva para parceiros.`,
-          hashtagsOrKeywords: ["papelaria", "planners2026", "graficaboutique", "nistiprint"],
-          suggestedPublishDate: tomorrow,
-        })),
-        tasks: [
-          {
-            title: `Gravar Reels demonstrando toque soft touch para ${name}`,
-            channel: "Instagram",
-            priority: "high",
-            dueDate: tomorrow,
-            obsidianTaskString: `- [ ] Gravar Reels demonstrando toque soft touch para ${name} 📅 ${tomorrow} ⏰ 10:00 #conteudo #instagram`,
-          },
-          {
-            title: `Disparar mensagem no WhatsApp B2B com catálogo atualizado`,
-            channel: "WhatsApp B2B",
-            priority: "urgent",
-            dueDate: inThreeDays,
-            obsidianTaskString: `- [ ] Disparar mensagem no WhatsApp B2B com catálogo atualizado 📅 ${inThreeDays} ⏰ 14:00 #vendas #b2b`,
-          },
-        ],
-        suggestedReminders: [
-          {
-            title: `Check-in de aprovação dos criativos de ${name}`,
-            triggerDate: tomorrow,
-            triggerTime: "09:00",
-            obsidianReminderString: `- [ ] Check-in de aprovação dos criativos de ${name} (@${tomorrow} 09:00)`,
-          },
-        ],
-        obsidianNoteMarkdown: `---
-id: "camp_${Date.now()}"
-tipo: "Plano de Campanha"
-status: "OFICIAL"
-owner: "Gestor de Marketing Nisti Print"
-created_at: "${today}"
-updated_at: "${today}"
-confidencialidade: "Interno"
-produto: "Linha Planners & Devocionais 2026"
-nicho: "Papelaria Criativa & Institucional"
-canal: "${chList.join(", ")}"
-projeto: "${name}"
-tags:
-  - campanha
-  - marketing-nisti
-  - lancamento
-origem: "Nisti Campaign Generator"
-approved_by: "Gestor de Marketing"
-hash: "camp_${Date.now().toString(36)}"
----
-
-# 🚀 Plano de Campanha: ${name}
-
-## 🎯 Objetivo & Posicionamento
-- **Objetivo**: ${objective || "Expansão de vendas e posicionamento premium"}
-- **Público-Alvo**: ${targetAudience}
-- **Tom de Voz**: ${targetTone}
-- **Canais Ativos**: ${chList.join(", ")}
-
-## 📑 Conteúdos por Canal
-${chList.map(c => `### 📌 ${c}\n- **CTA**: Solicitar catálogo pelo WhatsApp\n- **Gancho**: Qualidade de grande editora a partir de 10 unidades.`).join("\n\n")}
-
-## ✅ Tarefas Relacionadas (Obsidian Tasks)
-- [ ] Validar peças visuais com a equipe de arte 📅 ${tomorrow} #design
-- [ ] Agendar publicações nos canais oficiais 📅 ${inThreeDays} #marketing
-
----
-*Gerado e registrado no cofre Obsidian em 04_Campanhas.*`
-      };
-    };
-
-    // If local engine mode is requested, return local rule engine strictly without AI call
-    if (engineMode === "local") {
-      return res.json({
-        success: true,
-        data: fallbackGenerator(),
-        usedModel: "local-rule-engine",
-        wasFallback: false,
-      });
+    const { campaignName, objective, channels, audience, tone, contextNotes, customInstructions, engineMode } = req.body || {};
+    const name = String(campaignName || "").trim();
+    const goal = String(objective || "").trim();
+    const channelList = Array.isArray(channels) ? channels.map(String).map((item) => item.trim()).filter(Boolean) : [];
+    if (!name || !goal || channelList.length === 0) {
+      return res.status(400).json({ success: false, error: "Campanha, objetivo e ao menos um canal são obrigatórios." });
     }
 
-    const prompt = `Você é o Diretor de Marketing Estratégico da Nisti Print (gráfica boutique especializada em planners, devocionais e papelaria corporativa).
-Crie um plano de campanha completo e acionável.
+    const safeFallback = () => groundedCampaignFallback({
+      name,
+      objective: goal,
+      channels: channelList,
+      audience: String(audience || "").trim() || undefined,
+      tone: String(tone || "").trim() || undefined,
+    });
 
-DADOS:
-- Campanha: ${name}
-- Objetivo: ${objective || "Vendas e Autoridade"}
-- Canais: ${chList.join(", ")}
-- Público: ${targetAudience}
-- Tom: ${targetTone}
-- Contexto: ${contextNotes || "Planners, Devocionais, Wire-o bronze, Laminação Soft Touch, pedido mínimo 10 un."}
+    if (engineMode === "local") {
+      return res.json({ success: true, data: safeFallback(), usedModel: "local-grounded-engine", wasFallback: false });
+    }
 
-Retorne estritamente em formato JSON com: summary, strategy, channelsContent, tasks, suggestedReminders, obsidianNoteMarkdown.`;
+    const prompt = `Você é o copiloto de marketing do Nisti Marketing. Crie um plano de campanha usando SOMENTE os dados do briefing e os fatos presentes no contexto do Vault.
+
+REGRAS EPISTÊMICAS OBRIGATÓRIAS:
+- Não invente preços, prazos, quantidades mínimas, margens, métricas, diferenciais, materiais, estoque, garantias, clientes ou resultados.
+- Informação presente no contexto pode ser tratada como CONFIRMADA apenas quando a própria nota indicar isso.
+- Informação não comprovada deve ser marcada como HIPÓTESE ou PENDENTE.
+- O plano deve sair em status EM REVISÃO, nunca OFICIAL automaticamente.
+
+BRIEFING:
+Campanha: ${name}
+Objetivo: ${goal}
+Canais: ${channelList.join(", ")}
+Público informado: ${String(audience || "PENDENTE")}
+Tom informado: ${String(tone || "PENDENTE")}
+Instruções adicionais: ${String(customInstructions || "Nenhuma")}
+
+CONTEXTO DO VAULT:
+${String(contextNotes || "Nenhum contexto fornecido.")}
+
+Retorne JSON com summary, strategy, channelsContent, tasks, suggestedReminders e obsidianNoteMarkdown.`;
 
     const schemaConfig = {
       responseMimeType: "application/json",
@@ -430,22 +363,10 @@ Retorne estritamente em formato JSON com: summary, strategy, channelsContent, ta
                 dueDate: { type: Type.STRING },
                 obsidianTaskString: { type: Type.STRING },
               },
-              required: ["title", "priority", "dueDate", "obsidianTaskString"],
+              required: ["title", "priority", "obsidianTaskString"],
             },
           },
-          suggestedReminders: {
-            type: Type.ARRAY,
-            items: {
-              type: Type.OBJECT,
-              properties: {
-                title: { type: Type.STRING },
-                triggerDate: { type: Type.STRING },
-                triggerTime: { type: Type.STRING },
-                obsidianReminderString: { type: Type.STRING },
-              },
-              required: ["title", "triggerDate", "triggerTime"],
-            },
-          },
+          suggestedReminders: { type: Type.ARRAY, items: { type: Type.OBJECT } },
           obsidianNoteMarkdown: { type: Type.STRING },
         },
         required: ["summary", "strategy", "channelsContent", "tasks", "suggestedReminders", "obsidianNoteMarkdown"],
@@ -453,151 +374,102 @@ Retorne estritamente em formato JSON com: summary, strategy, channelsContent, ta
     };
 
     const customApiKey = req.headers["x-gemini-api-key"] as string | undefined;
-
     const result = await executeGeminiWithFallback(
-      (model) => ({
-        model,
-        contents: prompt,
-        config: schemaConfig,
-      }),
-      fallbackGenerator,
+      (model) => ({ model, contents: prompt, config: schemaConfig }),
+      safeFallback,
       customApiKey
     );
-
-    res.json({
-      success: true,
-      data: result.data,
-      usedModel: result.usedModel,
-      wasFallback: result.wasFallback,
-    });
+    return res.json({ success: true, data: result.data, usedModel: result.usedModel, wasFallback: result.wasFallback });
   } catch (error: any) {
-    res.status(500).json({ success: false, error: error.message || "Erro na geração da campanha" });
+    return res.status(500).json({ success: false, error: error.message || "Erro na geração da campanha" });
   }
 });
 
-
-// ==========================================
-// 2.5 GUIDELINES GENERATION
-// ==========================================
 app.post("/api/gemini/generate-guidelines", async (req, res) => {
   try {
-    const { campaignName, objective, engineMode } = req.body;
-    const name = campaignName || "Campanha";
-    const obj = objective || "Marketing";
+    const { campaignName, objective, engineMode } = req.body || {};
+    const name = String(campaignName || "").trim();
+    const goal = String(objective || "").trim();
+    if (!name || !goal) return res.status(400).json({ success: false, error: "Campanha e objetivo são obrigatórios." });
 
-    const fallbackGenerator = () => ({
-      guidelines: `Campanha: ${name}. Foco no objetivo de ${obj}. Manter uma linguagem persuasiva e alinhada com o público da Nisti Print. Destacar os diferenciais de qualidade (Soft Touch, 90g, wire-o bronze).`
+    const safeFallback = () => ({
+      guidelines: `Para a campanha "${name}", mantenha o foco no objetivo informado: "${goal}". Antes de definir promessas, diferenciais ou métricas, valide cada afirmação no Vault. Use apenas fatos CONFIRMADOS; trate o restante como HIPÓTESE ou PENDENTE.`,
     });
 
     if (engineMode === "local") {
-      return res.json({
-        success: true,
-        data: fallbackGenerator(),
-        usedModel: "local-rule-engine",
-        wasFallback: false,
-      });
+      return res.json({ success: true, data: safeFallback(), usedModel: "local-grounded-engine", wasFallback: false });
     }
 
-    const prompt = `Atue como um Especialista em Marketing da Nisti Print (gráfica de planners e devocionais). 
-O usuário está planejando uma campanha.
-Nome da Campanha: ${name}
-Objetivo Principal: ${obj}
-
-Escreva diretrizes estratégicas (um parágrafo conciso de 3 a 5 linhas) sobre como essa campanha deve ser comunicada, o tom de voz ideal, métricas a focar e diferenciais a destacar. Retorne apenas o texto das diretrizes.`;
-
+    const prompt = `Gere diretrizes estratégicas concisas para a campanha abaixo.
+Campanha: ${name}
+Objetivo: ${goal}
+Não invente fatos comerciais. Se uma decisão depender de dados ausentes, marque como PENDENTE. Retorne JSON com a propriedade guidelines.`;
     const schemaConfig = {
       responseMimeType: "application/json",
       responseSchema: {
         type: Type.OBJECT,
-        properties: {
-          guidelines: { type: Type.STRING },
-        },
+        properties: { guidelines: { type: Type.STRING } },
         required: ["guidelines"],
       },
     };
-
-    const customApiKey = req.headers["x-gemini-api-key"];
+    const customApiKey = req.headers["x-gemini-api-key"] as string | undefined;
     const result = await executeGeminiWithFallback(
-      (model) => ({
-        model,
-        contents: prompt,
-        config: schemaConfig,
-      }),
-      fallbackGenerator,
+      (model) => ({ model, contents: prompt, config: schemaConfig }),
+      safeFallback,
       customApiKey
     );
-
-    res.json({
-      success: true,
-      data: result.data,
-      usedModel: result.usedModel,
-      wasFallback: result.wasFallback,
-    });
+    return res.json({ success: true, data: result.data, usedModel: result.usedModel, wasFallback: result.wasFallback });
   } catch (error: any) {
-    res.status(500).json({ success: false, error: error.message || "Erro na geração das diretrizes" });
+    return res.status(500).json({ success: false, error: error.message || "Erro na geração das diretrizes" });
   }
 });
 
-// ==========================================
-// 3. TASK EXTRACTION
-// ==========================================
+function extractExplicitTasks(noteContent: string) {
+  const lines = String(noteContent || "").split(/\r?\n/);
+  const tasks = lines
+    .filter((line) => /^\s*[-*]\s+\[\s\]\s+/.test(line))
+    .slice(0, 50)
+    .map((line, index) => {
+      const taskText = line.replace(/^\s*[-*]\s+\[\s\]\s+/, "").trim();
+      const dueDate = taskText.match(/📅\s*(\d{4}-\d{2}-\d{2})/)?.[1] || "";
+      const dueTime = taskText.match(/⏰\s*(\d{2}:\d{2})/)?.[1] || "";
+      const title = taskText.replace(/📅\s*\d{4}-\d{2}-\d{2}/g, "").replace(/⏰\s*\d{2}:\d{2}/g, "").trim();
+      return {
+        title: title || `Tarefa ${index + 1}`,
+        channel: "",
+        priority: "medium",
+        dueDate,
+        dueTime,
+        obsidianTaskString: line.trim(),
+        reminderDate: "",
+        reminderTime: "",
+        category: "Extraída da fonte",
+      };
+    });
+  return {
+    extractedTasks: tasks,
+    suggestedReminders: [],
+    summaryInsights: `${tasks.length} tarefa(s) explícita(s) encontrada(s) na nota. Nenhuma tarefa nova foi inventada.`,
+  };
+}
+
 app.post("/api/gemini/extract-tasks", async (req, res) => {
   try {
-    const { noteContent, noteTitle, engineMode } = req.body;
-    const title = noteTitle || "Sem título";
-    const tomorrow = new Date(Date.now() + 86400000).toISOString().split("T")[0];
-    const inThreeDays = new Date(Date.now() + 86400000 * 3).toISOString().split("T")[0];
-
-    const fallbackGenerator = () => ({
-      extractedTasks: [
-        {
-          title: `Executar plano de ação derivado de [[${title}]]`,
-          channel: "Geral",
-          priority: "high",
-          dueDate: tomorrow,
-          dueTime: "14:00",
-          obsidianTaskString: `- [ ] Executar plano de ação derivado de [[${title}]] 📅 ${tomorrow} ⏰ 14:00 #obsidian #marketing`,
-          reminderDate: tomorrow,
-          reminderTime: "10:00",
-          category: "Planejamento",
-        },
-        {
-          title: `Validar consistência dos conceitos de [[${title}]]`,
-          channel: "Estratégia",
-          priority: "medium",
-          dueDate: inThreeDays,
-          dueTime: "17:00",
-          obsidianTaskString: `- [ ] Validar consistência dos conceitos de [[${title}]] 📅 ${inThreeDays} ⏰ 17:00 #revisao`,
-          reminderDate: inThreeDays,
-          reminderTime: "15:00",
-          category: "Qualidade",
-        },
-      ],
-      suggestedReminders: [
-        {
-          title: `Check-in de progresso para a nota [[${title}]]`,
-          triggerDate: tomorrow,
-          triggerTime: "10:00",
-          obsidianReminderString: `- [ ] Check-in de progresso para a nota [[${title}]] (@${tomorrow} 10:00)`,
-        },
-      ],
-      summaryInsights: `Identificadas 2 ações prioritárias e 1 lembrete estruturado a partir da nota [[${title}]].`,
-    });
+    const { noteContent, noteTitle, engineMode } = req.body || {};
+    const content = String(noteContent || "");
+    const title = String(noteTitle || "Sem título");
+    const safeFallback = () => extractExplicitTasks(content);
 
     if (engineMode === "local") {
-      return res.json({
-        success: true,
-        data: fallbackGenerator(),
-        usedModel: "local-rule-engine",
-        wasFallback: false,
-      });
+      return res.json({ success: true, data: safeFallback(), usedModel: "local-explicit-task-parser", wasFallback: false });
     }
 
-    const prompt = `Analise a seguinte nota de marketing do Obsidian e extraia tarefas acionáveis e lembretes estruturados:
+    const prompt = `Extraia SOMENTE tarefas explicitamente presentes na nota abaixo. Não crie novas tarefas, datas, horários, prioridades, lembretes ou canais que não estejam escritos na fonte.
 TÍTULO: ${title}
 CONTEÚDO:
-${noteContent}`;
+${content}
 
+Retorne JSON com extractedTasks, suggestedReminders e summaryInsights. Se não houver tarefas explícitas, retorne listas vazias.`;
     const schemaConfig = {
       responseMimeType: "application/json",
       responseSchema: {
@@ -618,594 +490,394 @@ ${noteContent}`;
                 reminderTime: { type: Type.STRING },
                 category: { type: Type.STRING },
               },
-              required: ["title", "priority", "dueDate", "obsidianTaskString"],
+              required: ["title", "obsidianTaskString"],
             },
           },
-          suggestedReminders: {
-            type: Type.ARRAY,
-            items: {
-              type: Type.OBJECT,
-              properties: {
-                title: { type: Type.STRING },
-                triggerDate: { type: Type.STRING },
-                triggerTime: { type: Type.STRING },
-                obsidianReminderString: { type: Type.STRING },
-              },
-              required: ["title", "triggerDate", "triggerTime"],
-            },
-          },
+          suggestedReminders: { type: Type.ARRAY, items: { type: Type.OBJECT } },
           summaryInsights: { type: Type.STRING },
         },
         required: ["extractedTasks", "suggestedReminders", "summaryInsights"],
       },
     };
-
     const customApiKey = req.headers["x-gemini-api-key"] as string | undefined;
-
     const result = await executeGeminiWithFallback(
-      (model) => ({
-        model,
-        contents: prompt,
-        config: schemaConfig,
-      }),
-      fallbackGenerator,
+      (model) => ({ model, contents: prompt, config: schemaConfig }),
+      safeFallback,
       customApiKey
     );
-
-    res.json({
-      success: true,
-      data: result.data,
-      usedModel: result.usedModel,
-      wasFallback: result.wasFallback,
-    });
+    return res.json({ success: true, data: result.data, usedModel: result.usedModel, wasFallback: result.wasFallback });
   } catch (error: any) {
-    res.status(500).json({ success: false, error: error.message });
+    return res.status(500).json({ success: false, error: error.message || "Erro na extração de tarefas" });
   }
 });
 
-// ==========================================
-// 4. INGESTION PROCESSOR (REAL PDF, REAL YOUTUBE, REAL WEB)
-// ==========================================
+function safePdfData(fileName: string, extractedText: string) {
+  const cleanTitle = yamlSafe(fileName.replace(/\.[^/.]+$/, "").replace(/[-_]/g, " ")) || "Documento PDF";
+  const text = extractedText.trim().slice(0, 10_000);
+  const folder = sanitizeOfficialFolder(cleanTitle, "PDF", text);
+  const hasText = text.length > 0;
+  return {
+    title: cleanTitle,
+    summary: hasText
+      ? `Texto extraído do PDF para revisão humana (${text.length} caracteres indexados).`
+      : "PDF registrado, mas nenhum texto indexável foi extraído. O conteúdo permanece PENDENTE.",
+    category: "Documento PDF",
+    keywords: ["pdf"],
+    wikilinks: [],
+    evidence: hasText ? ["Existe texto extraído diretamente do arquivo PDF."] : [],
+    hypotheses: [],
+    epistemic_status: hasText ? "CONFIRMADO" : "PENDENTE",
+    folder,
+    content: `${sourceFrontmatter({
+      id: `pdf_${Date.now().toString(36)}`,
+      type: "Documento PDF",
+      epistemicStatus: hasText ? "CONFIRMADO" : "PENDENTE",
+      category: "Documento PDF",
+      source: fileName,
+      tags: ["pdf"],
+    })}\n\n# ${cleanTitle}\n\n## Conteúdo extraído\n${text || "Nenhum texto indexável extraído. Revisão manual necessária."}`,
+  };
+}
+
+function safeSiteData(siteUrl: string, pageTitle: string, pageContent: string) {
+  const title = yamlSafe(pageTitle) || "Artigo da Web";
+  const text = pageContent.trim().slice(0, 10_000);
+  const folder = sanitizeOfficialFolder(title, "Artigo", text);
+  const hasText = text.length > 0;
+  return {
+    title,
+    summary: hasText
+      ? `Conteúdo textual extraído da URL para revisão (${text.length} caracteres indexados).`
+      : "URL registrada sem conteúdo textual validado. A fonte permanece PENDENTE.",
+    category: "Artigo Web",
+    keywords: ["web"],
+    wikilinks: [],
+    evidence: hasText ? ["Texto obtido diretamente da página informada."] : [],
+    hypotheses: [],
+    epistemic_status: hasText ? "CONFIRMADO" : "PENDENTE",
+    folder,
+    content: `${sourceFrontmatter({
+      id: `site_${Date.now().toString(36)}`,
+      type: "Artigo Web",
+      epistemicStatus: hasText ? "CONFIRMADO" : "PENDENTE",
+      category: "Artigo Web",
+      source: siteUrl,
+      tags: ["web"],
+    })}\n\n# ${title}\n\n- **URL**: ${siteUrl}\n\n## Conteúdo capturado\n${text || "Conteúdo não extraído. Revisão manual necessária."}`,
+  };
+}
+
+function safeTextData(titleInput: string, rawText: string) {
+  const title = yamlSafe(titleInput) || "Captura de Texto";
+  const text = String(rawText || "").trim();
+  const folder = sanitizeOfficialFolder(title, "Texto", text);
+  return {
+    title,
+    summary: "Texto fornecido diretamente pelo usuário e preservado para curadoria.",
+    category: "Texto",
+    tags: ["texto"],
+    keywords: ["texto"],
+    wikilinks: [],
+    evidence: text ? ["Conteúdo fornecido diretamente pelo usuário."] : [],
+    hypotheses: [],
+    epistemic_status: text ? "CONFIRMADO" : "PENDENTE",
+    folder,
+    content: `${sourceFrontmatter({
+      id: `text_${Date.now().toString(36)}`,
+      type: "Texto",
+      epistemicStatus: text ? "CONFIRMADO" : "PENDENTE",
+      category: "Texto",
+      source: "Entrada manual",
+      tags: ["texto"],
+    })}\n\n# ${title}\n\n${text || "Conteúdo vazio."}`,
+  };
+}
+
+function safeYouTubeMetadataData(payload: any, metadata?: { title?: string; author?: string }) {
+  const url = String(payload?.url || "").trim();
+  const providedTitle = String(payload?.videoTitle || payload?.title || "").trim();
+  const providedChannel = String(payload?.videoChannel || "").trim();
+  const title = yamlSafe(metadata?.title || providedTitle || "Referência do YouTube");
+  const author = yamlSafe(metadata?.author || providedChannel || "");
+  const evidence = [
+    url ? `URL informada: ${url}` : "",
+    metadata?.title ? `Título obtido via oEmbed: ${metadata.title}` : providedTitle ? `Título informado pelo usuário: ${providedTitle}` : "",
+    metadata?.author ? `Canal obtido via oEmbed: ${metadata.author}` : providedChannel ? `Canal informado pelo usuário: ${providedChannel}` : "",
+  ].filter(Boolean);
+
+  return {
+    title: `YouTube - ${title}`,
+    summary: "Apenas metadados da referência foram capturados. O conteúdo audiovisual/transcrição não foi analisado, portanto qualquer insight sobre o vídeo permanece PENDENTE.",
+    category: "Referência YouTube",
+    keywords: ["youtube"],
+    wikilinks: [],
+    evidence,
+    hypotheses: [],
+    keyTakeaways: [],
+    suggestedAngles: [],
+    epistemic_status: "PENDENTE",
+    folder: "00_Inbox",
+    content: `${sourceFrontmatter({
+      id: `yt_${Date.now().toString(36)}`,
+      type: "Referência YouTube",
+      epistemicStatus: "PENDENTE",
+      category: "Referência YouTube",
+      source: url,
+      tags: ["youtube", "metadados"],
+    })}\n\n# YouTube - ${title}\n\n- **URL**: ${url || "PENDENTE"}\n- **Canal**: ${author || "PENDENTE"}\n\n## Limite da análise\nO Nisti capturou apenas metadados. Nenhuma afirmação sobre o conteúdo do vídeo deve ser tratada como confirmada sem transcrição ou texto-fonte.`,
+  };
+}
+
+function safeImageData(titleInput: string) {
+  const title = yamlSafe(titleInput) || "Imagem";
+  return {
+    title,
+    summary: "Imagem registrada. Sem análise visual confirmada, o conteúdo permanece PENDENTE.",
+    category: "Ativo Visual",
+    keywords: ["imagem"],
+    wikilinks: [],
+    evidence: [],
+    hypotheses: [],
+    epistemic_status: "PENDENTE",
+    folder: "00_Inbox",
+    content: `${sourceFrontmatter({
+      id: `image_${Date.now().toString(36)}`,
+      type: "Ativo Visual",
+      epistemicStatus: "PENDENTE",
+      category: "Ativo Visual",
+      source: "Imagem enviada ao Nisti Marketing",
+      tags: ["imagem"],
+    })}\n\n# ${title}\n\nAnálise visual não confirmada. Revisão humana necessária.`,
+  };
+}
+
 app.post("/api/gemini/process-knowledge", async (req, res) => {
   try {
-    const { type, payload, engineMode } = req.body;
+    const { type, payload, engineMode } = req.body || {};
     if (!type || !payload) {
       return res.status(400).json({ success: false, error: "Parâmetros inválidos. 'type' e 'payload' são obrigatórios." });
     }
 
-    let prompt = "";
-    let schemaConfig: any = {};
-    let fallbackGenerator: () => any = () => ({});
-    let extractedRawText = "";
-
-    // 1. PDF Processing with REAL pdf-parse
-    if (type === "pdf") {
-      const fileName = payload.fileName || "documento.pdf";
-      
-      // If base64 payload is provided, parse it with pdf-parse
-      if (payload.base64) {
+    if (type === "youtube") {
+      const ytUrl = String(payload.url || "").trim();
+      if (!ytUrl) return res.status(400).json({ success: false, error: "URL do YouTube é obrigatória." });
+      let metadata: { title?: string; author?: string } = {};
+      if (engineMode !== "local") {
         try {
-          const rawBase64 = payload.base64.replace(/^data:application\/pdf;base64,/, "");
-          const buffer = Buffer.from(rawBase64, "base64");
-          extractedRawText = await parsePdfBuffer(buffer);
-        } catch (pdfErr) {
-          console.warn("pdf-parse extraction warning, using provided sample:", pdfErr);
-          extractedRawText = payload.textContentSample || "";
+          const oembedUrl = `https://www.youtube.com/oembed?url=${encodeURIComponent(ytUrl)}&format=json`;
+          const response = await fetch(oembedUrl, { signal: AbortSignal.timeout(4_000) });
+          if (response.ok) {
+            const data = await response.json();
+            metadata = { title: data.title, author: data.author_name };
+          }
+        } catch (err) {
+          console.warn("YouTube oEmbed metadata unavailable:", err);
         }
-      } else {
-        extractedRawText = payload.textContentSample || "";
       }
-
-      const cleanText = extractedRawText.slice(0, 10000);
-      const folder = sanitizeOfficialFolder(fileName, "Relatório", cleanText);
-
-      fallbackGenerator = () => {
-        const cleanTitle = fileName.replace(/\.[^/.]+$/, "").replace(/[-_]/g, " ");
-        const words = cleanTitle.split(" ").map((w: string) => w.charAt(0).toUpperCase() + w.slice(1)).join(" ");
-        const displayTitle = words || "Documento PDF Nisti";
-
-        return {
-          title: displayTitle,
-          summary: `Documento '${fileName}' processado (${extractedRawText.length > 0 ? `${extractedRawText.length} caracteres extraídos` : "conteúdo técnico"}).`,
-          category: "Produtos & Especificações",
-          keywords: ["pdf", "nisti-print", "acabamentos", "especificacoes"],
-          wikilinks: ["Brand Voice & Posicionamento", "Catálogo - Planners & Devocionais 2026"],
-          folder: folder,
-          content: `---
-id: "doc_${Date.now()}"
-tipo: "Especificação Técnica"
-status: "NOVO"
-owner: "Gestor de Marketing Nisti Print"
-created_at: "${new Date().toISOString().split("T")[0]}"
-updated_at: "${new Date().toISOString().split("T")[0]}"
-confidencialidade: "Interno"
-produto: "Linha Nisti Print"
-nicho: "Papelaria Criativa & B2B"
-canal: "Omnichannel"
-projeto: "Base de Conhecimento"
-tags:
-  - pdf
-  - extracao-real
-  - pkm
-origem: "${fileName}"
-approved_by: ""
-hash: "hash_pdf_${Date.now().toString(36)}"
----
-
-# 📄 ${displayTitle}
-
-## 📝 Resumo do Arquivo
-Arquivo: **${fileName}** (${cleanText.length} caracteres analisados).
-
-## 🔑 Trechos & Dados Relevantes Extraídos
-${cleanText.slice(0, 1200) || "Documento sem texto indexável extraído."}
-
-## 💡 Próximas Ações
-- Validar categorização e promover de \`NOVO\` para \`OFICIAL\` após revisão humana.
-`
-        };
-      };
-
-      if (engineMode === "local") {
-        return res.json({
-          success: true,
-          data: fallbackGenerator(),
-          usedModel: "local-rule-engine",
-          wasFallback: false,
-        });
-      }
-
-      prompt = `Você é um analista de documentos da Nisti Print. Analise este PDF:
-Nome do arquivo: ${fileName}
-Conteúdo real extraído:
-${cleanText}
-
-Retorne JSON estruturado com: title, summary, content, category, keywords, wikilinks, folder (deve ser uma das 10 pastas oficiais: 00_Inbox, 01_Estrategia, 02_Produtos, 03_Conteudos, 04_Campanhas, 05_Reunioes, 06_Influenciadores_UGC, 07_Pesquisas, 08_Aprendizados, 99_Templates).`;
-
-      schemaConfig = {
-        responseMimeType: "application/json",
-        responseSchema: {
-          type: Type.OBJECT,
-          properties: {
-            title: { type: Type.STRING },
-            summary: { type: Type.STRING },
-            content: { type: Type.STRING },
-            category: { type: Type.STRING },
-            keywords: { type: Type.ARRAY, items: { type: Type.STRING } },
-            wikilinks: { type: Type.ARRAY, items: { type: Type.STRING } },
-            folder: { type: Type.STRING },
-          },
-          required: ["title", "summary", "content", "category", "keywords", "wikilinks", "folder"],
-        },
-      };
-    }
-
-    // 2. YouTube Processing
-    else if (type === "youtube") {
-      const ytUrl = payload.url || "";
-      let videoTitle = payload.title || "Vídeo do YouTube";
-      let authorName = "Canal do YouTube";
-
-      // 100% Offline Mode for Local Engine: ZERO external network calls
-      if (engineMode === "local") {
-        try {
-          const parsedUrl = new URL(ytUrl);
-          const videoId = parsedUrl.searchParams.get("v") || parsedUrl.pathname.split("/").filter(Boolean).pop() || "yt_ref";
-          videoTitle = payload.title || `Vídeo de Referência (${videoId})`;
-        } catch {
-          videoTitle = payload.title || "Vídeo de Referência";
-        }
-
-        const folder = sanitizeOfficialFolder(videoTitle, "Video", authorName);
-        const localData = {
-          title: `Vídeo - ${videoTitle}`,
-          summary: `Vídeo por ${authorName}. Mapeado offline para benchmarking de tendências de marketing e formatos de vídeo.`,
-          keyTakeaways: [
-            "Demonstração visual do produto em vídeo curto gera alto engajamento.",
-            "Ganchos nos primeiros 3 segundos retêm até 70% da audiência.",
-          ],
-          suggestedAngles: ["Criar Reels no mesmo formato para os planners Nisti."],
-          wikilinks: ["Playbook - Copywriting de Alta Conversão"],
-          folder: folder,
-          content: `---
-id: "yt_${Date.now()}"
-tipo: "Referência de Vídeo"
-status: "NOVO"
-owner: "Gestor de Marketing Nisti Print"
-created_at: "${new Date().toISOString().split("T")[0]}"
-updated_at: "${new Date().toISOString().split("T")[0]}"
-confidencialidade: "Interno"
-produto: "Linha Nisti Print"
-nicho: "Papelaria & Vídeo Marketing"
-canal: "YouTube / Reels"
-projeto: "Benchmarking"
-tags:
-  - youtube
-  - video
-  - offline-local
-origem: "${ytUrl}"
-approved_by: ""
-hash: "yt_hash_${Date.now().toString(36)}"
----
-
-# 📺 ${videoTitle}
-
-- **Canal/Autor**: ${authorName}
-- **Link**: [Assistir no YouTube](${ytUrl})
-
-## 💡 Insights para Conteúdo da Nisti Print (Modo Local Offline)
-1. Testar gravação de bastidores de produção (encadernação wire-o bronze).
-2. Usar áudio ASMR no processo de abertura de planners.
-`
-        };
-
-        return res.json({
-          success: true,
-          data: localData,
-          usedModel: "local-rule-engine",
-          wasFallback: false,
-        });
-      }
-
-      // Online Mode: fetch oEmbed metadata safely
-      try {
-        const oembedUrl = `https://www.youtube.com/oembed?url=${encodeURIComponent(ytUrl)}&format=json`;
-        const oembedRes = await fetch(oembedUrl, { signal: AbortSignal.timeout(4000) });
-        if (oembedRes.ok) {
-          const oembedData = await oembedRes.json();
-          videoTitle = oembedData.title || videoTitle;
-          authorName = oembedData.author_name || authorName;
-        }
-      } catch (err) {
-        console.warn("YouTube oEmbed fetch fallback:", err);
-      }
-
-      const folder = sanitizeOfficialFolder(videoTitle, "Video", authorName);
-
-      fallbackGenerator = () => ({
-        title: `Vídeo - ${videoTitle}`,
-        summary: `Vídeo por ${authorName}. Mapeado para benchmarking de tendências de marketing e formatos de vídeo.`,
-        keyTakeaways: [
-          "Demonstração visual do produto em vídeo curto gera alto engajamento.",
-          "Ganchos nos primeiros 3 segundos retêm até 70% da audiência.",
-        ],
-        suggestedAngles: ["Criar Reels no mesmo formato para os planners Nisti."],
-        wikilinks: ["Playbook - Copywriting de Alta Conversão"],
-        folder: folder,
-        content: `---
-id: "yt_${Date.now()}"
-tipo: "Referência de Vídeo"
-status: "NOVO"
-owner: "Gestor de Marketing Nisti Print"
-created_at: "${new Date().toISOString().split("T")[0]}"
-updated_at: "${new Date().toISOString().split("T")[0]}"
-confidencialidade: "Interno"
-produto: "Linha Nisti Print"
-nicho: "Papelaria & Vídeo Marketing"
-canal: "YouTube / Reels"
-projeto: "Benchmarking"
-tags:
-  - youtube
-  - video
-  - referencia
-origem: "${ytUrl}"
-approved_by: ""
-hash: "yt_hash_${Date.now().toString(36)}"
----
-
-# 📺 ${videoTitle}
-
-- **Canal/Autor**: ${authorName}
-- **Link**: [Assistir no YouTube](${ytUrl})
-
-## 💡 Insights para Conteúdo da Nisti Print
-1. Testar gravação de bastidores de produção (encadernação wire-o bronze).
-2. Usar áudio ASMR no processo de abertura de planners.
-`
-      });
-
-      prompt = `Analise a referência de vídeo do YouTube:
-Título: ${videoTitle}
-Canal: ${authorName}
-URL: ${ytUrl}
-
-Gere uma nota Markdown estruturada para o cofre Obsidian com insights de marketing para a Nisti Print.
-Pastas válidas: 00_Inbox, 01_Estrategia, 02_Produtos, 03_Conteudos, 04_Campanhas, 05_Reunioes, 06_Influenciadores_UGC, 07_Pesquisas, 08_Aprendizados, 99_Templates.`;
-
-      schemaConfig = {
-        responseMimeType: "application/json",
-        responseSchema: {
-          type: Type.OBJECT,
-          properties: {
-            title: { type: Type.STRING },
-            summary: { type: Type.STRING },
-            keyTakeaways: { type: Type.ARRAY, items: { type: Type.STRING } },
-            suggestedAngles: { type: Type.ARRAY, items: { type: Type.STRING } },
-            wikilinks: { type: Type.ARRAY, items: { type: Type.STRING } },
-            folder: { type: Type.STRING },
-            content: { type: Type.STRING },
-          },
-          required: ["title", "summary", "folder", "content"],
-        },
-      };
-    }
-
-    // 3. Web Site / Article Processing
-    else if (type === "site") {
-      const siteUrl = payload.url || "";
-      let pageTitle = payload.pageTitle || payload.title || "Artigo da Web";
-      let pageContent = payload.textContentSample || "";
-
-      // 100% Offline Mode for Local Engine: ZERO external network calls
-      if (engineMode === "local") {
-        const folder = sanitizeOfficialFolder(pageTitle, "Artigo", pageContent);
-        const localData = {
-          title: `Artigo - ${pageTitle}`,
-          summary: `Conteúdo catalogado offline: ${pageTitle}. Mapeado para estratégias de crescimento e produto da Nisti Print.`,
-          keywords: ["web", "benchmark", "artigo", "offline-local"],
-          wikilinks: ["Brand Voice & Posicionamento"],
-          folder: folder,
-          content: `---
-id: "site_${Date.now()}"
-tipo: "Artigo Web"
-status: "NOVO"
-owner: "Gestor de Marketing Nisti Print"
-created_at: "${new Date().toISOString().split("T")[0]}"
-updated_at: "${new Date().toISOString().split("T")[0]}"
-confidencialidade: "Interno"
-produto: "Linha Nisti Print"
-nicho: "Benchmarking"
-canal: "Web"
-projeto: "Pesquisas & Referências"
-tags:
-  - web
-  - benchmark
-  - artigo
-  - offline-local
-origem: "${siteUrl}"
-approved_by: ""
-hash: "site_hash_${Date.now().toString(36)}"
----
-
-# 🌐 ${pageTitle}
-
-- **URL Original**: [Acessar Artigo](${siteUrl})
-
-## 📝 Resumo (Processamento Local Offline)
-${pageContent.slice(0, 1000) || "Artigo registrado offline para curadoria na base de conhecimento."}
-`
-        };
-
-        return res.json({
-          success: true,
-          data: localData,
-          usedModel: "local-rule-engine",
-          wasFallback: false,
-        });
-      }
-
-      // Online Mode: Fetch safely with SSRF manual redirect protection
-      try {
-        const fetched = await fetchSafeWebPage(siteUrl);
-        if (fetched.title && fetched.title !== "Artigo da Web") pageTitle = fetched.title;
-        if (fetched.text) pageContent = fetched.text;
-      } catch (err: any) {
-        console.warn("Web page safe fetch notice:", err.message);
-      }
-
-      const folder = sanitizeOfficialFolder(pageTitle, "Artigo", pageContent);
-
-      fallbackGenerator = () => ({
-        title: `Artigo - ${pageTitle}`,
-        summary: `Conteúdo extraído da web: ${pageTitle}. Mapeado para estratégias de crescimento e produto.`,
-        keywords: ["web", "benchmark", "artigo", "marketing"],
-        wikilinks: ["Brand Voice & Posicionamento"],
-        folder: folder,
-        content: `---
-id: "site_${Date.now()}"
-tipo: "Artigo Web"
-status: "NOVO"
-owner: "Gestor de Marketing Nisti Print"
-created_at: "${new Date().toISOString().split("T")[0]}"
-updated_at: "${new Date().toISOString().split("T")[0]}"
-confidencialidade: "Interno"
-produto: "Linha Nisti Print"
-nicho: "Benchmarking"
-canal: "Web"
-projeto: "Pesquisas & Referências"
-tags:
-  - web
-  - benchmark
-  - artigo
-origem: "${siteUrl}"
-approved_by: ""
-hash: "site_hash_${Date.now().toString(36)}"
----
-
-# 🌐 ${pageTitle}
-
-- **URL Original**: [Acessar Artigo](${siteUrl})
-
-## 📝 Resumo
-${pageContent.slice(0, 1000) || "Leitura de referência catalogada para a base de conhecimento."}
-`
-      });
-
-      if (engineMode === "local") {
-        return res.json({
-          success: true,
-          data: fallbackGenerator(),
-          usedModel: "local-rule-engine",
-          wasFallback: false,
-        });
-      }
-
-      prompt = `Analise o artigo da web:
-URL: ${siteUrl}
-Título: ${pageTitle}
-Conteúdo: ${pageContent.slice(0, 3000)}
-
-Gere uma nota Markdown estruturada com frontmatter para o cofre Obsidian.
-Pastas válidas: 00_Inbox, 01_Estrategia, 02_Produtos, 03_Conteudos, 04_Campanhas, 05_Reunioes, 06_Influenciadores_UGC, 07_Pesquisas, 08_Aprendizados, 99_Templates.`;
-
-      schemaConfig = {
-        responseMimeType: "application/json",
-        responseSchema: {
-          type: Type.OBJECT,
-          properties: {
-            title: { type: Type.STRING },
-            summary: { type: Type.STRING },
-            keywords: { type: Type.ARRAY, items: { type: Type.STRING } },
-            wikilinks: { type: Type.ARRAY, items: { type: Type.STRING } },
-            content: { type: Type.STRING },
-            folder: { type: Type.STRING },
-          },
-          required: ["title", "summary", "keywords", "wikilinks", "content", "folder"],
-        },
-      };
-    }
-
-    // 4. Raw Text Processing
-    else {
-      const rawText = payload.text || "Sem conteúdo.";
-      const providedTitle = payload.title || "Captura Rápida";
-      const folder = sanitizeOfficialFolder(providedTitle, "Texto", rawText);
-
-      fallbackGenerator = () => ({
-        title: providedTitle,
-        category: "Rascunhos & Ideias",
-        tags: ["rascunho", "captura", "ideia"],
-        wikilinks: ["Brand Voice & Posicionamento"],
-        folder: folder,
-        content: `---
-id: "note_${Date.now()}"
-tipo: "Rascunho Rápido"
-status: "NOVO"
-owner: "Gestor de Marketing Nisti Print"
-created_at: "${new Date().toISOString().split("T")[0]}"
-updated_at: "${new Date().toISOString().split("T")[0]}"
-confidencialidade: "Interno"
-produto: "Linha Nisti Print"
-nicho: "Papelaria Criativa & B2B"
-canal: "Omnichannel"
-projeto: "Ideias"
-tags:
-  - rascunho
-  - captura-rapida
-origem: "Captura Direta"
-approved_by: ""
-hash: "text_hash_${Date.now().toString(36)}"
----
-
-# 💡 ${providedTitle}
-
-## 📝 Conteúdo Bruto
-${rawText}
-
-## 🔍 Classificação Provisória
-- Pasta Sugerida: \`${folder}\`
-- Status: \`NOVO\` (Pendente de Curadoria)
-`
-      });
-
-      if (engineMode === "local") {
-        return res.json({
-          success: true,
-          data: fallbackGenerator(),
-          usedModel: "local-rule-engine",
-          wasFallback: false,
-        });
-      }
-
-      prompt = `Estruture este texto livre como nota Markdown para o Obsidian:
-Título: ${providedTitle}
-Texto: ${rawText}
-
-Pastas válidas: 00_Inbox, 01_Estrategia, 02_Produtos, 03_Conteudos, 04_Campanhas, 05_Reunioes, 06_Influenciadores_UGC, 07_Pesquisas, 08_Aprendizados, 99_Templates.`;
-
-      schemaConfig = {
-        responseMimeType: "application/json",
-        responseSchema: {
-          type: Type.OBJECT,
-          properties: {
-            title: { type: Type.STRING },
-            category: { type: Type.STRING },
-            tags: { type: Type.ARRAY, items: { type: Type.STRING } },
-            wikilinks: { type: Type.ARRAY, items: { type: Type.STRING } },
-            content: { type: Type.STRING },
-            folder: { type: Type.STRING },
-          },
-          required: ["title", "category", "tags", "wikilinks", "content", "folder"],
-        },
-      };
-    }
-
-    const customApiKey = req.headers["x-gemini-api-key"] as string | undefined;
-
-    const result = await executeGeminiWithFallback(
-      (model) => ({
-        model,
-        contents: prompt,
-        config: schemaConfig,
-      }),
-      fallbackGenerator,
-      customApiKey
-    );
-
-    res.json({
-      success: true,
-      data: result.data,
-      usedModel: result.usedModel,
-      wasFallback: result.wasFallback,
-    });
-  } catch (error: any) {
-    res.status(500).json({ success: false, error: error.message });
-  }
-});
-
-// ==========================================
-// 5. VAULT AUDIT & READINESS
-// ==========================================
-app.post("/api/gemini/analyze-vault", async (req, res) => {
-  try {
-    const { vaultNotesOverview, engineMode } = req.body;
-
-    const fallbackGenerator = () => ({
-      readinessScore: 92,
-      scoreAnalysis: "Base de conhecimento da Nisti Print estruturada com personas, catálogo e diretrizes de copywriting.",
-      knowledgeGaps: [
-        {
-          topic: "Métricas de Conversão B2B",
-          recommendation: "Criar notas em 08_Aprendizados para rastrear conversões de orçamentos de igrejas e papelarias.",
-          urgency: "media",
-        },
-      ],
-      suggestedCampaigns: [
-        {
-          title: "Campanha: Planners Ministeriais 2026",
-          rationale: "Antecipação de pedidos de final de ano para igrejas e convenções.",
-          recommendedChannels: ["WhatsApp B2B", "Instagram", "Email"],
-          estimatedEffort: "Médio",
-        },
-      ],
-      automatedWorkflowRecommendations: [
-        "Sincronizar tarefas de marketing na Daily Note do Obsidian do dia de disparo.",
-        "Programar lembretes 2 horas antes de cada post no Instagram.",
-      ],
-    });
-
-    if (engineMode === "local") {
       return res.json({
         success: true,
-        data: fallbackGenerator(),
-        usedModel: "local-rule-engine",
+        data: safeYouTubeMetadataData(payload, metadata),
+        usedModel: "metadata-only",
         wasFallback: false,
       });
     }
 
-    const prompt = `Analise a maturidade da base de conhecimento PKM da Nisti Print:
-${JSON.stringify(vaultNotesOverview, null, 2)}`;
+    if (type === "pdf") {
+      const fileName = String(payload.fileName || "documento.pdf");
+      let extractedText = String(payload.textContentSample || "");
+      if (payload.base64) {
+        try {
+          const rawBase64 = String(payload.base64).replace(/^data:application\/pdf;base64,/, "");
+          extractedText = await parsePdfBuffer(Buffer.from(rawBase64, "base64"));
+        } catch (err) {
+          console.warn("PDF extraction failed:", err);
+        }
+      }
+      const fallback = () => safePdfData(fileName, extractedText);
+      if (engineMode === "local") {
+        return res.json({ success: true, data: fallback(), usedModel: "local-grounded-engine", wasFallback: false });
+      }
+      const cleanText = extractedText.trim().slice(0, 10_000);
+      if (!cleanText) {
+        return res.json({ success: true, data: fallback(), usedModel: "no-text", wasFallback: false });
+      }
+      const prompt = `Analise SOMENTE o texto extraído deste PDF. Não acrescente fatos externos e não invente dados.
+Arquivo: ${fileName}
+Texto extraído:
+${cleanText}
 
+Retorne title, summary, content, category, keywords, wikilinks, evidence, hypotheses, epistemic_status e folder. Evidências devem citar apenas informações presentes no texto. Hipóteses devem ser explicitamente rotuladas. Pastas válidas: 00_Inbox, 01_Estrategia, 02_Produtos, 03_Conteudos, 04_Campanhas, 05_Reunioes, 06_Influenciadores_UGC, 07_Pesquisas, 08_Aprendizados, 99_Templates.`;
+      const schemaConfig = knowledgeSchema();
+      const customApiKey = req.headers["x-gemini-api-key"] as string | undefined;
+      const result = await executeGeminiWithFallback(
+        (model) => ({ model, contents: prompt, config: schemaConfig }),
+        fallback,
+        customApiKey
+      );
+      return res.json({ success: true, data: result.data, usedModel: result.usedModel, wasFallback: result.wasFallback });
+    }
+
+    if (type === "site") {
+      const siteUrl = String(payload.url || "").trim();
+      if (!siteUrl) return res.status(400).json({ success: false, error: "URL do site é obrigatória." });
+      let pageTitle = String(payload.pageTitle || payload.title || "Artigo da Web");
+      let pageContent = String(payload.textContentSample || "");
+      if (engineMode !== "local") {
+        try {
+          const fetched = await fetchSafeWebPage(siteUrl);
+          pageTitle = fetched.title || pageTitle;
+          pageContent = fetched.text || pageContent;
+        } catch (err) {
+          console.warn("Web content extraction unavailable:", err);
+        }
+      }
+      const fallback = () => safeSiteData(siteUrl, pageTitle, pageContent);
+      if (engineMode === "local" || !pageContent.trim()) {
+        return res.json({ success: true, data: fallback(), usedModel: engineMode === "local" ? "local-grounded-engine" : "no-page-text", wasFallback: false });
+      }
+      const prompt = `Analise SOMENTE o conteúdo textual extraído da URL abaixo. Não invente fatos nem use conhecimento externo.
+URL: ${siteUrl}
+Título: ${pageTitle}
+Conteúdo:
+${pageContent.slice(0, 10_000)}
+
+Retorne title, summary, content, category, keywords, wikilinks, evidence, hypotheses, epistemic_status e folder. Pastas válidas: 00_Inbox, 01_Estrategia, 02_Produtos, 03_Conteudos, 04_Campanhas, 05_Reunioes, 06_Influenciadores_UGC, 07_Pesquisas, 08_Aprendizados, 99_Templates.`;
+      const customApiKey = req.headers["x-gemini-api-key"] as string | undefined;
+      const result = await executeGeminiWithFallback(
+        (model) => ({ model, contents: prompt, config: knowledgeSchema() }),
+        fallback,
+        customApiKey
+      );
+      return res.json({ success: true, data: result.data, usedModel: result.usedModel, wasFallback: result.wasFallback });
+    }
+
+    if (type === "image") {
+      const title = String(payload.title || "Imagem");
+      const fallback = () => safeImageData(title);
+      const dataUri = String(payload.imageBase64 || "");
+      if (engineMode === "local" || !dataUri) {
+        return res.json({ success: true, data: fallback(), usedModel: "local-metadata-only", wasFallback: false });
+      }
+      const match = dataUri.match(/^data:(image\/[a-zA-Z0-9.+-]+);base64,(.+)$/);
+      if (!match) return res.json({ success: true, data: fallback(), usedModel: "invalid-image-data", wasFallback: false });
+
+      const prompt = `Analise apenas elementos VISÍVEIS nesta imagem. Não identifique marcas, materiais, qualidade, preço, contexto comercial, pessoas ou resultados além do que estiver objetivamente visível. Diferencie observações de hipóteses. Retorne title, summary, content, category, keywords, wikilinks, evidence, hypotheses, epistemic_status e folder.`;
+      const customApiKey = req.headers["x-gemini-api-key"] as string | undefined;
+      const result = await executeGeminiWithFallback(
+        (model) => ({
+          model,
+          contents: [{
+            role: "user",
+            parts: [
+              { text: `${prompt}\nTítulo informado pelo usuário: ${title}` },
+              { inlineData: { mimeType: match[1], data: match[2] } },
+            ],
+          }],
+          config: knowledgeSchema(),
+        }),
+        fallback,
+        customApiKey
+      );
+      return res.json({ success: true, data: result.data, usedModel: result.usedModel, wasFallback: result.wasFallback });
+    }
+
+    if (type === "text") {
+      const title = String(payload.title || "").trim();
+      const rawText = String(payload.text || "").trim();
+      if (!title || !rawText) return res.status(400).json({ success: false, error: "Título e texto são obrigatórios." });
+      const fallback = () => safeTextData(title, rawText);
+      if (engineMode === "local") {
+        return res.json({ success: true, data: fallback(), usedModel: "local-grounded-engine", wasFallback: false });
+      }
+      const prompt = `Estruture SOMENTE o texto fornecido pelo usuário. Não acrescente fatos externos. Separe fatos explícitos de hipóteses e pendências.
+Título: ${title}
+Texto:
+${rawText.slice(0, 12_000)}
+
+Retorne title, summary, content, category, keywords, wikilinks, evidence, hypotheses, epistemic_status e folder.`;
+      const customApiKey = req.headers["x-gemini-api-key"] as string | undefined;
+      const result = await executeGeminiWithFallback(
+        (model) => ({ model, contents: prompt, config: knowledgeSchema() }),
+        fallback,
+        customApiKey
+      );
+      return res.json({ success: true, data: result.data, usedModel: result.usedModel, wasFallback: result.wasFallback });
+    }
+
+    return res.status(400).json({ success: false, error: `Tipo de conhecimento não suportado: ${String(type)}` });
+  } catch (error: any) {
+    return res.status(500).json({ success: false, error: error.message || "Erro ao processar conhecimento" });
+  }
+});
+
+function knowledgeSchema() {
+  return {
+    responseMimeType: "application/json",
+    responseSchema: {
+      type: Type.OBJECT,
+      properties: {
+        title: { type: Type.STRING },
+        summary: { type: Type.STRING },
+        content: { type: Type.STRING },
+        category: { type: Type.STRING },
+        keywords: { type: Type.ARRAY, items: { type: Type.STRING } },
+        wikilinks: { type: Type.ARRAY, items: { type: Type.STRING } },
+        evidence: { type: Type.ARRAY, items: { type: Type.STRING } },
+        hypotheses: { type: Type.ARRAY, items: { type: Type.STRING } },
+        epistemic_status: { type: Type.STRING },
+        folder: { type: Type.STRING },
+      },
+      required: ["title", "summary", "content", "category", "keywords", "wikilinks", "evidence", "hypotheses", "epistemic_status", "folder"],
+    },
+  };
+}
+
+function deterministicVaultAudit(vaultNotesOverview: unknown) {
+  const notes = Array.isArray(vaultNotesOverview) ? vaultNotesOverview : [];
+  if (notes.length === 0) {
+    return {
+      readinessScore: 0,
+      scoreAnalysis: "Nenhuma nota foi fornecida para análise. A prontidão não pode ser inferida.",
+      knowledgeGaps: [{ topic: "Base vazia", recommendation: "Conectar o Vault e indexar fontes reais antes de gerar recomendações.", urgency: "alta" }],
+      suggestedCampaigns: [],
+      automatedWorkflowRecommendations: [],
+    };
+  }
+
+  let earned = 0;
+  const max = notes.length * 4;
+  let missingStatus = 0;
+  let missingFolder = 0;
+  for (const raw of notes) {
+    const note = raw as any;
+    if (note?.path) earned += 1;
+    if (note?.title) earned += 1;
+    if (note?.folder) earned += 1; else missingFolder += 1;
+    if (note?.frontmatter?.status || note?.frontmatter?.epistemic_status) earned += 1; else missingStatus += 1;
+  }
+  const score = Math.round((earned / max) * 100);
+  const gaps = [] as Array<{ topic: string; recommendation: string; urgency: string }>;
+  if (missingStatus) gaps.push({ topic: "Status epistemológico ausente", recommendation: `Classificar ${missingStatus} nota(s) como CONFIRMADO, HIPÓTESE ou PENDENTE.`, urgency: "alta" });
+  if (missingFolder) gaps.push({ topic: "Taxonomia incompleta", recommendation: `Classificar ${missingFolder} nota(s) em uma pasta do Vault.`, urgency: "media" });
+  return {
+    readinessScore: score,
+    scoreAnalysis: `Heurística estrutural: ${earned} de ${max} campos mínimos preenchidos em ${notes.length} nota(s). O score não mede desempenho de marketing.`,
+    knowledgeGaps: gaps,
+    suggestedCampaigns: [],
+    automatedWorkflowRecommendations: gaps.length ? ["Concluir a curadoria das pendências antes de gerar campanhas automáticas."] : [],
+  };
+}
+
+app.post("/api/gemini/analyze-vault", async (req, res) => {
+  try {
+    const { vaultNotesOverview, engineMode } = req.body || {};
+    const safeFallback = () => deterministicVaultAudit(vaultNotesOverview);
+    if (engineMode === "local") {
+      return res.json({ success: true, data: safeFallback(), usedModel: "local-structural-audit", wasFallback: false });
+    }
+
+    const prompt = `Analise SOMENTE os metadados do Vault abaixo. Não invente métricas, campanhas, personas, resultados ou fatos que não estejam presentes. Recomendações devem citar a lacuna observável que as justifica. Se a base estiver vazia, não sugira campanhas.
+${JSON.stringify(vaultNotesOverview || [], null, 2)}`;
     const schemaConfig = {
       responseMimeType: "application/json",
       responseSchema: {
@@ -1213,198 +885,99 @@ ${JSON.stringify(vaultNotesOverview, null, 2)}`;
         properties: {
           readinessScore: { type: Type.NUMBER },
           scoreAnalysis: { type: Type.STRING },
-          knowledgeGaps: {
-            type: Type.ARRAY,
-            items: {
-              type: Type.OBJECT,
-              properties: {
-                topic: { type: Type.STRING },
-                recommendation: { type: Type.STRING },
-                urgency: { type: Type.STRING },
-              },
-              required: ["topic", "recommendation", "urgency"],
-            },
-          },
-          suggestedCampaigns: {
-            type: Type.ARRAY,
-            items: {
-              type: Type.OBJECT,
-              properties: {
-                title: { type: Type.STRING },
-                rationale: { type: Type.STRING },
-                recommendedChannels: { type: Type.ARRAY, items: { type: Type.STRING } },
-                estimatedEffort: { type: Type.STRING },
-              },
-              required: ["title", "rationale", "recommendedChannels"],
-            },
-          },
-          automatedWorkflowRecommendations: {
-            type: Type.ARRAY,
-            items: { type: Type.STRING },
-          },
+          knowledgeGaps: { type: Type.ARRAY, items: { type: Type.OBJECT } },
+          suggestedCampaigns: { type: Type.ARRAY, items: { type: Type.OBJECT } },
+          automatedWorkflowRecommendations: { type: Type.ARRAY, items: { type: Type.STRING } },
         },
         required: ["readinessScore", "scoreAnalysis", "knowledgeGaps", "suggestedCampaigns", "automatedWorkflowRecommendations"],
       },
     };
-
     const customApiKey = req.headers["x-gemini-api-key"] as string | undefined;
-
     const result = await executeGeminiWithFallback(
-      (model) => ({
-        model,
-        contents: prompt,
-        config: schemaConfig,
-      }),
-      fallbackGenerator,
+      (model) => ({ model, contents: prompt, config: schemaConfig }),
+      safeFallback,
       customApiKey
     );
-
-    res.json({
-      success: true,
-      data: result.data,
-      usedModel: result.usedModel,
-      wasFallback: result.wasFallback,
-    });
+    return res.json({ success: true, data: result.data, usedModel: result.usedModel, wasFallback: result.wasFallback });
   } catch (error: any) {
-    res.status(500).json({ success: false, error: error.message });
+    return res.status(500).json({ success: false, error: error.message || "Erro na análise do Vault" });
   }
 });
 
-// ==========================================
-// 6. OBSIDIAN LOCAL REST API CONNECTION (STRICT LOOPBACK ONLY, NO ARBITRARY SSRF PROXY)
-// ==========================================
+function parseLoopbackEndpoint(endpoint: string): URL {
+  const parsedUrl = new URL(endpoint);
+  const hostname = parsedUrl.hostname.toLowerCase();
+  const isLoopback = hostname === "127.0.0.1" || hostname === "localhost" || hostname === "::1" || hostname === "[::1]";
+  if (!isLoopback) throw new Error("Conexões do Obsidian são restritas ao loopback local.");
+  if (parsedUrl.protocol !== "http:" && parsedUrl.protocol !== "https:") throw new Error("Protocolo do Obsidian inválido.");
+  return parsedUrl;
+}
+
 app.post("/api/obsidian/test-connection", async (req, res) => {
-  const { endpoint = "http://127.0.0.1:27124", apiKey } = req.body;
-
+  const { endpoint = "http://127.0.0.1:27124", apiKey } = req.body || {};
   try {
-    const parsedUrl = new URL(endpoint);
-    // Strict SSRF protection: only allow localhost, 127.0.0.1, or ::1
-    const hostname = parsedUrl.hostname.toLowerCase();
-    const isLoopback = hostname === "127.0.0.1" || hostname === "localhost" || hostname === "::1" || hostname === "[::1]";
-
-    if (!isLoopback) {
-      return res.status(403).json({
-        success: false,
-        message: "Por motivos de segurança (P0), conexões são restritas estritamente ao endereço loopback local (127.0.0.1 ou localhost).",
-      });
-    }
-
-    const targetUrl = `${parsedUrl.protocol}//${parsedUrl.host}/`;
+    const parsedUrl = parseLoopbackEndpoint(String(endpoint));
+    if (!String(apiKey || "").trim()) return res.json({ success: false, message: "Token do Obsidian não informado." });
     const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), 3500);
-
-    const response = await fetch(targetUrl, {
-      method: "GET",
-      headers: {
-        Authorization: `Bearer ${apiKey}`,
-        Accept: "application/json",
-      },
-      signal: controller.signal,
-    });
-    clearTimeout(timeoutId);
-
-    if (response.ok) {
-      return res.json({
-        success: true,
-        message: "Conectado com sucesso ao Obsidian Local REST API!",
+    const timeoutId = setTimeout(() => controller.abort(), 3_500);
+    try {
+      const response = await fetch(`${parsedUrl.protocol}//${parsedUrl.host}/`, {
+        method: "GET",
+        headers: { Authorization: `Bearer ${apiKey}`, Accept: "application/json" },
+        signal: controller.signal,
       });
-    } else {
-      return res.json({
-        success: false,
-        status: response.status,
-        message: `Obsidian REST API retornou HTTP ${response.status}`,
-      });
+      if (response.ok) return res.json({ success: true, message: "Conectado com sucesso ao Obsidian Local REST API." });
+      return res.json({ success: false, status: response.status, message: `Obsidian REST API retornou HTTP ${response.status}` });
+    } finally {
+      clearTimeout(timeoutId);
     }
   } catch (err: any) {
-    return res.json({
-      success: false,
-      isLocalhostNotice: true,
-      message: `Obsidian Local REST API não alcançado em ${endpoint}. Utilize o modo Local Filesystem do Electron ou salve arquivos .md diretamente.`,
-    });
+    return res.json({ success: false, message: err.message || `Obsidian Local REST API não alcançado em ${endpoint}.` });
   }
 });
 
-// Proxy for Obsidian Local REST API (Strict Loopback Only)
 app.post("/api/obsidian/proxy", async (req, res) => {
-  const { endpoint = "http://127.0.0.1:27124", apiKey, method = "GET", path: targetPath = "/", body, headers: customHeaders = {} } = req.body;
-
+  const { endpoint = "http://127.0.0.1:27124", apiKey, method = "GET", path: targetPath = "/", body, headers: customHeaders = {} } = req.body || {};
   try {
-    const parsedUrl = new URL(endpoint);
-    const hostname = parsedUrl.hostname.toLowerCase();
-    const isLoopback = hostname === "127.0.0.1" || hostname === "localhost" || hostname === "::1" || hostname === "[::1]";
-
-    if (!isLoopback) {
-      return res.status(403).json({
-        success: false,
-        error: "Por motivos de segurança (P0), o proxy Obsidian é restrito estritamente ao loopback local (127.0.0.1 ou localhost).",
-      });
-    }
-
-    const normalizedPath = targetPath.startsWith("/") ? targetPath : `/${targetPath}`;
+    const parsedUrl = parseLoopbackEndpoint(String(endpoint));
+    if (!String(apiKey || "").trim()) return res.status(401).json({ success: false, error: "Token do Obsidian não informado." });
+    const normalizedPath = String(targetPath).startsWith("/") ? String(targetPath) : `/${targetPath}`;
     const fullUrl = `${parsedUrl.protocol}//${parsedUrl.host}${normalizedPath}`;
-
     const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), 4000);
+    const timeoutId = setTimeout(() => controller.abort(), 4_000);
+    try {
+      const forwardHeaders: Record<string, string> = {
+        Authorization: `Bearer ${apiKey}`,
+        Accept: "application/json, text/plain, */*",
+        ...(customHeaders as Record<string, string>),
+      };
+      if (body && typeof body === "string") forwardHeaders["Content-Type"] = "text/markdown; charset=utf-8";
+      else if (body && typeof body === "object") forwardHeaders["Content-Type"] = "application/json";
 
-    const forwardHeaders: Record<string, string> = {
-      Authorization: `Bearer ${apiKey || ""}`,
-      Accept: "application/json, text/plain, */*",
-      ...customHeaders,
-    };
+      const fetchOptions: RequestInit = {
+        method: String(method).toUpperCase(),
+        headers: forwardHeaders,
+        signal: controller.signal,
+      };
+      if (body !== undefined && !["GET", "HEAD"].includes(String(method).toUpperCase())) {
+        fetchOptions.body = typeof body === "string" ? body : JSON.stringify(body);
+      }
 
-    if (body && typeof body === "string") {
-      forwardHeaders["Content-Type"] = "text/markdown; charset=utf-8";
-    } else if (body && typeof body === "object") {
-      forwardHeaders["Content-Type"] = "application/json";
-    }
-
-    const fetchOptions: any = {
-      method: method.toUpperCase(),
-      headers: forwardHeaders,
-      signal: controller.signal,
-    };
-
-    if (body && method.toUpperCase() !== "GET" && method.toUpperCase() !== "HEAD") {
-      fetchOptions.body = typeof body === "string" ? body : JSON.stringify(body);
-    }
-
-    const obsidianRes = await fetch(fullUrl, fetchOptions);
-    clearTimeout(timeoutId);
-
-    const contentType = obsidianRes.headers.get("content-type") || "";
-    let data: any;
-    if (contentType.includes("application/json")) {
-      data = await obsidianRes.json().catch(() => ({}));
-    } else {
-      data = await obsidianRes.text().catch(() => "");
-    }
-
-    if (obsidianRes.ok) {
-      return res.json({
-        success: true,
-        status: obsidianRes.status,
-        data,
-      });
-    } else {
-      return res.status(obsidianRes.status).json({
-        success: false,
-        status: obsidianRes.status,
-        error: `Obsidian REST API retornou HTTP ${obsidianRes.status}`,
-        data,
-      });
+      const obsidianRes = await fetch(fullUrl, fetchOptions);
+      const contentType = obsidianRes.headers.get("content-type") || "";
+      const data = contentType.includes("application/json")
+        ? await obsidianRes.json().catch(() => ({}))
+        : await obsidianRes.text().catch(() => "");
+      if (obsidianRes.ok) return res.json({ success: true, status: obsidianRes.status, data });
+      return res.status(obsidianRes.status).json({ success: false, status: obsidianRes.status, error: `Obsidian REST API retornou HTTP ${obsidianRes.status}`, data });
+    } finally {
+      clearTimeout(timeoutId);
     }
   } catch (err: any) {
-    return res.json({
-      success: false,
-      isLocalhostNotice: true,
-      error: `Falha ao contatar Obsidian REST API em ${endpoint}: ${err.message}`,
-    });
+    return res.json({ success: false, error: `Falha ao contatar Obsidian REST API em ${endpoint}: ${err.message}` });
   }
 });
 
-// ==========================================
-// 7. VITE MIDDLEWARE / STATIC FILES
-// ==========================================
 async function startServer() {
   if (process.env.NODE_ENV !== "production") {
     const vite = await createViteServer({
@@ -1419,13 +992,13 @@ async function startServer() {
   } else {
     const distPath = path.join(process.cwd(), "dist");
     app.use(express.static(distPath));
-    app.get("*", (req, res) => {
+    app.get("*", (_req, res) => {
       res.sendFile(path.join(distPath, "index.html"));
     });
   }
 
   app.listen(PORT, "0.0.0.0", () => {
-    console.log(`Nisti PKM Server running on http://0.0.0.0:${PORT}`);
+    console.log(`Nisti Marketing server running on http://0.0.0.0:${PORT}`);
   });
 }
 

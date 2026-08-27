@@ -61,7 +61,12 @@ export const ObsidianApiSettingsModal: React.FC<ObsidianApiSettingsModalProps> =
 
   useEffect(() => {
     if (isOpen) {
-      setFormData({ ...config });
+      const runtimeConnected = api.isObsidianSessionVerified();
+      setFormData({
+        ...config,
+        connectionStatus: runtimeConnected ? "connected" : "disconnected",
+        errorMessage: runtimeConnected ? undefined : config.errorMessage,
+      });
       setIsDriveConnected(googleDriveService.isAuthenticated());
       setAiTestResult(null);
       setTestResult(null);
@@ -78,7 +83,10 @@ export const ObsidianApiSettingsModal: React.FC<ObsidianApiSettingsModalProps> =
       const result = await api.testGeminiConnection(formData.geminiApiKey || "");
       setAiTestResult(result);
       if (result.success) {
-        onSaveConfig({ ...formData });
+        onSaveConfig({
+          ...formData,
+          connectionStatus: api.isObsidianSessionVerified() ? "connected" : "disconnected",
+        });
       }
     } catch (err: any) {
       setAiTestResult({
@@ -96,7 +104,7 @@ export const ObsidianApiSettingsModal: React.FC<ObsidianApiSettingsModalProps> =
     try {
       const res = await onTestConnection(formData);
       setTestResult(res);
-      if (res.success) {
+      if (res.success && api.isObsidianSessionVerified()) {
         const connectedConfig: ObsidianApiConfig = {
           ...formData,
           connectionStatus: "connected",
@@ -105,11 +113,17 @@ export const ObsidianApiSettingsModal: React.FC<ObsidianApiSettingsModalProps> =
         setFormData(connectedConfig);
         onSaveConfig(connectedConfig);
       } else {
+        const message = res.success
+          ? "A API respondeu, mas a sessão do Obsidian não foi validada completamente."
+          : res.message;
         setFormData((current) => ({
           ...current,
           connectionStatus: "error",
-          errorMessage: res.message,
+          errorMessage: message,
         }));
+        if (res.success) {
+          setTestResult({ success: false, message });
+        }
       }
     } catch (err: any) {
       const message = err.message || "Erro desconhecido ao testar conexão";
@@ -148,11 +162,12 @@ export const ObsidianApiSettingsModal: React.FC<ObsidianApiSettingsModalProps> =
   };
 
   const handleSave = () => {
-    let finalData = { ...formData };
-    if (formData.endpoint.trim() && formData.apiKey.trim() && formData.connectionStatus !== "connected") {
-      finalData.connectionStatus = "connected";
-    }
-    onSaveConfig(finalData);
+    const runtimeConnected = api.isObsidianSessionVerified();
+    onSaveConfig({
+      ...formData,
+      connectionStatus: runtimeConnected ? "connected" : "disconnected",
+      errorMessage: runtimeConnected ? undefined : formData.errorMessage,
+    });
     onClose();
   };
 
@@ -302,7 +317,7 @@ export const ObsidianApiSettingsModal: React.FC<ObsidianApiSettingsModalProps> =
                   <span>Conexão com o Obsidian</span>
                 </h3>
                 <p className="text-xs text-text-secondary leading-normal">
-                  Informe o endpoint e o token do Local REST API. Ao validar, o sistema salva a configuração e passa a sincronizar usando essa conexão.
+                  Informe o endpoint e o token do Local REST API. O status conectado só é liberado depois que a API e o Vault físico forem validados de verdade.
                 </p>
               </div>
 
@@ -317,6 +332,7 @@ export const ObsidianApiSettingsModal: React.FC<ObsidianApiSettingsModalProps> =
                       type="text"
                       value={formData.endpoint}
                       onChange={(e) => {
+                        api.disconnectObsidianSession("Endpoint do Obsidian alterado; valide novamente a conexão.");
                         setFormData({ ...formData, endpoint: e.target.value, connectionStatus: "disconnected" });
                         setTestResult(null);
                       }}
@@ -349,6 +365,7 @@ export const ObsidianApiSettingsModal: React.FC<ObsidianApiSettingsModalProps> =
                     type="password"
                     value={formData.apiKey}
                     onChange={(e) => {
+                      api.disconnectObsidianSession("Token do Obsidian alterado; valide novamente a conexão.");
                       setFormData({ ...formData, apiKey: e.target.value, connectionStatus: "disconnected" });
                       setTestResult(null);
                     }}
@@ -391,29 +408,10 @@ export const ObsidianApiSettingsModal: React.FC<ObsidianApiSettingsModalProps> =
                   )}
 
                   {testResult && !testResult.success && (
-                    <div className="mt-3 p-3 bg-pink-500/10 border border-pink-500/30 rounded-xl space-y-2.5 text-left">
+                    <div className="mt-3 p-3 bg-pink-500/10 border border-pink-500/30 rounded-xl text-left">
                       <p className="text-[11px] text-text-primary leading-relaxed font-medium">
-                        ℹ️ <strong>Nota de Ambiente Web:</strong> Conexões do servidor na nuvem para o seu 127.0.0.1 local são restritas por segurança de rede na Web Sandbox. Você pode forçar o status como <strong>Conectado</strong> para habilitar todo o PKM Hub localmente no seu navegador e salvar sua chave com sucesso.
+                        A conexão não foi liberada. No desktop, confirme que o Obsidian está aberto, o plugin Local REST API está ativo, o token está correto e a pasta física do Vault foi selecionada.
                       </p>
-                      <button
-                        type="button"
-                        onClick={() => {
-                          const connectedConfig: ObsidianApiConfig = {
-                            ...formData,
-                            connectionStatus: "connected",
-                            errorMessage: undefined,
-                          };
-                          setFormData(connectedConfig);
-                          onSaveConfig(connectedConfig);
-                          setTestResult({
-                            success: true,
-                            message: "Conexão Sandbox ativada com sucesso! Chave salva e integrada.",
-                          });
-                        }}
-                        className="w-full py-2 bg-pink-600 hover:bg-pink-700 text-white text-[11px] font-bold rounded-lg transition-colors cursor-pointer"
-                      >
-                        Ativar Conexão Sandbox & Salvar Chave
-                      </button>
                     </div>
                   )}
                 </div>
