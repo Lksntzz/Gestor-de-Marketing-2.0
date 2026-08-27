@@ -1,22 +1,16 @@
-import React, { useState, useRef, useEffect } from "react";
+import React, { useEffect, useRef, useState } from "react";
 import {
-  Sparkles,
+  Bot,
   CheckSquare,
-  Settings,
-  RefreshCw,
-  FolderOpen,
-  Zap,
-  Calendar,
-  Compass,
-  Menu,
-  X,
-  Plus,
-  Cpu,
-  FileText,
-  Lightbulb,
   ChevronDown,
+  FileText,
+  Menu,
+  Plus,
+  RefreshCw,
   Search,
-  Bell,
+  Settings,
+  Sparkles,
+  X,
 } from "lucide-react";
 import { ObsidianApiConfig, EngineMode } from "../types";
 
@@ -54,10 +48,9 @@ export const Navbar: React.FC<NavbarProps> = ({
   const [isCreateDropdownOpen, setIsCreateDropdownOpen] = useState(false);
   const createDropdownRef = useRef<HTMLDivElement>(null);
 
-  // Close dropdown on click outside
   useEffect(() => {
-    const handleClickOutside = (e: MouseEvent) => {
-      if (createDropdownRef.current && !createDropdownRef.current.contains(e.target as Node)) {
+    const handleClickOutside = (event: MouseEvent) => {
+      if (createDropdownRef.current && !createDropdownRef.current.contains(event.target as Node)) {
         setIsCreateDropdownOpen(false);
       }
     };
@@ -65,318 +58,149 @@ export const Navbar: React.FC<NavbarProps> = ({
     return () => document.removeEventListener("mousedown", handleClickOutside);
   }, []);
 
-  const getStatusBadge = () => {
-    if (apiConfig.connectionStatus === "connected") {
-      return (
-        <button
-          onClick={onOpenSettings}
-          className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-purple-50 text-purple-900 border border-purple-200/50 hover:bg-purple-100/50 transition-all text-xs font-bold cursor-pointer shrink-0"
-          title="Obsidian Local REST API conectado com sucesso"
-        >
-          {/* Obsidian Gemstone icon */}
-          <svg className="w-3.5 h-3.5 text-purple-700 shrink-0" viewBox="0 0 24 24" fill="currentColor">
-            <path d="M12 2L2 9L12 22L22 9L12 2ZM12 4.5L18.5 9L12 13.5L5.5 9L12 4.5ZM12 19.5L5 10L12 15L19 10L12 19.5Z" />
-          </svg>
-          <span className="truncate max-w-[120px] sm:max-w-none">
-            {apiConfig.vaultName || "Obsidian"} Conectado
-          </span>
-          <span className="relative flex h-2 w-2 shrink-0">
-            <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
-            <span className="relative inline-flex rounded-full h-2 w-2 bg-emerald-500"></span>
-          </span>
-        </button>
-      );
-    }
-    return (
-      <button
-        onClick={onOpenSettings}
-        className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-stone-150 text-stone-700 border border-stone-250 hover:bg-stone-200 transition-all text-xs font-bold cursor-pointer shrink-0"
-        title="Modo local simulado. Clique para conectar a REST API do Obsidian."
-      >
-        <span className="w-2 h-2 rounded-full bg-stone-400 shrink-0"></span>
-        <span className="truncate max-w-[100px] sm:max-w-none">Modo IA</span>
-      </button>
-    );
-  };
-
   const navItems = [
-    {
-      id: "dashboard" as const,
-      label: "Início",
-      icon: Compass,
-      description: "Visão Geral",
-    },
-    {
-      id: "vault" as const,
-      label: "Cofre Obsidian",
-      icon: FolderOpen,
-      description: "Cofre PKM",
-    },
-    {
-      id: "knowledge" as const,
-      label: "Adicionar Conhecimento",
-      icon: FileText,
-      description: "Capturar e Processar",
-    },
-    {
-      id: "routine" as const,
-      label: "Planejamento",
-      icon: Calendar,
-      description: "Rotinas e Horários",
-    },
-    {
-      id: "tasks" as const,
-      label: "Execução",
-      icon: CheckSquare,
-      description: "Tarefas e Kanban",
-    },
-    {
-      id: "campaigns" as const,
-      label: "Resultados",
-      icon: Sparkles,
-      description: "Campanhas e Cópias",
-    },
-    {
-      id: "automations" as const,
-      label: "Automações",
-      icon: Zap,
-      description: "Sincronizações",
-    },
+    { id: "dashboard" as const, label: "Início" },
+    { id: "vault" as const, label: "Cofre Obsidian" },
+    { id: "knowledge" as const, label: "Adicionar Conhecimento" },
+    { id: "routine" as const, label: "Planejamento" },
+    { id: "tasks" as const, label: "Execução" },
+    { id: "campaigns" as const, label: "Resultados" },
+    { id: "automations" as const, label: "Automações" },
   ];
 
-  const handleTabClick = (tabId: typeof activeTab) => {
-    setActiveTab(tabId);
-    setIsMobileMenuOpen(false);
-  };
+  const obsidianConnected = apiConfig.connectionStatus === "connected";
+  const engineIsLocal = engineMode === "local";
 
   return (
-    <header className="sticky top-0 z-20 w-full bg-white border-b border-stone-200 select-none">
-      <div className="w-full px-4 sm:px-6 lg:px-8">
-        <div className="flex items-center justify-between h-16 gap-4">
-          
-          {/* Left Block: Search Bar (Desktop) & Logo (Mobile) */}
-          <div className="flex items-center gap-4 flex-1">
-            {/* Mobile Logo Brand */}
-            <button
-              onClick={() => handleTabClick("dashboard")}
-              className="lg:hidden flex items-center gap-2 text-left group cursor-pointer"
-            >
-              <svg className="w-8 h-8 shrink-0" viewBox="0 0 40 40" fill="none" xmlns="http://www.w3.org/2000/svg">
-                <path
-                  d="M10 26C10 26 13 14 17 14C21 14 21.5 26 25 26C28.5 26 31 14 31 14"
-                  stroke="url(#mob-nisti-pink-grad)"
-                  strokeWidth="5"
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                />
-                <defs>
-                  <linearGradient id="mob-nisti-pink-grad" x1="10" y1="14" x2="31" y2="26" gradientUnits="userSpaceOnUse">
-                    <stop stopColor="#F43F5E" />
-                    <stop stopColor="#D946EF" />
-                  </linearGradient>
-                </defs>
-              </svg>
-              <div>
-                <span className="font-black text-stone-900 text-xs tracking-tight block leading-none">
-                  Nisti Print
-                </span>
-                <span className="text-[9px] text-pink-500 font-extrabold tracking-widest block mt-0.5 uppercase">
-                  Marketing Hub
-                </span>
-              </div>
-            </button>
+    <header className="sticky top-0 z-20 h-16 bg-[#0f131c] border-b border-[#334155] select-none">
+      <div className="h-full px-4 sm:px-6 flex items-center justify-between gap-4">
+        <div className="flex items-center gap-3 flex-1 min-w-0">
+          <button
+            type="button"
+            onClick={() => setIsMobileMenuOpen((value) => !value)}
+            className="lg:hidden w-9 h-9 rounded-md border border-[#334155] text-slate-300 flex items-center justify-center hover:bg-[#1c2028]"
+            aria-label="Abrir navegação"
+          >
+            {isMobileMenuOpen ? <X className="w-4 h-4" /> : <Menu className="w-4 h-4" />}
+          </button>
 
-            {/* Desktop Unified Search Bar inside the Header */}
-            <div className="hidden lg:flex items-center relative w-full max-w-md">
-              <Search className="w-4 h-4 text-stone-400 absolute left-3.5 pointer-events-none" />
-              <input
-                type="text"
-                placeholder="Buscar conhecimento, campanhas, tarefas, notas... ⌘ K"
-                className="w-full pl-10 pr-4 py-2 bg-[#F5F6F8] hover:bg-stone-100 text-xs font-medium text-stone-850 placeholder-stone-450 rounded-2xl border border-stone-200/60 focus:outline-none focus:ring-1 focus:ring-purple-500/50 focus:border-purple-500 focus:bg-white transition-all"
-              />
-            </div>
+          <div className="relative w-full max-w-sm">
+            <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-500 pointer-events-none" />
+            <input
+              type="search"
+              placeholder="Buscar notas, campanhas, tarefas..."
+              className="w-full h-9 rounded-md border border-[#334155] bg-[#181c24] pl-9 pr-3 text-xs text-slate-100 placeholder:text-slate-500 outline-none focus:border-[#64748b] focus:ring-1 focus:ring-[#64748b]/30"
+            />
           </div>
+        </div>
 
-          {/* Right Action Bar */}
-          <div className="flex items-center gap-2 sm:gap-3 shrink-0">
-            
-            {/* Status & Engine Badge */}
-            <div className="hidden sm:flex items-center gap-2">
-              <button
-                onClick={() => onToggleEngineMode(engineMode === "local" ? "gemini" : "local")}
-                className={`px-3 py-1.5 rounded-xl text-xs font-bold border transition-all flex items-center gap-1.5 cursor-pointer shadow-3xs ${
-                  engineMode === "local"
-                    ? "bg-[#F5F6F8] text-stone-700 border-stone-200 hover:bg-stone-100"
-                    : "bg-pink-50 text-pink-950 border-pink-100 hover:bg-pink-100"
-                }`}
-                title="Alternar entre Motor Local (0 tokens) e Gemini AI"
-              >
-                <Cpu className="w-3.5 h-3.5 text-stone-600" />
-                <span>{engineMode === "local" ? "Motor Local" : "IA"}</span>
-                <span className="w-1.5 h-1.5 rounded-full bg-emerald-500" />
-              </button>
+        <div className="hidden md:flex items-center gap-3 text-[10px] font-bold uppercase tracking-[0.12em]">
+          <button
+            type="button"
+            onClick={() => onToggleEngineMode(engineIsLocal ? "gemini" : "local")}
+            className="flex items-center gap-1.5 text-cyan-400 hover:text-cyan-300 transition-colors"
+            title="Alternar motor de IA"
+          >
+            <span className="w-2 h-2 rounded-full bg-cyan-400" />
+            {engineIsLocal ? "Local" : "Gemini"}
+          </button>
+          <span className="text-slate-600">•</span>
+          <button
+            type="button"
+            onClick={onOpenSettings}
+            className={`flex items-center gap-1.5 transition-colors ${obsidianConnected ? "text-emerald-400 hover:text-emerald-300" : "text-slate-500 hover:text-slate-300"}`}
+            title="Configuração do Obsidian"
+          >
+            <span className={`w-2 h-2 rounded-full ${obsidianConnected ? "bg-emerald-400" : "bg-slate-600"}`} />
+            Obsidian
+          </button>
+        </div>
 
-              {getStatusBadge()}
-            </div>
+        <div className="flex items-center gap-2 shrink-0">
+          <button
+            type="button"
+            onClick={onSyncNow}
+            disabled={isSyncing}
+            className="w-9 h-9 rounded-md text-slate-300 hover:text-white hover:bg-[#1c2028] border border-transparent hover:border-[#334155] flex items-center justify-center disabled:opacity-50"
+            title="Sincronizar"
+          >
+            <RefreshCw className={`w-4 h-4 ${isSyncing ? "animate-spin" : ""}`} />
+          </button>
+          <button
+            type="button"
+            onClick={onOpenSettings}
+            className="w-9 h-9 rounded-md text-slate-300 hover:text-white hover:bg-[#1c2028] border border-transparent hover:border-[#334155] flex items-center justify-center"
+            title="Configurações"
+          >
+            <Settings className="w-4 h-4" />
+          </button>
 
-            {/* Notification Bell with Badge */}
-            <button className="p-2 bg-[#F5F6F8] hover:bg-stone-100 text-stone-600 hover:text-stone-900 rounded-xl transition-all border border-stone-200/60 cursor-pointer relative">
-              <Bell className="w-4 h-4" />
-              <span className="absolute -top-1 -right-1 w-4 h-4 rounded-full bg-red-500 text-[9px] font-bold text-white flex items-center justify-center border border-white">
-                3
-              </span>
-            </button>
-
-            {/* Sync Now Button */}
+          <div className="relative" ref={createDropdownRef}>
             <button
-              onClick={onSyncNow}
-              disabled={isSyncing}
-              className="px-3 py-1.5 bg-[#F5F6F8] hover:bg-stone-100 text-stone-700 hover:text-stone-900 rounded-xl transition-all border border-stone-200/60 cursor-pointer disabled:opacity-50 flex items-center gap-1.5"
-              title="Sincronizar Cofre Markdown"
+              type="button"
+              onClick={() => setIsCreateDropdownOpen((value) => !value)}
+              className="h-9 px-4 rounded-md bg-[#2563eb] hover:bg-blue-500 text-white text-xs font-bold flex items-center gap-1.5 transition-colors"
             >
-              <RefreshCw className={`w-3.5 h-3.5 ${isSyncing ? "animate-spin text-pink-600" : "text-stone-500"}`} />
-              <span className="text-xs font-bold hidden md:inline">Sincronizar</span>
+              <Plus className="w-4 h-4" />
+              <span className="hidden sm:inline">Criar</span>
+              <ChevronDown className="w-3 h-3" />
             </button>
 
-            {/* UNIFIED "+ CRIAR" BUTTON WITH DROPDOWN */}
-            <div className="relative" ref={createDropdownRef}>
-              <button
-                onClick={() => setIsCreateDropdownOpen(!isCreateDropdownOpen)}
-                className="px-4 py-2 bg-pink-600 hover:bg-pink-500 text-white text-xs font-bold rounded-xl shadow-sm transition-all flex items-center gap-1.5 cursor-pointer"
-              >
-                <Plus className="w-3.5 h-3.5 text-white" />
-                <span>Criar</span>
-                <ChevronDown className="w-3 h-3 text-white/80" />
-              </button>
-
-              {isCreateDropdownOpen && (
-                <div className="absolute right-0 mt-2 w-56 bg-white rounded-2xl border border-stone-200/80 shadow-lg py-2 z-50 animate-fadeIn">
-                  <div className="px-3 py-1.5 border-b border-stone-100">
-                    <span className="text-[10px] font-bold text-stone-400 uppercase tracking-wider">
-                      O que você deseja criar?
-                    </span>
-                  </div>
-
+            {isCreateDropdownOpen && (
+              <div className="absolute right-0 mt-2 w-56 rounded-md border border-[#334155] bg-[#1c2028] shadow-2xl p-1.5 z-50">
+                <button
+                  type="button"
+                  onClick={() => { onQuickNewCampaign(); setIsCreateDropdownOpen(false); }}
+                  className="w-full px-3 py-2 rounded text-left text-xs text-slate-200 hover:bg-[#262a33] flex items-center gap-2"
+                >
+                  <Sparkles className="w-4 h-4 text-blue-400" /> Nova campanha
+                </button>
+                <button
+                  type="button"
+                  onClick={() => { onQuickNewTask(); setIsCreateDropdownOpen(false); }}
+                  className="w-full px-3 py-2 rounded text-left text-xs text-slate-200 hover:bg-[#262a33] flex items-center gap-2"
+                >
+                  <CheckSquare className="w-4 h-4 text-emerald-400" /> Nova tarefa
+                </button>
+                <button
+                  type="button"
+                  onClick={() => { onQuickNewNote(); setIsCreateDropdownOpen(false); }}
+                  className="w-full px-3 py-2 rounded text-left text-xs text-slate-200 hover:bg-[#262a33] flex items-center gap-2"
+                >
+                  <FileText className="w-4 h-4 text-violet-400" /> Nova nota
+                </button>
+                {onQuickNewIdea && (
                   <button
-                    onClick={() => {
-                      setIsCreateDropdownOpen(false);
-                      onQuickNewCampaign();
-                    }}
-                    className="w-full px-3 py-2 text-left text-xs font-semibold text-stone-800 hover:bg-purple-50 hover:text-purple-900 flex items-center gap-2.5 transition-colors cursor-pointer"
+                    type="button"
+                    onClick={() => { onQuickNewIdea(); setIsCreateDropdownOpen(false); }}
+                    className="w-full px-3 py-2 rounded text-left text-xs text-slate-200 hover:bg-[#262a33] flex items-center gap-2"
                   >
-                    <div className="w-6 h-6 rounded-lg bg-purple-100 text-purple-700 flex items-center justify-center shrink-0">
-                      <Sparkles className="w-3.5 h-3.5" />
-                    </div>
-                    <div>
-                      <span className="block font-bold">Nova Campanha IA</span>
-                      <span className="text-[10px] text-stone-500 font-normal">Sintetizar cópias e canais</span>
-                    </div>
+                    <Bot className="w-4 h-4 text-cyan-400" /> Nova ideia
                   </button>
-
-                  <button
-                    onClick={() => {
-                      setIsCreateDropdownOpen(false);
-                      onQuickNewTask();
-                    }}
-                    className="w-full px-3 py-2 text-left text-xs font-semibold text-stone-800 hover:bg-purple-50 hover:text-purple-900 flex items-center gap-2.5 transition-colors cursor-pointer"
-                  >
-                    <div className="w-6 h-6 rounded-lg bg-stone-100 text-stone-700 flex items-center justify-center shrink-0">
-                      <CheckSquare className="w-3.5 h-3.5" />
-                    </div>
-                    <div>
-                      <span className="block font-bold">Nova Tarefa</span>
-                      <span className="text-[10px] text-stone-500 font-normal">Sincronizada com Obsidian Tasks</span>
-                    </div>
-                  </button>
-
-                  <button
-                    onClick={() => {
-                      setIsCreateDropdownOpen(false);
-                      onQuickNewNote();
-                    }}
-                    className="w-full px-3 py-2 text-left text-xs font-semibold text-stone-800 hover:bg-purple-50 hover:text-purple-900 flex items-center gap-2.5 transition-colors cursor-pointer"
-                  >
-                    <div className="w-6 h-6 rounded-lg bg-stone-100 text-stone-700 flex items-center justify-center shrink-0">
-                      <FileText className="w-3.5 h-3.5" />
-                    </div>
-                    <div>
-                      <span className="block font-bold">Nova Nota PKM</span>
-                      <span className="text-[10px] text-stone-500 font-normal">Documento Markdown no cofre</span>
-                    </div>
-                  </button>
-
-                  {onQuickNewIdea && (
-                    <button
-                      onClick={() => {
-                        setIsCreateDropdownOpen(false);
-                        onQuickNewIdea();
-                      }}
-                      className="w-full px-3 py-2 text-left text-xs font-semibold text-stone-800 hover:bg-purple-50 hover:text-purple-900 flex items-center gap-2.5 transition-colors cursor-pointer"
-                    >
-                      <div className="w-6 h-6 rounded-lg bg-amber-100 text-amber-700 flex items-center justify-center shrink-0">
-                        <Lightbulb className="w-3.5 h-3.5" />
-                      </div>
-                      <div>
-                        <span className="block font-bold">Nova Ideia de Conteúdo</span>
-                        <span className="text-[10px] text-stone-500 font-normal">Pauta rápida com gancho</span>
-                      </div>
-                    </button>
-                  )}
-                </div>
-              )}
-            </div>
-
-            {/* Gear Button for settings (only on mobile, as desktop has it in the Sidebar) */}
-            <button
-              onClick={onOpenSettings}
-              className="p-2 lg:hidden text-stone-600 hover:text-stone-900 hover:bg-stone-100 rounded-xl transition-all border border-stone-200/60 cursor-pointer"
-              title="Configurações"
-            >
-              <Settings className="w-4 h-4" />
-            </button>
-
-            {/* Mobile Menu Toggle (Hamburger) */}
-            <button
-              onClick={() => setIsMobileMenuOpen(!isMobileMenuOpen)}
-              className="p-2 lg:hidden text-stone-600 hover:text-stone-900 hover:bg-stone-100 rounded-xl transition-all border border-stone-200/60 cursor-pointer"
-            >
-              {isMobileMenuOpen ? <X className="w-4 h-4" /> : <Menu className="w-4 h-4" />}
-            </button>
-
+                )}
+              </div>
+            )}
           </div>
         </div>
       </div>
 
-      {/* Mobile Slide-out / Dropdown Menu */}
       {isMobileMenuOpen && (
-        <div className="lg:hidden border-t border-stone-200 bg-white px-4 pt-3 pb-6 space-y-3 animate-fadeIn">
-          <div className="flex items-center justify-between pb-2 border-b border-stone-100">
-            <span className="text-[10px] font-bold text-stone-400 uppercase tracking-wider">
-              Navegação
-            </span>
-            {getStatusBadge()}
-          </div>
-
+        <div className="lg:hidden absolute left-0 right-0 top-16 border-b border-[#334155] bg-[#0f131c] p-3 shadow-2xl">
           <div className="grid grid-cols-2 gap-2">
-            {navItems.map((item) => {
-              const Icon = item.icon;
-              const isActive = activeTab === item.id;
-              return (
-                <button
-                  key={item.id}
-                  onClick={() => handleTabClick(item.id)}
-                  className={`p-3 rounded-xl text-left transition-all flex flex-col justify-between cursor-pointer ${
-                    isActive
-                      ? "bg-pink-50 border border-pink-200 text-pink-950"
-                      : "bg-stone-50 border border-stone-200/60 text-stone-700 hover:bg-stone-100"
-                  }`}
-                >
-                  <Icon className={`w-4 h-4 mb-2 ${isActive ? "text-pink-600" : "text-stone-500"}`} />
-                  <span className="text-xs font-bold">{item.label}</span>
-                  <span className="text-[10px] text-stone-500 mt-0.5">{item.description}</span>
-                </button>
-              );
-            })}
+            {navItems.map((item) => (
+              <button
+                key={item.id}
+                type="button"
+                onClick={() => { setActiveTab(item.id); setIsMobileMenuOpen(false); }}
+                className={`px-3 py-2 rounded-md text-left text-xs font-semibold border ${
+                  activeTab === item.id
+                    ? "bg-[#262a33] text-[#b4c5ff] border-[#4f5d78]"
+                    : "bg-[#181c24] text-slate-300 border-[#334155]"
+                }`}
+              >
+                {item.label}
+              </button>
+            ))}
           </div>
         </div>
       )}
