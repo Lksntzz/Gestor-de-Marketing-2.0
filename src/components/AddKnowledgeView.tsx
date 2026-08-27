@@ -1,4 +1,4 @@
-import React, { useMemo, useState } from "react";
+import React, { useEffect, useMemo, useState } from "react";
 import {
   AlignLeft,
   AlertCircle,
@@ -18,7 +18,6 @@ import {
   Youtube,
 } from "lucide-react";
 import type { EngineMode, KnowledgeStatus, ObsidianApiConfig, ObsidianNote } from "../types";
-import { STANDARD_VAULT_FOLDERS } from "../data/defaultVault";
 import { api } from "../services/api";
 import { googleDriveService } from "../services/googleDriveService";
 import { buildObsidianOpenUri } from "../utils/obsidianUri";
@@ -51,6 +50,8 @@ interface CurationProposal {
   hypotheses: string[];
   sourceUrl?: string;
   fileName?: string;
+  analysisModel: string;
+  wasFallback: boolean;
 }
 
 const TYPE_LABELS: Record<KnowledgeType, string> = {
@@ -61,6 +62,8 @@ const TYPE_LABELS: Record<KnowledgeType, string> = {
   text: "Texto Livre",
   gdrive: "Google Drive",
 };
+
+const MAX_MANUAL_SOURCE_BYTES = 15 * 1024 * 1024;
 
 function safeEpistemicStatus(value: unknown): EpistemicStatus {
   return value === "CONFIRMADO" || value === "HIPÓTESE" || value === "PENDENTE" ? value : "PENDENTE";
@@ -76,6 +79,20 @@ function sanitizeTitle(value: string): string {
   return value.replace(/[<>:"/\\|?*]/g, "-").replace(/\s+/g, " ").trim().slice(0, 120) || "Novo Conhecimento";
 }
 
+function stripLeadingFrontmatter(value: string): string {
+  return String(value || "")
+    .replace(/^---\r?\n[\s\S]*?\r?\n---\r?\n?/, "")
+    .replace(/^#\s+[^\r\n]+\r?\n+/, "")
+    .trim();
+}
+
+function chooseLiveFolder(suggestedFolder: string, liveFolders: string[]): string {
+  const folders = Array.from(new Set(liveFolders.filter(Boolean))).sort((a, b) => a.localeCompare(b, "pt-BR"));
+  if (folders.includes(suggestedFolder)) return suggestedFolder;
+  if (folders.includes("00_Inbox")) return "00_Inbox";
+  return folders[0] || "00_Inbox";
+}
+
 export const AddKnowledgeView: React.FC<AddKnowledgeViewProps> = ({
   notes,
   onAddNote,
@@ -88,6 +105,7 @@ export const AddKnowledgeView: React.FC<AddKnowledgeViewProps> = ({
   const [pdfFileName, setPdfFileName] = useState("");
   const [pdfBase64, setPdfBase64] = useState("");
   const [imageTitle, setImageTitle] = useState("");
+  const [imageFileName, setImageFileName] = useState("");
   const [imageBase64, setImageBase64] = useState("");
   const [youtubeUrl, setYoutubeUrl] = useState("");
   const [youtubeTitle, setYoutubeTitle] = useState("");
@@ -95,6 +113,7 @@ export const AddKnowledgeView: React.FC<AddKnowledgeViewProps> = ({
   const [siteTitle, setSiteTitle] = useState("");
   const [rawTextTitle, setRawTextTitle] = useState("");
   const [rawText, setRawText] = useState("");
+  const [vaultFolders, setVaultFolders] = useState<string[]>([]);
   const [isProcessing, setIsProcessing] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -104,12 +123,33 @@ export const AddKnowledgeView: React.FC<AddKnowledgeViewProps> = ({
   const isConnected = api.isObsidianSessionVerified();
   const driveConnected = googleDriveService.isAuthenticated();
 
+  useEffect(() => {
+    let active = true;
+    if (!isConnected || !window.electronAPI?.listVaultFolders) {
+      setVaultFolders([]);
+      return () => { active = false; };
+    }
+
+    void window.electronAPI.listVaultFolders()
+      .then((folders) => {
+        if (!active) return;
+        setVaultFolders(Array.isArray(folders) ? folders.filter(Boolean) : []);
+      })
+      .catch((err) => {
+        if (!active) return;
+        setVaultFolders([]);
+        setError(err?.message || "Não foi possível carregar as pastas reais do Vault.");
+      });
+
+    return () => { active = false; };
+  }, [isConnected, notes.length]);
+
   const sourceDescription = useMemo(() => {
     if (selectedType === "youtube") {
       return "O link é tratado como referência. Só considere conteúdo do vídeo como analisado quando houver texto/transcrição efetivamente disponível.";
     }
-    if (selectedType === "pdf") return "O PDF é enviado ao processador autenticado para extração e síntese.";
-    if (selectedType === "image") return "A imagem é enviada para análise visual/OCR quando o Gemini estiver ativo.";
+    if (selectedType === "pdf") return "O PDF é analisado primeiro e, após sua aprovação, o arquivo original e a síntese são gravados juntos no Vault.";
+    if (selectedType === "image") return "A imagem é analisada visualmente e, após sua aprovação, o arquivo original e a síntese são preservados juntos no Vault.";
     return "A fonte será sintetizada e ficará pendente de revisão antes de ser gravada no Vault.";
   }, [selectedType]);
 
@@ -120,8 +160,14 @@ export const AddKnowledgeView: React.FC<AddKnowledgeViewProps> = ({
   };
 
   const readAsDataUrl = (file: File, onDone: (value: string) => void) => {
+    if (file.size > MAX_MANUAL_SOURCE_BYTES) {
+      setError("O arquivo excede 15 MB. Reduza o arquivo antes de enviar para análise e preservação no Vault.");
+      onDone("");
+      return;
+    }
     const reader = new FileReader();
     reader.onloadend = () => onDone(typeof reader.result === "string" ? reader.result : "");
+    reader.onerror = () => setError("Não foi possível ler o arquivo selecionado.");
     reader.readAsDataURL(file);
   };
 
@@ -135,8 +181,8 @@ export const AddKnowledgeView: React.FC<AddKnowledgeViewProps> = ({
 
   const validate = (): string | null => {
     if (!isConnected) return "Conecte e valide o Obsidian antes de processar conhecimento.";
-    if (selectedType === "pdf" && (!pdfFileName || !pdfBase64)) return "Selecione um arquivo PDF.";
-    if (selectedType === "image" && !imageBase64) return "Selecione uma imagem.";
+    if (selectedType === "pdf" && (!pdfFileName || !pdfBase64)) return "Selecione um arquivo PDF válido.";
+    if (selectedType === "image" && (!imageFileName || !imageBase64)) return "Selecione uma imagem válida.";
     if (selectedType === "youtube" && !youtubeUrl.trim()) return "Informe o link do YouTube.";
     if (selectedType === "site" && !siteUrl.trim()) return "Informe a URL do site.";
     if (selectedType === "text" && (!rawTextTitle.trim() || !rawText.trim())) return "Informe título e conteúdo do texto.";
@@ -154,13 +200,12 @@ export const AddKnowledgeView: React.FC<AddKnowledgeViewProps> = ({
 
     setIsProcessing(true);
     try {
-      const payload = buildPayload();
-      const result = await api.processKnowledge(selectedType, payload, engineMode);
+      const result = await api.processKnowledge(selectedType, buildPayload(), engineMode);
       if (!result?.success || !result?.data) throw new Error(result?.error || "O processador não retornou uma proposta válida.");
 
       const data = result.data as Record<string, unknown>;
       const suggestedFolder = typeof data.folder === "string" ? data.folder : "00_Inbox";
-      const folder = STANDARD_VAULT_FOLDERS.includes(suggestedFolder) ? suggestedFolder : "00_Inbox";
+      const folder = chooseLiveFolder(suggestedFolder, vaultFolders);
       const title = sanitizeTitle(String(data.title || rawTextTitle || imageTitle || pdfFileName.replace(/\.pdf$/i, "") || siteTitle || youtubeTitle || "Novo Conhecimento"));
       const summary = String(data.summary || "").trim();
       const evidence = cleanStringArray(data.evidence || data.keyFacts || data.keyTakeaways);
@@ -168,13 +213,7 @@ export const AddKnowledgeView: React.FC<AddKnowledgeViewProps> = ({
       const keywords = cleanStringArray(data.keywords || data.tags);
       const wikilinks = cleanStringArray(data.wikilinks);
       const epistemicStatus = safeEpistemicStatus(data.epistemic_status || data.epistemicStatus);
-      const content = String(data.content || "").trim() || [
-        `# ${title}`,
-        "",
-        summary ? `## Resumo\n${summary}` : "",
-        evidence.length ? `## Evidências\n${evidence.map((item) => `- ${item}`).join("\n")}` : "",
-        hypotheses.length ? `## Hipóteses\n${hypotheses.map((item) => `- ${item}`).join("\n")}` : "",
-      ].filter(Boolean).join("\n\n");
+      const content = String(data.content || "").trim();
 
       setProposal({
         title,
@@ -182,7 +221,7 @@ export const AddKnowledgeView: React.FC<AddKnowledgeViewProps> = ({
         status: folder === "00_Inbox" ? "NOVO" : "EM REVISÃO",
         epistemicStatus,
         tipo: selectedType === "pdf" ? "Documento PDF" : selectedType === "image" ? "Ativo Visual" : selectedType === "youtube" ? "Referência YouTube" : selectedType === "site" ? "Artigo Web" : "Texto",
-        category: String(data.category || "Conhecimento"),
+        category: String(data.category || "Não classificado"),
         keywords,
         wikilinks,
         content,
@@ -190,13 +229,27 @@ export const AddKnowledgeView: React.FC<AddKnowledgeViewProps> = ({
         evidence,
         hypotheses,
         sourceUrl: selectedType === "site" ? siteUrl : selectedType === "youtube" ? youtubeUrl : undefined,
-        fileName: selectedType === "pdf" ? pdfFileName : undefined,
+        fileName: selectedType === "pdf" ? pdfFileName : selectedType === "image" ? imageFileName : undefined,
+        analysisModel: String(result.usedModel || "não informado"),
+        wasFallback: Boolean(result.wasFallback),
       });
     } catch (err: any) {
       setError(err.message || "Falha ao processar a fonte.");
     } finally {
       setIsProcessing(false);
     }
+  };
+
+  const buildCuratedContent = (current: CurationProposal) => {
+    const processed = stripLeadingFrontmatter(current.content);
+    return [
+      `# ${current.title}`,
+      current.summary ? `## Resumo inteligente\n${current.summary}` : "",
+      current.evidence.length ? `## Pontos importantes\n${current.evidence.map((item) => `- ${item}`).join("\n")}` : "",
+      current.hypotheses.length ? `## Hipóteses\n${current.hypotheses.map((item) => `- ${item}`).join("\n")}` : "",
+      processed ? `## Conteúdo processado\n${processed}` : "",
+      `## Rastreabilidade da análise\n- Motor/modelo: ${current.analysisModel}\n- Fallback seguro: ${current.wasFallback ? "sim" : "não"}\n- Estado epistemológico: ${current.epistemicStatus}`,
+    ].filter(Boolean).join("\n\n");
   };
 
   const handleSave = async (forceInbox = false) => {
@@ -206,18 +259,22 @@ export const AddKnowledgeView: React.FC<AddKnowledgeViewProps> = ({
       return;
     }
 
+    const folder = forceInbox ? "00_Inbox" : proposal.folder;
+    if (window.electronAPI && !vaultFolders.includes(folder)) {
+      setError("A pasta selecionada não existe mais no Vault. Sincronize o Cofre e selecione uma pasta real.");
+      return;
+    }
+
     setIsSaving(true);
     setError(null);
     try {
-      const folder = forceInbox ? "00_Inbox" : proposal.folder;
-      const status: KnowledgeStatus = forceInbox ? "NOVO" : proposal.status;
       const now = new Date();
       const timestamp = now.toISOString().replace("T", " ").slice(0, 16);
       const date = now.toISOString().slice(0, 10);
       const noteId = `knowledge-${now.getTime().toString(36)}`;
-      const notePath = `${folder}/${sanitizeTitle(proposal.title)}.md`;
+      const status: KnowledgeStatus = folder === "00_Inbox" ? "NOVO" : "EM REVISÃO";
       const tags = proposal.keywords;
-      const frontmatter = {
+      const baseFrontmatter: Record<string, unknown> = {
         id: noteId,
         tipo: proposal.tipo,
         status,
@@ -226,39 +283,70 @@ export const AddKnowledgeView: React.FC<AddKnowledgeViewProps> = ({
         owner: "Nisti Marketing",
         created_at: date,
         updated_at: date,
-        tags,
-        origem: proposal.fileName || proposal.sourceUrl || "Nisti Marketing",
-        approved_by: status === "OFICIAL" ? "Revisão humana" : "",
+        summary: proposal.summary || undefined,
+        key_facts: proposal.evidence.length ? proposal.evidence : undefined,
+        tags: tags.length ? tags : undefined,
+        origem: proposal.fileName || proposal.sourceUrl || "Entrada manual no Nisti Marketing",
+        source_url: proposal.sourceUrl || undefined,
+        analysis_model: proposal.analysisModel,
+        analysis_fallback: proposal.wasFallback ? "true" : "false",
       };
+      const curatedContent = buildCuratedContent(proposal);
+      const isBinarySource = selectedType === "pdf" || selectedType === "image";
+      const dataUrl = selectedType === "pdf" ? pdfBase64 : selectedType === "image" ? imageBase64 : "";
 
-      const frontmatterText = [
-        "---",
-        `id: "${noteId}"`,
-        `tipo: "${proposal.tipo}"`,
-        `status: "${status}"`,
-        `epistemic_status: "${proposal.epistemicStatus}"`,
-        `category: "${proposal.category.replace(/"/g, "'")}"`,
-        `owner: "Nisti Marketing"`,
-        `created_at: "${date}"`,
-        `updated_at: "${date}"`,
-        "tags:",
-        ...(tags.length ? tags.map((tag) => `  - "${tag.replace(/"/g, "'")}"`) : ["  - conhecimento"]),
-        `origem: "${String(frontmatter.origem).replace(/"/g, "'")}"`,
-        "---",
-        "",
-      ].join("\n");
-      const finalContent = proposal.content.trimStart().startsWith("---") ? proposal.content : `${frontmatterText}${proposal.content}`;
+      let noteTitle = proposal.title;
+      let notePath = `${folder}/${sanitizeTitle(proposal.title)}.md`;
+      let committedFrontmatter = { ...baseFrontmatter };
 
-      const writeResult = await api.pushNoteToObsidian(apiConfig, notePath, finalContent, frontmatter);
-      if (!writeResult?.success) throw new Error(writeResult?.message || "O Obsidian não confirmou a gravação.");
+      if (window.electronAPI?.commitKnowledge) {
+        const commitResult = await window.electronAPI.commitKnowledge({
+          folder,
+          title: sanitizeTitle(proposal.title),
+          content: curatedContent,
+          frontmatter: baseFrontmatter,
+          asset: isBinarySource && proposal.fileName && dataUrl
+            ? { fileName: proposal.fileName, dataUrl }
+            : undefined,
+        });
+        if (!commitResult?.success || !commitResult.noteRelativePath) {
+          throw new Error(commitResult?.error || "O Obsidian não confirmou o commit transacional do conhecimento.");
+        }
+
+        noteTitle = commitResult.noteTitle || proposal.title;
+        notePath = commitResult.noteRelativePath;
+        if (commitResult.assetRelativePath) {
+          committedFrontmatter = {
+            ...committedFrontmatter,
+            source_type: "curated_asset",
+            asset_kind: selectedType === "pdf" ? "pdf" : "image",
+            asset_path: commitResult.assetRelativePath,
+            asset_mtime: String(commitResult.assetMtimeMs || ""),
+            asset_size: String(commitResult.assetSize || ""),
+            origem: commitResult.assetRelativePath,
+          };
+        }
+
+        try {
+          await api.syncObsidianSnapshot();
+        } catch (syncError) {
+          console.warn("Knowledge was committed, but the immediate Vault refresh failed:", syncError);
+        }
+      } else {
+        if (isBinarySource) {
+          throw new Error("A preservação do arquivo original exige o runtime desktop. A gravação foi bloqueada para não criar uma síntese sem a fonte física.");
+        }
+        const writeResult = await api.pushNoteToObsidian(apiConfig, notePath, curatedContent, baseFrontmatter);
+        if (!writeResult?.success) throw new Error(writeResult?.message || "O Obsidian não confirmou a gravação.");
+      }
 
       const newNote: ObsidianNote = {
         id: noteId,
         path: notePath,
-        title: proposal.title,
+        title: noteTitle,
         folder,
-        content: finalContent,
-        frontmatter,
+        content: curatedContent,
+        frontmatter: committedFrontmatter,
         tags,
         wikilinks: proposal.wikilinks,
         lastModified: timestamp,
@@ -286,6 +374,7 @@ export const AddKnowledgeView: React.FC<AddKnowledgeViewProps> = ({
     if (fileData.mimeType.startsWith("image/")) {
       setSelectedType("image");
       setImageTitle(fileData.name.replace(/\.[^/.]+$/, ""));
+      setImageFileName(fileData.name);
       setImageBase64(fileData.base64 || "");
       return;
     }
@@ -300,13 +389,13 @@ export const AddKnowledgeView: React.FC<AddKnowledgeViewProps> = ({
         <div>
           <div className="flex items-center gap-2 text-[10px] font-bold uppercase tracking-widest text-pink-500">
             <ShieldCheck className="w-3.5 h-3.5" />
-            Ingestão autenticada
+            Ingestão autenticada e rastreável
           </div>
           <h1 className="text-2xl font-black text-text-primary mt-1">Adicionar Conhecimento</h1>
-          <p className="text-xs text-text-secondary mt-1">A IA propõe. Você revisa. O estado local só muda depois que o Obsidian confirma a gravação.</p>
+          <p className="text-xs text-text-secondary mt-1">A IA propõe, você revisa e o Obsidian recebe a fonte original junto da síntese quando houver arquivo binário.</p>
         </div>
         <div className={`px-3 py-2 rounded-xl border text-xs font-bold ${isConnected ? "border-emerald-500/30 bg-emerald-500/10 text-emerald-300" : "border-red-500/30 bg-red-500/10 text-red-300"}`}>
-          {isConnected ? `Obsidian conectado • ${notes.length} itens` : "Obsidian bloqueado"}
+          {isConnected ? `Obsidian conectado • ${vaultFolders.length} pastas reais` : "Obsidian bloqueado"}
         </div>
       </div>
 
@@ -339,12 +428,13 @@ export const AddKnowledgeView: React.FC<AddKnowledgeViewProps> = ({
               <input type="file" accept="application/pdf,.pdf" className="hidden" onChange={(event) => {
                 const file = event.target.files?.[0];
                 if (!file) return;
+                resetResult();
                 setPdfFileName(file.name);
                 readAsDataUrl(file, setPdfBase64);
-                resetResult();
               }} />
               <UploadCloud className="w-6 h-6 mx-auto text-pink-400 mb-2" />
               <span className="text-xs font-bold text-text-primary">{pdfFileName || "Selecionar PDF"}</span>
+              <span className="block text-[10px] text-text-secondary mt-1">máximo 15 MB</span>
             </label>
           )}
 
@@ -354,12 +444,14 @@ export const AddKnowledgeView: React.FC<AddKnowledgeViewProps> = ({
                 <input type="file" accept="image/png,image/jpeg,image/webp" className="hidden" onChange={(event) => {
                   const file = event.target.files?.[0];
                   if (!file) return;
-                  setImageTitle(file.name.replace(/\.[^/.]+$/, ""));
-                  readAsDataUrl(file, setImageBase64);
                   resetResult();
+                  setImageTitle(file.name.replace(/\.[^/.]+$/, ""));
+                  setImageFileName(file.name);
+                  readAsDataUrl(file, setImageBase64);
                 }} />
                 <UploadCloud className="w-6 h-6 mx-auto text-pink-400 mb-2" />
-                <span className="text-xs font-bold text-text-primary">{imageTitle || "Selecionar imagem"}</span>
+                <span className="text-xs font-bold text-text-primary">{imageFileName || "Selecionar imagem"}</span>
+                <span className="block text-[10px] text-text-secondary mt-1">PNG, JPG/JPEG ou WEBP • máximo 15 MB</span>
               </label>
               {imageBase64 && <img src={imageBase64} alt="Prévia" className="max-h-32 mx-auto rounded-lg object-contain" />}
             </div>
@@ -410,9 +502,10 @@ export const AddKnowledgeView: React.FC<AddKnowledgeViewProps> = ({
               <CheckCircle2 className="w-10 h-10 text-emerald-400 mb-3" />
               <h3 className="text-lg font-black text-text-primary">Gravação confirmada pelo Obsidian</h3>
               <p className="text-xs text-text-secondary mt-2 font-mono">{createdNote.path}</p>
+              {createdNote.frontmatter.asset_path && <p className="text-[11px] text-emerald-300 mt-2">Fonte original preservada: {createdNote.frontmatter.asset_path}</p>}
               <div className="flex gap-2 mt-5">
                 <button onClick={() => { onSelectNote(createdNote); onNavigateTab("vault"); }} className="px-4 py-2 rounded-xl bg-surface-container-low border border-outline-border text-xs font-bold text-text-primary">Ver no Cofre</button>
-                <a href={buildObsidianOpenUri(apiConfig.vaultName, createdNote.path)} className="px-4 py-2 rounded-xl bg-pink-600 text-white text-xs font-bold flex items-center gap-1.5">Abrir no Obsidian <ExternalLink className="w-3.5 h-3.5" /></a>
+                <a href={buildObsidianOpenUri(apiConfig.vaultName, createdNote.path)} className="px-4 py-2 rounded-xl bg-pink-600 text-white text-xs font-bold flex items-center gap-1.5">Abrir análise no Obsidian <ExternalLink className="w-3.5 h-3.5" /></a>
               </div>
             </div>
           ) : proposal ? (
@@ -421,15 +514,28 @@ export const AddKnowledgeView: React.FC<AddKnowledgeViewProps> = ({
                 <div>
                   <span className="text-[10px] uppercase tracking-widest text-pink-400 font-bold">Proposta para revisão humana</span>
                   <h2 className="text-xl font-black text-text-primary mt-1">{proposal.title}</h2>
+                  <p className="text-[10px] text-text-secondary mt-1">{proposal.wasFallback ? "Fallback seguro" : "Análise processada"} • {proposal.analysisModel}</p>
                 </div>
                 <span className={`px-2.5 py-1 rounded-lg border text-[10px] font-black ${proposal.epistemicStatus === "CONFIRMADO" ? "border-emerald-500/30 text-emerald-300 bg-emerald-500/10" : proposal.epistemicStatus === "HIPÓTESE" ? "border-amber-500/30 text-amber-300 bg-amber-500/10" : "border-slate-500/30 text-slate-300 bg-slate-500/10"}`}>{proposal.epistemicStatus}</span>
               </div>
 
               <div className="grid grid-cols-2 gap-3 text-xs">
-                <div className="p-3 rounded-xl bg-surface-container-low border border-outline-border"><span className="text-text-secondary block text-[10px] uppercase">Pasta sugerida</span><strong className="text-text-primary flex items-center gap-1 mt-1"><FolderOpen className="w-3.5 h-3.5" />{proposal.folder}</strong></div>
+                <label className="p-3 rounded-xl bg-surface-container-low border border-outline-border">
+                  <span className="text-text-secondary block text-[10px] uppercase mb-1">Pasta real do Obsidian</span>
+                  <div className="flex items-center gap-2">
+                    <FolderOpen className="w-3.5 h-3.5 text-text-secondary" />
+                    <select value={proposal.folder} onChange={(event) => {
+                      const folder = event.target.value;
+                      setProposal((current) => current ? { ...current, folder, status: folder === "00_Inbox" ? "NOVO" : "EM REVISÃO" } : current);
+                    }} className="w-full bg-transparent text-text-primary text-xs outline-none">
+                      {vaultFolders.map((folder) => <option key={folder} value={folder}>{folder}</option>)}
+                    </select>
+                  </div>
+                </label>
                 <div className="p-3 rounded-xl bg-surface-container-low border border-outline-border"><span className="text-text-secondary block text-[10px] uppercase">Categoria</span><strong className="text-text-primary mt-1 block">{proposal.category}</strong></div>
               </div>
 
+              {proposal.fileName && <div className="p-3 rounded-xl border border-emerald-500/20 bg-emerald-500/5 text-xs text-emerald-200"><strong>Fonte física:</strong> {proposal.fileName}. Ela será preservada somente quando você aprovar a gravação.</div>}
               {proposal.summary && <div><h3 className="text-xs font-bold uppercase tracking-wider text-text-secondary mb-2">Resumo</h3><p className="text-sm leading-relaxed text-text-primary">{proposal.summary}</p></div>}
               {proposal.evidence.length > 0 && <div><h3 className="text-xs font-bold uppercase tracking-wider text-text-secondary mb-2">Evidências extraídas</h3><ul className="space-y-2">{proposal.evidence.map((item, index) => <li key={index} className="text-xs text-text-primary flex gap-2"><Check className="w-3.5 h-3.5 text-emerald-400 shrink-0 mt-0.5" />{item}</li>)}</ul></div>}
               {proposal.hypotheses.length > 0 && <div><h3 className="text-xs font-bold uppercase tracking-wider text-text-secondary mb-2">Hipóteses</h3><ul className="space-y-2">{proposal.hypotheses.map((item, index) => <li key={index} className="text-xs text-text-primary">• {item}</li>)}</ul></div>}
@@ -437,15 +543,15 @@ export const AddKnowledgeView: React.FC<AddKnowledgeViewProps> = ({
 
               <div className="flex flex-wrap justify-end gap-2 pt-4 border-t border-outline-border">
                 <button onClick={() => setProposal(null)} className="px-4 py-2 rounded-xl bg-surface-container-low border border-outline-border text-xs font-bold text-text-primary">Descartar</button>
-                <button disabled={isSaving} onClick={() => handleSave(true)} className="px-4 py-2 rounded-xl bg-surface-container-low border border-outline-border text-xs font-bold text-text-primary disabled:opacity-50">Salvar em 00_Inbox</button>
-                <button disabled={isSaving} onClick={() => handleSave(false)} className="px-4 py-2 rounded-xl bg-pink-600 hover:bg-pink-500 text-white text-xs font-black flex items-center gap-2 disabled:opacity-50">{isSaving ? <Loader2 className="w-4 h-4 animate-spin" /> : <ShieldCheck className="w-4 h-4" />}Aprovar e gravar no Obsidian</button>
+                {vaultFolders.includes("00_Inbox") && proposal.folder !== "00_Inbox" && <button disabled={isSaving} onClick={() => handleSave(true)} className="px-4 py-2 rounded-xl bg-surface-container-low border border-outline-border text-xs font-bold text-text-primary disabled:opacity-50">Salvar em 00_Inbox</button>}
+                <button disabled={isSaving || vaultFolders.length === 0} onClick={() => handleSave(false)} className="px-4 py-2 rounded-xl bg-pink-600 hover:bg-pink-500 text-white text-xs font-black flex items-center gap-2 disabled:opacity-50">{isSaving ? <Loader2 className="w-4 h-4 animate-spin" /> : <ShieldCheck className="w-4 h-4" />}Aprovar e gravar no Obsidian</button>
               </div>
             </div>
           ) : (
             <div className="h-full min-h-64 flex flex-col items-center justify-center text-center">
               <FileText className="w-10 h-10 text-text-secondary/40 mb-3" />
               <h3 className="font-bold text-text-primary">Aguardando uma fonte real</h3>
-              <p className="text-xs text-text-secondary max-w-md mt-1">O sistema não cria exemplos automáticos nem afirmações comerciais sem evidência. Depois da análise, você revisa antes de gravar.</p>
+              <p className="text-xs text-text-secondary max-w-md mt-1">O sistema não cria exemplos automáticos nem afirmações comerciais sem evidência. Depois da análise, você escolhe uma pasta real do Vault e revisa antes de gravar.</p>
             </div>
           )}
         </section>
