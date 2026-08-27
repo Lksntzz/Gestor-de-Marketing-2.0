@@ -123,7 +123,7 @@ async function inspectDesktopVault(selectVault: boolean): Promise<ObsidianConnec
     localNotesFound: Array.isArray(notes) ? notes.length : 0,
     localFoldersFound: Array.isArray(folders) ? folders.length : 0,
     localFolders: Array.isArray(folders) ? folders : [],
-    message: `Vault local confirmado: ${vaultPath}. ${Array.isArray(notes) ? notes.length : 0} notas Markdown em ${Array.isArray(folders) ? folders.length : 0} pastas.`,
+    message: `Vault local confirmado: ${vaultPath}. ${Array.isArray(notes) ? notes.length : 0} itens indexados em ${Array.isArray(folders) ? folders.length : 0} pastas.`,
   };
 }
 
@@ -201,7 +201,6 @@ async function verifyObsidianConnection(
       return { success: false, message };
     }
 
-    // The REST API was validated. Only now may Electron touch the selected Vault.
     await setDesktopObsidianAuthorization(true);
     const desktop = await inspectDesktopVault(selectVault);
     if (!desktop.success) {
@@ -355,6 +354,20 @@ export const api = {
         message: err.message || "Não foi possível conectar ao Gemini.",
       };
     }
+  },
+
+  async generateGuidelines(payload: { campaignName: string; objective: string; engineMode: string }) {
+    const headers = await getSessionHeaders();
+    const res = await fetch("/api/gemini/generate-guidelines", {
+      method: "POST",
+      headers,
+      body: JSON.stringify(payload),
+    });
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({}));
+      throw new Error(err.error || `Erro HTTP ${res.status}`);
+    }
+    return await res.json();
   },
 
   async processKnowledge(type: string, payload: unknown, engineMode: string) {
