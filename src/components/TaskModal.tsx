@@ -1,6 +1,6 @@
 import React, { useState } from "react";
-import { X, CheckSquare, Clock, Calendar, Tag, FileText } from "lucide-react";
-import { MarketingTask, TaskPriority, ObsidianNote } from "../types";
+import { Bell, CheckSquare, X } from "lucide-react";
+import type { MarketingTask, ObsidianNote, TaskPriority } from "../types";
 import { formatToObsidianTask } from "../utils/obsidianUri";
 
 interface TaskModalProps {
@@ -10,272 +10,184 @@ interface TaskModalProps {
   notes: ObsidianNote[];
 }
 
-export const TaskModal: React.FC<TaskModalProps> = ({
-  isOpen,
-  onClose,
-  onSaveTask,
-  notes,
-}) => {
+export const TaskModal: React.FC<TaskModalProps> = ({ isOpen, onClose, onSaveTask, notes }) => {
   const [title, setTitle] = useState("");
   const [description, setDescription] = useState("");
-  const [channel, setChannel] = useState("LinkedIn");
-  const [priority, setPriority] = useState<TaskPriority>("high");
-  const [dueDate, setDueDate] = useState(
-    new Date(Date.now() + 86400000 * 2).toISOString().split("T")[0]
-  );
-  const [dueTime, setDueTime] = useState("14:00");
-  const [isReminderActive, setIsReminderActive] = useState(true);
-  const [reminderDate, setReminderDate] = useState(
-    new Date(Date.now() + 86400000 * 2).toISOString().split("T")[0]
-  );
-  const [reminderTime, setReminderTime] = useState("11:30");
-  const [selectedNotePath, setSelectedNotePath] = useState("Daily Notes/2026-08-25.md");
-  const [tagsInput, setTagsInput] = useState("marketing, automacao");
+  const [channel, setChannel] = useState("");
+  const [priority, setPriority] = useState<TaskPriority | "">("");
+  const [dueDate, setDueDate] = useState("");
+  const [dueTime, setDueTime] = useState("");
+  const [isReminderActive, setIsReminderActive] = useState(false);
+  const [reminderDate, setReminderDate] = useState("");
+  const [reminderTime, setReminderTime] = useState("");
+  const [selectedNotePath, setSelectedNotePath] = useState("");
+  const [tagsInput, setTagsInput] = useState("");
+  const [validationError, setValidationError] = useState("");
 
   if (!isOpen) return null;
 
-  const handleSubmit = (e: React.FormEvent) => {
-    e.preventDefault();
+  const resetForm = () => {
+    setTitle("");
+    setDescription("");
+    setChannel("");
+    setPriority("");
+    setDueDate("");
+    setDueTime("");
+    setIsReminderActive(false);
+    setReminderDate("");
+    setReminderTime("");
+    setSelectedNotePath("");
+    setTagsInput("");
+    setValidationError("");
+  };
+
+  const closeModal = () => {
+    resetForm();
+    onClose();
+  };
+
+  const handleSubmit = (event: React.FormEvent) => {
+    event.preventDefault();
+    if (!title.trim() || !priority) {
+      setValidationError("Título e prioridade precisam ser definidos explicitamente.");
+      return;
+    }
+    if (isReminderActive && (!reminderDate || !reminderTime)) {
+      setValidationError("Defina data e horário do lembrete ou desative o lembrete.");
+      return;
+    }
+
     const tags = tagsInput
       .split(",")
-      .map((t) => t.trim().replace(/^#/, ""))
+      .map((tag) => tag.trim().replace(/^#/, ""))
       .filter(Boolean);
 
-    const taskObj: MarketingTask = {
+    const task: MarketingTask = {
       id: `task-${Date.now()}`,
-      title,
-      description,
-      channel,
+      title: title.trim(),
+      description: description.trim() || undefined,
+      channel: channel.trim() || undefined,
       priority,
       status: "todo",
       dueDate,
-      dueTime,
+      dueTime: dueTime || undefined,
       reminderDate: isReminderActive ? reminderDate : undefined,
       reminderTime: isReminderActive ? reminderTime : undefined,
       obsidianTaskString: formatToObsidianTask({
-        title,
+        title: title.trim(),
         status: "todo",
-        dueDate,
-        dueTime,
+        dueDate: dueDate || undefined,
+        dueTime: dueTime || undefined,
         reminderDate: isReminderActive ? reminderDate : undefined,
         reminderTime: isReminderActive ? reminderTime : undefined,
         priority,
         tags,
       }),
-      obsidianFilePath: selectedNotePath,
+      obsidianFilePath: selectedNotePath || undefined,
       tags,
       isReminderActive,
     };
 
-    onSaveTask(taskObj);
+    onSaveTask(task);
+    resetForm();
     onClose();
   };
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-stone-900/60 backdrop-blur-xs">
-      <div className="bg-white rounded-2xl border border-stone-200 shadow-2xl max-w-lg w-full overflow-hidden flex flex-col max-h-[90vh]">
-        {/* Header */}
-        <div className="p-5 border-b border-stone-100 flex items-center justify-between bg-stone-50">
-          <div className="flex items-center gap-2">
-            <div className="w-8 h-8 rounded-lg bg-purple-100 text-purple-700 flex items-center justify-center font-bold">
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/70 backdrop-blur-sm">
+      <div className="w-full max-w-xl max-h-[90vh] overflow-hidden rounded-2xl border border-outline-border bg-surface-card shadow-2xl flex flex-col font-sans">
+        <div className="shrink-0 px-5 py-4 border-b border-outline-border flex items-center justify-between gap-4">
+          <div className="flex items-center gap-3">
+            <div className="w-9 h-9 rounded-xl border border-primary-container/30 bg-primary-container/10 text-primary-fixed-dim flex items-center justify-center">
               <CheckSquare className="w-4 h-4" />
             </div>
             <div>
-              <h2 className="text-base font-bold text-stone-900">Nova Tarefa Obsidian</h2>
-              <p className="text-xs text-stone-500">
-                Formatação automática com sintaxe de Tasks e Reminder
-              </p>
+              <h2 className="text-sm font-black text-text-primary">Nova tarefa</h2>
+              <p className="text-[11px] text-text-secondary">Nenhum prazo, canal, prioridade ou lembrete é preenchido automaticamente.</p>
             </div>
           </div>
-          <button
-            onClick={onClose}
-            className="p-1.5 text-stone-400 hover:text-stone-700 rounded-lg hover:bg-stone-200 transition-colors"
-          >
-            <X className="w-5 h-5" />
+          <button type="button" onClick={closeModal} className="p-2 rounded-lg text-text-secondary hover:text-text-primary hover:bg-surface-elevated">
+            <X className="w-4 h-4" />
           </button>
         </div>
 
-        {/* Body */}
-        <form onSubmit={handleSubmit} className="p-6 overflow-y-auto space-y-4">
-          <div>
-            <label className="block text-xs font-bold text-stone-700 uppercase tracking-wider mb-1">
-              Título da Tarefa
-            </label>
-            <input
-              type="text"
-              required
-              value={title}
-              onChange={(e) => setTitle(e.target.value)}
-              className="w-full px-3 py-2 bg-stone-50 border border-stone-300 rounded-lg text-xs focus:outline-none focus:border-purple-500 font-medium"
-              placeholder="Ex: Disparar sequência de emails de onboarding"
-            />
-          </div>
-
-          <div>
-            <label className="block text-xs font-bold text-stone-700 uppercase tracking-wider mb-1">
-              Detalhes / Contexto
-            </label>
-            <textarea
-              rows={2}
-              value={description}
-              onChange={(e) => setDescription(e.target.value)}
-              className="w-full px-3 py-2 bg-stone-50 border border-stone-300 rounded-lg text-xs focus:outline-none focus:border-purple-500"
-              placeholder="Ex: Validar links e tags das personas antes do envio"
-            />
-          </div>
-
-          <div className="grid grid-cols-2 gap-4">
-            <div>
-              <label className="block text-xs font-bold text-stone-700 uppercase tracking-wider mb-1">
-                Canal
-              </label>
-              <select
-                value={channel}
-                onChange={(e) => setChannel(e.target.value)}
-                className="w-full px-3 py-2 bg-stone-50 border border-stone-300 rounded-lg text-xs focus:outline-none focus:border-purple-500"
-              >
-                <option value="LinkedIn">LinkedIn</option>
-                <option value="Email">Email Marketing</option>
-                <option value="Blog">Blog SEO</option>
-                <option value="Instagram">Instagram</option>
-                <option value="Twitter">Twitter / X</option>
-                <option value="Automação">Automação</option>
-                <option value="Geral">Geral</option>
-              </select>
+        <form onSubmit={handleSubmit} className="flex-1 min-h-0 overflow-y-auto p-5 space-y-4">
+          {validationError && (
+            <div className="rounded-xl border border-error-sober/30 bg-error-sober/10 px-3 py-2 text-xs text-error-sober">
+              {validationError}
             </div>
+          )}
 
+          <div>
+            <label className="block text-[10px] uppercase tracking-wider font-bold text-text-secondary mb-1.5">Título *</label>
+            <input type="text" value={title} onChange={(event) => setTitle(event.target.value)} placeholder="Descreva a ação real a executar" className="w-full px-3 py-2.5 rounded-xl border border-outline-border bg-surface-elevated/40 text-xs text-text-primary outline-none focus:border-primary-container" />
+          </div>
+
+          <div>
+            <label className="block text-[10px] uppercase tracking-wider font-bold text-text-secondary mb-1.5">Contexto</label>
+            <textarea rows={3} value={description} onChange={(event) => setDescription(event.target.value)} placeholder="Opcional: evidência, dependência ou resultado esperado" className="w-full px-3 py-2.5 rounded-xl border border-outline-border bg-surface-elevated/40 text-xs text-text-primary outline-none focus:border-primary-container resize-none" />
+          </div>
+
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
             <div>
-              <label className="block text-xs font-bold text-stone-700 uppercase tracking-wider mb-1">
-                Prioridade
-              </label>
-              <select
-                value={priority}
-                onChange={(e) => setPriority(e.target.value as TaskPriority)}
-                className="w-full px-3 py-2 bg-stone-50 border border-stone-300 rounded-lg text-xs focus:outline-none focus:border-purple-500 font-semibold"
-              >
-                <option value="urgent">Urgente (Alta Prioridade)</option>
+              <label className="block text-[10px] uppercase tracking-wider font-bold text-text-secondary mb-1.5">Prioridade *</label>
+              <select value={priority} onChange={(event) => setPriority(event.target.value as TaskPriority | "")} className="w-full px-3 py-2.5 rounded-xl border border-outline-border bg-surface-elevated/40 text-xs text-text-primary outline-none">
+                <option value="">Selecionar</option>
+                <option value="urgent">Urgente</option>
                 <option value="high">Alta</option>
                 <option value="medium">Média</option>
                 <option value="low">Baixa</option>
               </select>
             </div>
-          </div>
-
-          <div className="grid grid-cols-2 gap-4">
             <div>
-              <label className="block text-xs font-bold text-stone-700 uppercase tracking-wider mb-1">
-                Data Limite (Due Date)
-              </label>
-              <input
-                type="date"
-                required
-                value={dueDate}
-                onChange={(e) => setDueDate(e.target.value)}
-                className="w-full px-3 py-2 bg-stone-50 border border-stone-300 rounded-lg text-xs focus:outline-none focus:border-purple-500"
-              >
-              </input>
-            </div>
-
-            <div>
-              <label className="block text-xs font-bold text-stone-700 uppercase tracking-wider mb-1">
-                Horário Limite
-              </label>
-              <input
-                type="time"
-                value={dueTime}
-                onChange={(e) => setDueTime(e.target.value)}
-                className="w-full px-3 py-2 bg-stone-50 border border-stone-300 rounded-lg text-xs focus:outline-none focus:border-purple-500"
-              />
+              <label className="block text-[10px] uppercase tracking-wider font-bold text-text-secondary mb-1.5">Canal</label>
+              <input value={channel} onChange={(event) => setChannel(event.target.value)} placeholder="Opcional" className="w-full px-3 py-2.5 rounded-xl border border-outline-border bg-surface-elevated/40 text-xs text-text-primary outline-none" />
             </div>
           </div>
 
-          {/* Reminder Switch */}
-          <div className="bg-amber-50/70 border border-amber-200 rounded-xl p-3.5 space-y-3">
-            <div className="flex items-center justify-between">
-              <span className="text-xs font-bold text-amber-900 flex items-center gap-1.5">
-                <Clock className="w-3.5 h-3.5 text-amber-600" />
-                <span>Ativar Alarme (Obsidian Reminder Plugin)</span>
-              </span>
-              <input
-                type="checkbox"
-                checked={isReminderActive}
-                onChange={(e) => setIsReminderActive(e.target.checked)}
-                className="rounded text-purple-600 focus:ring-purple-500"
-              />
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+            <div>
+              <label className="block text-[10px] uppercase tracking-wider font-bold text-text-secondary mb-1.5">Prazo</label>
+              <input type="date" value={dueDate} onChange={(event) => setDueDate(event.target.value)} className="w-full px-3 py-2.5 rounded-xl border border-outline-border bg-surface-elevated/40 text-xs text-text-primary outline-none" />
             </div>
+            <div>
+              <label className="block text-[10px] uppercase tracking-wider font-bold text-text-secondary mb-1.5">Horário</label>
+              <input type="time" value={dueTime} onChange={(event) => setDueTime(event.target.value)} disabled={!dueDate} className="w-full px-3 py-2.5 rounded-xl border border-outline-border bg-surface-elevated/40 text-xs text-text-primary outline-none disabled:opacity-40" />
+            </div>
+          </div>
 
+          <div className="rounded-xl border border-outline-border bg-surface-elevated/30 p-3.5">
+            <div className="flex items-center justify-between gap-3">
+              <div>
+                <div className="flex items-center gap-1.5 text-xs font-bold text-text-primary"><Bell className="w-3.5 h-3.5" /> Lembrete</div>
+                <p className="mt-1 text-[11px] text-text-secondary">Só é criado quando você define data e hora explicitamente.</p>
+              </div>
+              <input type="checkbox" checked={isReminderActive} onChange={(event) => setIsReminderActive(event.target.checked)} />
+            </div>
             {isReminderActive && (
-              <div className="grid grid-cols-2 gap-3 pt-1">
-                <div>
-                  <label className="block text-[10px] font-bold text-amber-800 uppercase mb-1">
-                    Data do Alarme
-                  </label>
-                  <input
-                    type="date"
-                    value={reminderDate}
-                    onChange={(e) => setReminderDate(e.target.value)}
-                    className="w-full px-2.5 py-1.5 bg-white border border-amber-300 rounded text-xs"
-                  />
-                </div>
-                <div>
-                  <label className="block text-[10px] font-bold text-amber-800 uppercase mb-1">
-                    Horário do Alarme
-                  </label>
-                  <input
-                    type="time"
-                    value={reminderTime}
-                    onChange={(e) => setReminderTime(e.target.value)}
-                    className="w-full px-2.5 py-1.5 bg-white border border-amber-300 rounded text-xs"
-                  />
-                </div>
+              <div className="grid grid-cols-2 gap-3 mt-3">
+                <input type="date" value={reminderDate} onChange={(event) => setReminderDate(event.target.value)} className="px-3 py-2 rounded-lg border border-outline-border bg-surface-card text-xs text-text-primary" />
+                <input type="time" value={reminderTime} onChange={(event) => setReminderTime(event.target.value)} className="px-3 py-2 rounded-lg border border-outline-border bg-surface-card text-xs text-text-primary" />
               </div>
             )}
           </div>
 
           <div>
-            <label className="block text-xs font-bold text-stone-700 uppercase tracking-wider mb-1">
-              Nota do Obsidian Vinculada
-            </label>
-            <select
-              value={selectedNotePath}
-              onChange={(e) => setSelectedNotePath(e.target.value)}
-              className="w-full px-3 py-2 bg-stone-50 border border-stone-300 rounded-lg text-xs focus:outline-none focus:border-purple-500"
-            >
-              {notes.map((n) => (
-                <option key={n.id} value={n.path}>
-                  {n.path}
-                </option>
-              ))}
+            <label className="block text-[10px] uppercase tracking-wider font-bold text-text-secondary mb-1.5">Fonte no Obsidian</label>
+            <select value={selectedNotePath} onChange={(event) => setSelectedNotePath(event.target.value)} className="w-full px-3 py-2.5 rounded-xl border border-outline-border bg-surface-elevated/40 text-xs text-text-primary outline-none">
+              <option value="">Sem nota vinculada</option>
+              {notes.map((note) => <option key={note.id} value={note.path}>{note.path}</option>)}
             </select>
           </div>
 
           <div>
-            <label className="block text-xs font-bold text-stone-700 uppercase tracking-wider mb-1">
-              Tags (separadas por vírgula)
-            </label>
-            <input
-              type="text"
-              value={tagsInput}
-              onChange={(e) => setTagsInput(e.target.value)}
-              className="w-full px-3 py-2 bg-stone-50 border border-stone-300 rounded-lg text-xs focus:outline-none focus:border-purple-500"
-              placeholder="marketing, linkedin, q3"
-            />
+            <label className="block text-[10px] uppercase tracking-wider font-bold text-text-secondary mb-1.5">Tags</label>
+            <input value={tagsInput} onChange={(event) => setTagsInput(event.target.value)} placeholder="Separadas por vírgula" className="w-full px-3 py-2.5 rounded-xl border border-outline-border bg-surface-elevated/40 text-xs text-text-primary outline-none" />
           </div>
 
-          <div className="pt-3 border-t border-stone-100 flex items-center justify-end gap-2">
-            <button
-              type="button"
-              onClick={onClose}
-              className="px-4 py-2 text-xs font-medium text-stone-600 hover:text-stone-800"
-            >
-              Cancelar
-            </button>
-            <button
-              type="submit"
-              className="px-4 py-2 bg-purple-600 hover:bg-purple-500 text-white text-xs font-semibold rounded-lg shadow-sm transition-colors"
-            >
-              Criar Tarefa
-            </button>
+          <div className="pt-3 border-t border-outline-border flex justify-end gap-2">
+            <button type="button" onClick={closeModal} className="px-4 py-2 rounded-xl border border-outline-border text-xs font-semibold text-text-primary">Cancelar</button>
+            <button type="submit" className="px-4 py-2 rounded-xl bg-primary-container text-white text-xs font-bold">Registrar tarefa</button>
           </div>
         </form>
       </div>
