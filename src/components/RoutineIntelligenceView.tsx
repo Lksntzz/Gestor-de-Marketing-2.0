@@ -1,30 +1,28 @@
-import React, { useState, useMemo } from "react";
+import React, { useMemo } from "react";
 import {
-  Sparkles,
-  Zap,
-  Calendar,
+  BarChart3,
+  CalendarDays,
   CheckCircle2,
-  ArrowUpRight,
-  Check,
-  ExternalLink,
+  Clock3,
+  FileText,
+  FlaskConical,
   Lightbulb,
+  Megaphone,
   RotateCcw,
+  Sparkles,
 } from "lucide-react";
 import {
+  DailyRoutineSlot,
   EmotionalDriver,
   EmotionalDriverKey,
+  EngineMode,
+  LearningInsight,
   NicheSegment,
   NicheSegmentKey,
-  PostHistoryItem,
-  LearningInsight,
-  DailyRoutineSlot,
   ObsidianApiConfig,
-  EngineMode,
   ObsidianNote,
+  PostHistoryItem,
 } from "../types";
-import { buildObsidianOpenUri } from "../utils/obsidianUri";
-import { localDateKey } from "../utils/reliability";
-import confetti from "canvas-confetti";
 
 interface RoutineIntelligenceViewProps {
   emotionalDrivers: EmotionalDriver[];
@@ -49,362 +47,228 @@ interface RoutineIntelligenceViewProps {
   showToast: (type: "success" | "warning" | "info", title: string, message: string) => void;
 }
 
-const formatChannelLabel = (format?: string) => {
-  switch (format) {
-    case "carrossel":
-      return "LinkedIn / Insta";
-    case "newsletter":
-      return "Email Newsletter";
-    case "reels_video":
-      return "Reels / TikTok";
-    case "artigo_blog":
-      return "Blog SEO / Medium";
-    case "thread_post":
-      return "Twitter / X";
-    default:
-      return "LinkedIn";
-  }
+const DAYS: DailyRoutineSlot["dayOfWeek"][] = [
+  "Segunda",
+  "Terça",
+  "Quarta",
+  "Quinta",
+  "Sexta",
+  "Sábado",
+  "Domingo",
+];
+
+const FORMAT_LABELS: Record<string, string> = {
+  carrossel: "Carrossel",
+  reels_video: "Reels / Vídeo",
+  artigo_blog: "Artigo",
+  newsletter: "Newsletter",
+  thread_post: "Thread",
 };
 
-const formatTypeName = (format?: string) => {
-  switch (format) {
-    case "carrossel":
-      return "Carrossel";
-    case "newsletter":
-      return "Newsletter";
-    case "reels_video":
-      return "Vídeo Curto / Reels";
-    case "artigo_blog":
-      return "Artigo";
-    case "thread_post":
-      return "Thread";
-    default:
-      return format || "Post";
-  }
-};
+function compactNumber(value: number) {
+  return new Intl.NumberFormat("pt-BR", { notation: "compact", maximumFractionDigits: 1 }).format(value || 0);
+}
 
 export const RoutineIntelligenceView: React.FC<RoutineIntelligenceViewProps> = ({
-  emotionalDrivers = [],
-  niches = [],
-  postHistory = [],
-  learnings = [],
-  weeklyRoutine = [],
+  emotionalDrivers,
+  niches,
+  postHistory,
+  learnings,
+  weeklyRoutine,
   apiConfig,
   engineMode,
-  notes: _notes,
-  onAddPostHistory: _onAddPostHistory,
-  onAddLearning: _onAddLearning,
-  onUpdateRoutineSlot: _onUpdateRoutineSlot,
+  notes,
+  onUpdateRoutineSlot,
   onCreateCampaignFromSuggestion,
   onSyncRoutineToDailyNotes,
   showToast,
 }) => {
-  const todayNames = ["Domingo", "Segunda", "Terça", "Quarta", "Quinta", "Sexta", "Sábado"];
-  const currentDayIndex = new Date().getDay();
-  const currentDayName = todayNames[currentDayIndex] || "Segunda";
+  const currentDay = DAYS[(new Date().getDay() + 6) % 7];
 
-  const todayRoutine = useMemo(() => {
-    if (!weeklyRoutine || weeklyRoutine.length === 0) return null;
+  const nextRecommendation = useMemo(() => {
+    if (!weeklyRoutine.length) return null;
     return (
-      weeklyRoutine.find((r) =>
-        (r?.dayOfWeek || "").toLowerCase().includes(currentDayName.toLowerCase().slice(0, 3))
-      ) || weeklyRoutine[0]
+      weeklyRoutine.find((slot) => slot.dayOfWeek === currentDay && slot.status !== "publicado") ||
+      weeklyRoutine.find((slot) => slot.status !== "publicado") ||
+      weeklyRoutine[0]
     );
-  }, [weeklyRoutine, currentDayName]);
+  }, [weeklyRoutine, currentDay]);
 
-  const [activeSlotStatus, setActiveSlotStatus] = useState<"pending" | "done" | "postponed">("pending");
-
-  const currentRecommendation = useMemo(() => {
-    const defaultNiche = niches[0] || { id: "empreendedoras_papelaria", name: "Empreendedoras de Papelaria" };
-    const defaultEmotion = emotionalDrivers[0] || { id: "alivio_praticidade", name: "Alívio & Tiragens Acessíveis" };
-
-    const nicheLabel = defaultNiche.name || "Empreendedoras de Papelaria";
-    const emotionLabel = defaultEmotion.name || "Alívio & Praticidade";
-    const slotDay = todayRoutine?.dayOfWeek || "Hoje";
-    const slotTime = todayRoutine?.optimalTime || "11:30";
-    const slotFormat = formatTypeName(todayRoutine?.recommendedFormat || "carrossel");
-    const slotChannel = formatChannelLabel(todayRoutine?.recommendedFormat);
-
-    return {
-      title: "O Fim dos Pedidos Mínimos Abusivos: Planners a partir de 10 unidades",
-      hook: "Você já desenhou a coleção de planners mais linda do ano, mas a gráfica tradicional pediu 500 peças para rodar? Na Nisti Print seu projeto ganha vida a partir de 10 unidades com laminação Soft Touch e wire-o bronze.",
-      format: `${slotFormat} (${slotChannel})`,
-      niche: nicheLabel,
-      nicheId: (todayRoutine?.primaryNiche as NicheSegmentKey) || (defaultNiche.id as NicheSegmentKey),
-      emotion: emotionLabel,
-      emotionId: (todayRoutine?.primaryEmotion as EmotionalDriverKey) || (defaultEmotion.id as EmotionalDriverKey),
-      bestSlot: `${slotDay}, ${slotTime}`,
-      optimalTime: slotTime,
-      channel: slotChannel,
-      why: "O Motor Local prioriza o padrão configurado na rotina e os aprendizados registrados no histórico para sugerir o próximo conteúdo.",
-    };
-  }, [niches, emotionalDrivers, todayRoutine]);
-
-  const handleMarkDone = () => {
-    setActiveSlotStatus("done");
-    confetti({ particleCount: 35, spread: 60, origin: { y: 0.7 } });
-    showToast("success", "Ação Concluída!", "A publicação de hoje foi marcada como concluída e reconciliada.");
-  };
-
-  const handlePostpone = () => {
-    setActiveSlotStatus("postponed");
-    showToast("info", "Ação Adiada", "Reagendada para o próximo slot de alta conversão.");
-  };
-
-  const kpiData = useMemo(() => {
-    const totalImpressions = postHistory.reduce((acc, p) => acc + (p?.metrics?.impressions || 0), 0);
-    const avgCtr =
-      postHistory.length > 0
-        ? (postHistory.reduce((acc, p) => acc + (p?.metrics?.ctrPercent || 0), 0) / postHistory.length).toFixed(1)
-        : "0.0";
-    const totalSaves = postHistory.reduce((acc, p) => acc + (p?.metrics?.saves || 0), 0);
-    const totalLeads = postHistory.reduce((acc, p) => acc + (p?.metrics?.clicksOrLeads || 0), 0);
-
-    return [
-      { label: "Alcance Acumulado", value: `${(totalImpressions / 1000).toFixed(1)}k`, trend: "histórico", positive: true },
-      { label: "CTR Médio", value: `${avgCtr}%`, trend: "histórico", positive: true },
-      { label: "Salvamentos", value: totalSaves.toString(), trend: "histórico", positive: true },
-      { label: "Conversões / MQLs", value: totalLeads.toString(), trend: "histórico", positive: true },
-    ];
+  const performance = useMemo(() => {
+    const totalReach = postHistory.reduce((sum, item) => sum + (item.metrics?.reach || item.metrics?.impressions || 0), 0);
+    const avgCtr = postHistory.length
+      ? postHistory.reduce((sum, item) => sum + (item.metrics?.ctrPercent || 0), 0) / postHistory.length
+      : 0;
+    const totalSaves = postHistory.reduce((sum, item) => sum + (item.metrics?.saves || 0), 0);
+    const totalLeads = postHistory.reduce((sum, item) => sum + (item.metrics?.clicksOrLeads || 0), 0);
+    return { totalReach, avgCtr, totalSaves, totalLeads };
   }, [postHistory]);
 
-  const topLearning = useMemo(() => {
-    if (!learnings || learnings.length === 0) {
-      return {
-        title: "Ainda não há aprendizado validado no histórico",
-        ruleOfThumb: "Registre resultados reais de publicação antes de transformar padrões em regras de decisão.",
-        suggestedAction: "Publicar, medir e salvar o aprendizado observado.",
-      };
-    }
-    const winner = learnings.find((l) => l.verdict === "VENCEDOR") || learnings[0];
-    return {
-      title: winner.title || "Aprendizado registrado",
-      ruleOfThumb: winner.ruleOfThumb || "Use somente evidências registradas na base para orientar a próxima decisão.",
-      suggestedAction: winner.suggestedAction || "Revisar os resultados antes de repetir a estratégia.",
-    };
-  }, [learnings]);
+  const validatedLearnings = useMemo(
+    () => learnings.filter((item) => item.verdict !== "EM_TESTE").slice(0, 3),
+    [learnings]
+  );
+
+  const formatName = (format?: string) => FORMAT_LABELS[String(format || "")] || String(format || "Formato não definido");
+
+  const handlePublish = () => {
+    if (!nextRecommendation) return;
+    onUpdateRoutineSlot(nextRecommendation.id, { status: "publicado" });
+    showToast("success", "Planejamento Atualizado", "A ação foi marcada como publicada no planejamento. Nenhuma publicação externa foi executada.");
+  };
+
+  const handleGenerateCampaign = () => {
+    if (!nextRecommendation) return;
+    onCreateCampaignFromSuggestion({
+      title: nextRecommendation.plannedAction || nextRecommendation.focusTheme || "Campanha baseada no planejamento",
+      niche: nextRecommendation.primaryNiche,
+      emotion: nextRecommendation.primaryEmotion,
+      format: nextRecommendation.recommendedFormat,
+      hook: nextRecommendation.suggestedHookPattern || "",
+    });
+  };
+
+  const handleDefer = () => {
+    if (!nextRecommendation) return;
+    onUpdateRoutineSlot(nextRecommendation.id, { status: "planejando" });
+    showToast("info", "Ação Adiada", "O item voltou para planejamento e permanece disponível na rotina semanal.");
+  };
 
   return (
-    <div className="w-full px-4 md:px-8 lg:px-12 space-y-8 pb-16 animate-fadeIn">
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 pb-4 border-b border-stone-200/50">
-        <div>
-          <div className="flex items-center gap-2">
-            <span className="text-[10px] font-bold text-purple-800 bg-purple-50 px-2.5 py-0.5 rounded-md border border-purple-150 uppercase tracking-wider">
-              {engineMode === "local" ? "⚡ Motor Local Ativo" : "✨ Assistente IA"}
-            </span>
-            <span className="text-xs text-stone-400 font-medium">
-              Hoje é {currentDayName}
-            </span>
-          </div>
-          <h1 className="text-xl font-black text-stone-900 tracking-tight mt-1">
-            Assistente Inteligente de Planejamento
-          </h1>
-          <p className="text-xs text-stone-500">
-            Saiba exatamente <strong>o que publicar</strong> e <strong>quando publicar</strong> em menos de 5 segundos.
-          </p>
-        </div>
-
-        <button
-          onClick={onSyncRoutineToDailyNotes}
-          className="px-3.5 py-2 bg-stone-900 hover:bg-stone-850 text-white text-xs font-bold rounded-xl shadow-xs transition-all flex items-center gap-1.5 shrink-0 self-start sm:self-center cursor-pointer"
-        >
-          <Calendar className="w-3.5 h-3.5 text-stone-300" />
-          <span>Sincronizar Daily Note</span>
-        </button>
-      </div>
-
-      <div className="bg-white rounded-3xl border border-stone-200/80 p-6 sm:p-8 shadow-xs space-y-6 relative overflow-hidden">
-        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
-          <div className="flex items-center gap-2.5">
-            <span className="w-2.5 h-2.5 rounded-full bg-emerald-500 animate-pulse" />
-            <span className="text-[11px] font-bold uppercase tracking-wider text-stone-400">
-              O que fazer agora • Próxima Ação Recomendada
-            </span>
-          </div>
-          <span className="text-xs font-mono font-bold text-purple-700 bg-purple-50 px-2.5 py-1 rounded-lg self-start sm:self-auto">
-            ⏰ {todayRoutine?.optimalTime || "08:30"} • {formatChannelLabel(todayRoutine?.recommendedFormat)}
-          </span>
-        </div>
-
-        <div className="space-y-3">
-          <div className="flex flex-wrap items-center gap-2">
-            <span className="text-[10px] font-bold uppercase px-2 py-0.5 rounded bg-stone-100 text-stone-700">
-              {todayRoutine?.focusTheme || "Autoridade Técnica"}
-            </span>
-            <span className="text-[10px] font-bold uppercase px-2 py-0.5 rounded bg-stone-100 text-stone-700">
-              {todayRoutine?.primaryNiche ? todayRoutine.primaryNiche.replace(/_/g, " ") : "Geral"}
-            </span>
-            <span className="text-[10px] font-bold uppercase px-2 py-0.5 rounded bg-purple-50 text-purple-700 border border-purple-150">
-              {formatTypeName(todayRoutine?.recommendedFormat)}
+    <div className="min-h-[calc(100vh-4rem)] bg-[#0f131c] text-slate-100 -mx-4 sm:-mx-6 lg:-mx-8 -my-6 md:-my-8 px-6 py-7 font-sans overflow-y-auto">
+      <div className="max-w-[1600px] mx-auto space-y-7">
+        <section>
+          <div className="flex items-center justify-between gap-4 mb-3">
+            <h1 className="text-xl font-semibold flex items-center gap-2">
+              <Lightbulb className="w-5 h-5 text-[#b4c5ff]" /> Próxima Recomendação
+            </h1>
+            <span className={`text-[10px] uppercase tracking-[0.1em] font-bold px-2.5 py-1 border rounded-sm ${nextRecommendation ? "text-violet-200 bg-violet-950/60 border-violet-600" : "text-slate-500 border-[#334155]"}`}>
+              {nextRecommendation ? "Prioridade" : "Sem dados"}
             </span>
           </div>
 
-          <h2 className="text-lg sm:text-xl font-black text-stone-900 leading-snug">
-            {currentRecommendation.title}
-          </h2>
-
-          <p className="text-xs sm:text-sm text-stone-600 leading-relaxed font-sans bg-stone-50/70 p-4 rounded-2xl border border-stone-150/80">
-            <strong>Gancho sugerido:</strong> "{currentRecommendation.hook}"
-          </p>
-        </div>
-
-        <div className="flex flex-wrap items-center justify-between gap-3 pt-4 border-t border-stone-150">
-          <div className="flex items-center gap-2">
-            {activeSlotStatus === "done" ? (
-              <span className="text-xs font-bold text-emerald-700 bg-emerald-50 px-3 py-1.5 rounded-xl border border-emerald-200 flex items-center gap-1.5">
-                <CheckCircle2 className="w-4 h-4 text-emerald-600" />
-                <span>Publicação de hoje concluída!</span>
-              </span>
-            ) : (
-              <>
-                <button
-                  onClick={handleMarkDone}
-                  className="px-4 py-2 bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-bold rounded-xl transition-all flex items-center gap-1.5 cursor-pointer shadow-3xs"
-                >
-                  <Check className="w-3.5 h-3.5" />
-                  <span>Concluir Publicação</span>
-                </button>
-                <button
-                  onClick={handlePostpone}
-                  className="px-3.5 py-2 bg-stone-50 hover:bg-stone-100 text-stone-700 text-xs font-bold rounded-xl border border-stone-200 transition-all flex items-center gap-1.5 cursor-pointer"
-                >
-                  <RotateCcw className="w-3.5 h-3.5 text-stone-400" />
-                  <span>Adiar Slot</span>
-                </button>
-              </>
-            )}
-          </div>
-
-          <div className="flex items-center gap-2">
-            <button
-              onClick={() => {
-                onCreateCampaignFromSuggestion({
-                  title: currentRecommendation.title,
-                  niche: currentRecommendation.nicheId,
-                  emotion: currentRecommendation.emotionId,
-                  format: todayRoutine?.recommendedFormat || "carrossel",
-                  hook: currentRecommendation.hook,
-                });
-              }}
-              className="px-4 py-2 bg-stone-900 hover:bg-stone-850 text-white text-xs font-bold rounded-xl transition-all flex items-center gap-1.5 cursor-pointer shadow-3xs"
-            >
-              <Sparkles className="w-3.5 h-3.5 text-purple-400" />
-              <span>Gerar Campanha com IA</span>
-            </button>
-            <a
-              href={buildObsidianOpenUri(apiConfig.vaultName, `00_Inbox/Daily-${localDateKey()}.md`)}
-              className="p-2 text-stone-500 hover:text-stone-900 border border-stone-200 rounded-xl hover:bg-stone-50 transition-colors"
-              title="Abrir Daily Note no Obsidian"
-            >
-              <ExternalLink className="w-4 h-4" />
-            </a>
-          </div>
-        </div>
-      </div>
-
-      <div className="space-y-3">
-        <div className="flex items-center justify-between">
-          <span className="text-[11px] font-bold text-stone-400 uppercase tracking-wider">
-            Agenda Semanal Simplificada
-          </span>
-          <span className="text-xs text-stone-400">{weeklyRoutine.length} slots programados</span>
-        </div>
-
-        <div className="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-7 gap-2.5">
-          {weeklyRoutine.map((slot) => {
-            const isToday = (slot?.dayOfWeek || "").toLowerCase().includes(currentDayName.toLowerCase().slice(0, 3));
-            return (
-              <div
-                key={slot.id}
-                className={`p-3.5 rounded-2xl border text-left transition-all flex flex-col justify-between ${
-                  isToday
-                    ? "bg-purple-50/70 border-purple-300 shadow-3xs ring-1 ring-purple-300/50"
-                    : "bg-white border-stone-200/80 hover:border-stone-300"
-                }`}
-              >
-                <div>
-                  <div className="flex items-center justify-between">
-                    <span className={`text-[11px] font-black uppercase tracking-wider ${isToday ? "text-purple-900" : "text-stone-700"}`}>
-                      {(slot?.dayOfWeek || "Slot").slice(0, 3)}
-                    </span>
-                    {isToday && (
-                      <span className="w-1.5 h-1.5 rounded-full bg-purple-600" />
-                    )}
+          <div className="bg-[#182234] border border-[#334155] border-l-4 border-l-violet-600 rounded-sm p-5 md:p-6">
+            {nextRecommendation ? (
+              <div className="grid grid-cols-1 xl:grid-cols-[minmax(0,1fr)_220px] gap-6">
+                <div className="min-w-0">
+                  <p className="text-xs font-semibold text-violet-300">
+                    {nextRecommendation.focusTheme || "Planejamento semanal"} • {formatName(nextRecommendation.recommendedFormat)}
+                  </p>
+                  <h2 className="text-2xl font-semibold mt-1 text-slate-50">
+                    {nextRecommendation.plannedAction || nextRecommendation.focusTheme}
+                  </h2>
+                  <div className="mt-5 bg-[#0f131c] border border-[#263140] p-4 text-sm text-slate-300 leading-6">
+                    <strong className="text-slate-100">Gancho:</strong>{" "}
+                    {nextRecommendation.suggestedHookPattern || "Nenhum gancho registrado para este item."}
                   </div>
-                  <p className="text-[10px] font-mono text-stone-400 mt-0.5">{slot?.optimalTime || "08:30"}</p>
+                  <div className="flex flex-wrap items-center gap-x-5 gap-y-2 mt-4 text-xs text-slate-400 font-mono">
+                    <span className="inline-flex items-center gap-1.5"><Clock3 className="w-3.5 h-3.5" /> {nextRecommendation.dayOfWeek}, {nextRecommendation.optimalTime || "horário pendente"}</span>
+                    <span className="inline-flex items-center gap-1.5"><FileText className="w-3.5 h-3.5" /> {formatName(nextRecommendation.recommendedFormat)}</span>
+                  </div>
                 </div>
-
-                <div className="mt-4 pt-2 border-t border-stone-100">
-                  <span className="text-[10px] font-bold text-stone-900 block truncate">
-                    {formatChannelLabel(slot?.recommendedFormat)}
-                  </span>
-                  <span className="text-[9px] text-stone-500 block truncate">
-                    {formatTypeName(slot?.recommendedFormat)}
-                  </span>
+                <div className="grid grid-cols-2 gap-2 content-start">
+                  <button onClick={handlePublish} className="col-span-2 h-10 bg-[#2563eb] hover:bg-blue-500 text-xs font-semibold flex items-center justify-center gap-2"><CheckCircle2 className="w-4 h-4" /> Marcar Publicado</button>
+                  <button onClick={handleGenerateCampaign} className="col-span-2 h-10 bg-[#111827] border border-[#475569] hover:bg-[#263140] text-xs font-semibold flex items-center justify-center gap-2"><Sparkles className="w-4 h-4" /> Gerar Campanha</button>
+                  <button onClick={() => onSyncRoutineToDailyNotes()} className="h-9 bg-[#111827] border border-[#334155] hover:bg-[#263140] text-xs font-semibold">Nota</button>
+                  <button onClick={handleDefer} className="h-9 bg-[#111827] border border-[#334155] hover:bg-[#263140] text-xs font-semibold flex items-center justify-center gap-1"><RotateCcw className="w-3.5 h-3.5" /> Adiar</button>
                 </div>
               </div>
-            );
-          })}
-        </div>
-      </div>
+            ) : (
+              <div className="py-8 text-center">
+                <CalendarDays className="w-9 h-9 mx-auto text-slate-600" />
+                <h2 className="text-lg font-semibold mt-3">Nenhuma recomendação validada para esta semana</h2>
+                <p className="text-sm text-slate-500 mt-2">Adicione ou sincronize a rotina. O sistema não inventa uma pauta quando não há dados registrados.</p>
+                <button onClick={onSyncRoutineToDailyNotes} className="mt-4 h-9 px-4 bg-[#2563eb] hover:bg-blue-500 text-xs font-semibold">Sincronizar Planejamento</button>
+              </div>
+            )}
+          </div>
+        </section>
 
-      <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
-        {kpiData.map((kpi, idx) => (
-          <div key={idx} className="bg-white p-4 rounded-2xl border border-stone-200/80 space-y-1 shadow-3xs">
-            <span className="text-[10px] font-bold text-stone-400 uppercase tracking-wider block">
-              {kpi.label}
-            </span>
-            <div className="flex items-baseline justify-between">
-              <span className="text-lg font-black text-stone-900">{kpi.value}</span>
-              <span className="text-[10px] font-mono font-bold text-emerald-600 bg-emerald-50 px-1.5 py-0.5 rounded flex items-center gap-0.5">
-                <ArrowUpRight className="w-2.5 h-2.5" />
-                {kpi.trend}
-              </span>
+        <section>
+          <div className="flex items-center justify-between gap-4 mb-3">
+            <h2 className="text-xl font-semibold flex items-center gap-2"><CalendarDays className="w-5 h-5 text-slate-400" /> Execução da Rotina Semanal</h2>
+            <span className="text-xs text-slate-500 font-mono">Semana atual</span>
+          </div>
+          <div className="grid grid-cols-2 md:grid-cols-4 xl:grid-cols-7 gap-2">
+            {DAYS.map((day) => {
+              const daySlots = weeklyRoutine.filter((slot) => slot.dayOfWeek === day);
+              return (
+                <div key={day} className={`min-h-[250px] border rounded-sm ${day === currentDay ? "border-[#64748b] bg-[#151b27]" : "border-[#263140] bg-[#11161f]"}`}>
+                  <div className={`h-10 px-3 flex items-center justify-center border-b text-[10px] font-bold uppercase tracking-[0.1em] ${day === currentDay ? "text-[#b4c5ff] border-[#475569] bg-[#1c2434]" : "text-slate-500 border-[#263140]"}`}>{day.slice(0, 3)}</div>
+                  <div className="p-2 space-y-2">
+                    {daySlots.length ? daySlots.map((slot) => (
+                      <button
+                        key={slot.id}
+                        onClick={() => onUpdateRoutineSlot(slot.id, { status: slot.status === "publicado" ? "planejando" : "em-producao" })}
+                        className={`w-full min-h-[62px] text-left p-2 border rounded-sm transition-colors ${slot.status === "publicado" ? "border-emerald-600/70 bg-emerald-950/20" : slot.status === "em-producao" ? "border-blue-500/70 bg-[#182234]" : slot.status === "agendado" ? "border-amber-600/70 bg-amber-950/10" : "border-[#475569] bg-[#182234] hover:border-[#64748b]"}`}
+                      >
+                        <div className="text-[10px] font-mono text-[#b4c5ff]">{slot.optimalTime || "--:--"}</div>
+                        <div className="text-xs font-medium text-slate-200 mt-1 leading-4">{slot.plannedAction || slot.focusTheme}</div>
+                        <div className="text-[9px] text-slate-500 mt-1 uppercase">{slot.status.replace("-", " ")}</div>
+                      </button>
+                    )) : <div className="h-[170px] flex items-center justify-center text-[11px] text-slate-700 text-center px-3">Sem ação planejada</div>}
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        </section>
+
+        <div className="grid grid-cols-1 xl:grid-cols-2 gap-6">
+          <section>
+            <div className="flex items-center justify-between mb-3">
+              <h2 className="text-xl font-semibold flex items-center gap-2"><FlaskConical className="w-5 h-5 text-violet-300" /> Aprendizados Validados</h2>
+              <span className="text-xs text-slate-500">{learnings.length} registrados</span>
             </div>
-          </div>
-        ))}
-      </div>
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+              {validatedLearnings.length ? validatedLearnings.slice(0, 2).map((item) => (
+                <div key={item.id} className="min-h-[180px] bg-[#182234] border border-[#334155] rounded-sm p-4 flex flex-col">
+                  <div className="flex items-center justify-between gap-2">
+                    <span className="px-2 py-1 bg-violet-950/50 text-violet-300 text-[10px] font-bold uppercase">{item.category}</span>
+                    <span className="text-[10px] text-slate-500">{item.verdict.replaceAll("_", " ")}</span>
+                  </div>
+                  <h3 className="text-sm font-semibold text-slate-100 mt-4">{item.title}</h3>
+                  <p className="text-xs text-slate-400 leading-5 mt-2">{item.ruleOfThumb}</p>
+                  <p className="text-[10px] text-slate-600 mt-auto pt-4">{item.evidenceData || item.suggestedAction}</p>
+                </div>
+              )) : (
+                <div className="md:col-span-2 min-h-[180px] bg-[#111827] border border-[#263140] flex items-center justify-center text-center p-6 text-sm text-slate-500">
+                  Nenhum aprendizado validado ainda. Resultados reais devem ser registrados antes de criar regras de decisão.
+                </div>
+              )}
+            </div>
+          </section>
 
-      <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-        <div className="bg-white p-5 rounded-2xl border border-stone-200/80 shadow-3xs space-y-3">
-          <div className="flex items-center gap-2">
-            <Lightbulb className="w-4 h-4 text-amber-500" />
-            <span className="text-[11px] font-bold text-stone-700 uppercase tracking-wider">
-              O que aprendemos com o histórico
-            </span>
-          </div>
-          <h3 className="text-xs font-bold text-stone-900">
-            {topLearning.title}
-          </h3>
-          <p className="text-xs text-stone-600 leading-relaxed">
-            {topLearning.ruleOfThumb}
-          </p>
-          <div className="pt-2 border-t border-stone-100 flex items-center justify-between text-[11px]">
-            <span className="text-stone-400">Regra de ouro:</span>
-            <span className="font-bold text-purple-700 truncate ml-2">{topLearning.suggestedAction}</span>
-          </div>
+          <section>
+            <div className="flex items-center justify-between mb-3">
+              <h2 className="text-xl font-semibold flex items-center gap-2"><BarChart3 className="w-5 h-5 text-cyan-400" /> Histórico de Performance</h2>
+              <span className={`text-[10px] font-mono ${apiConfig.connectionStatus === "connected" ? "text-emerald-400" : "text-slate-600"}`}>● {apiConfig.connectionStatus === "connected" ? "Sync ativo" : "Sem sync"}</span>
+            </div>
+            <div className="grid grid-cols-2 gap-3">
+              <PerformanceCard label="Alcance Total" value={compactNumber(performance.totalReach)} />
+              <PerformanceCard label="CTR Médio" value={`${performance.avgCtr.toFixed(1)}%`} />
+              <PerformanceCard label="Salvamentos" value={compactNumber(performance.totalSaves)} />
+              <PerformanceCard label="Leads / Cliques" value={compactNumber(performance.totalLeads)} />
+            </div>
+          </section>
         </div>
 
-        <div className="bg-stone-900 text-stone-200 p-5 rounded-2xl space-y-3">
-          <div className="flex items-center justify-between">
-            <span className="text-[10px] font-bold uppercase tracking-wider text-purple-400 flex items-center gap-1.5">
-              <Zap className="w-3.5 h-3.5 text-purple-400" />
-              <span>Explicação do Motor Local</span>
-            </span>
-            <span className="text-[9px] font-mono text-stone-400">0 Tokens • Heurística</span>
-          </div>
-          <h3 className="text-xs font-bold text-white">
-            Por que publicar {currentRecommendation.format} hoje?
-          </h3>
-          <p className="text-xs text-stone-300 leading-relaxed font-sans">
-            {currentRecommendation.why}
-          </p>
-          <div className="pt-2 border-t border-stone-800 text-[10px] text-stone-400 flex items-center justify-between">
-            <span>Canal ideal: {currentRecommendation.channel}</span>
-            <span className="text-purple-300 font-bold">Horário de pico: {currentRecommendation.optimalTime}</span>
-          </div>
-        </div>
+        <footer className="border-t border-[#1f2937] pt-3 flex flex-wrap items-center gap-5 text-[10px] font-mono uppercase tracking-[0.1em] text-slate-600">
+          <span>Motor: {engineMode === "local" ? "Local" : "Gemini"}</span>
+          <span>{weeklyRoutine.length} itens planejados</span>
+          <span>{postHistory.length} resultados registrados</span>
+          <span>{notes.length} notas no contexto</span>
+          <span>{niches.length} nichos • {emotionalDrivers.length} drivers</span>
+        </footer>
       </div>
     </div>
   );
 };
+
+const PerformanceCard: React.FC<{ label: string; value: string }> = ({ label, value }) => (
+  <div className="min-h-[95px] bg-[#111827] border border-[#334155] rounded-sm p-4">
+    <p className="text-xs text-slate-500">{label}</p>
+    <p className="text-3xl font-semibold text-slate-100 mt-2">{value}</p>
+    <p className="text-[10px] text-slate-600 mt-1">Histórico registrado</p>
+  </div>
+);
