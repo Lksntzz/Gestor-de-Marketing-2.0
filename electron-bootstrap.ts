@@ -7,6 +7,11 @@ import net from "net";
 import crypto from "crypto";
 import * as path from "path";
 
+const STABLE_USER_DATA_NAME = "Nisti Print PKM Marketing Hub";
+const stableUserDataPath = path.join(app.getPath("appData"), STABLE_USER_DATA_NAME);
+app.setPath("userData", stableUserDataPath);
+app.setName("Nisti Marketing");
+
 const LOOPBACK_HOST = "127.0.0.1";
 const ALLOWED_SECRET_NAMES = new Set(["obsidianApiKey", "geminiApiKey"]);
 let backendProcess: ChildProcess | null = null;
