@@ -24,7 +24,7 @@ No desktop, a sincronização reconhece arquivos Markdown e também fontes `.pdf
 
 A análise não deve promover inferências a fatos. Arquivos sem chave de IA, acima do limite automático ou que falhem no processamento permanecem como análise pendente, sem fabricação de conteúdo.
 
-Para reduzir chamadas de API, o índice analítico é armazenado localmente e reutilizado enquanto caminho, tamanho e data de modificação do arquivo não mudarem.
+A primeira sincronização de um Vault com muitos PDFs ou imagens pode levar mais tempo porque fontes ainda não indexadas precisam ser interpretadas. Para reduzir chamadas posteriores de API, o índice analítico é armazenado localmente e reutilizado enquanto caminho, tamanho e data de modificação do arquivo não mudarem.
 
 ### Interface
 
