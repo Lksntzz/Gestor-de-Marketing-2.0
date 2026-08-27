@@ -3,6 +3,7 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import net from "node:net";
 import { spawn } from "node:child_process";
+import { once } from "node:events";
 
 const HOST = "127.0.0.1";
 
@@ -33,6 +34,16 @@ async function waitForHealth(baseUrl, instanceId, timeoutMs = 15_000) {
     await new Promise((resolve) => setTimeout(resolve, 250));
   }
   throw new Error(`Backend empacotado não ficou saudável: ${lastError}`);
+}
+
+async function stopChild(child) {
+  if (!child || child.exitCode !== null) return;
+  const exitPromise = once(child, "exit").catch(() => undefined);
+  child.kill();
+  await Promise.race([
+    exitPromise,
+    new Promise((resolve) => setTimeout(resolve, 2_000)),
+  ]);
 }
 
 async function run() {
@@ -97,8 +108,13 @@ async function run() {
     }
     throw err;
   } finally {
-    if (child && !child.killed) child.kill();
-    await rm(workspace, { recursive: true, force: true });
+    await stopChild(child);
+    await rm(workspace, {
+      recursive: true,
+      force: true,
+      maxRetries: process.platform === "win32" ? 8 : 2,
+      retryDelay: 250,
+    });
   }
 }
 
