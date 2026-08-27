@@ -1,0 +1,120 @@
+import { describe, expect, test } from "bun:test";
+import { readFile } from "node:fs/promises";
+import {
+  buildResultsSnapshot,
+  deriveCampaignEpistemicStatus,
+  normalizeSuggestedTasks,
+  resultsForCampaign,
+} from "../src/utils/resultsIntelligence";
+import type { MarketingCampaign, ObsidianNote, PostHistoryItem } from "../src/types";
+
+async function read(path: string): Promise<string> {
+  return await readFile(new URL(`../${path}`, import.meta.url), "utf8");
+}
+
+const campaign: MarketingCampaign = {
+  id: "camp-1",
+  title: "Campanha real",
+  objective: "Objetivo informado",
+  targetAudience: "Público informado",
+  tone: "Direto",
+  status: "draft",
+  channels: ["Instagram"],
+  channelsContent: [],
+  linkedNotePaths: ["01_Estrategia/Base.md"],
+  obsidianOutputNotePath: "04_Campanhas/Campanha real.md",
+  summary: "Resumo",
+  strategy: "Estratégia",
+  startDate: "",
+  endDate: "",
+  createdDate: "2026-08-27",
+};
+
+function result(id: string, reach: number, ctr: number, linkedCampaignId?: string): PostHistoryItem {
+  return {
+    id,
+    title: `Resultado ${id}`,
+    channel: "Instagram",
+    format: "reels_video",
+    publishedAt: "2026-08-27T12:00:00",
+    dayOfWeek: "Quinta",
+    timeSlot: "12:00",
+    targetNiche: "empresas_corporativo",
+    emotionalDriver: "confianca_autoridade",
+    hookUsed: "Hook registrado",
+    metrics: {
+      impressions: reach + 100,
+      reach,
+      likes: 10,
+      comments: 2,
+      shares: 1,
+      saves: 3,
+      clicksOrLeads: 4,
+      ctrPercent: ctr,
+      conversionRatePercent: 1,
+    },
+    performanceScore: 50,
+    learnings: "Registro informado",
+    whatWorked: [],
+    whatToAvoid: [],
+    ...(linkedCampaignId ? { linkedCampaignId } : {}),
+  } as PostHistoryItem;
+}
+
+describe("resultados fundamentados v2 etapa 6", () => {
+  test("agrega apenas métricas registradas sem criar tendência ou projeção", () => {
+    const snapshot = buildResultsSnapshot([result("a", 1000, 2), result("b", 2000, 4)]);
+    expect(snapshot.publications).toBe(2);
+    expect(snapshot.reach).toBe(3000);
+    expect(snapshot.clicksOrLeads).toBe(8);
+    expect(snapshot.averageCtr).toBe(3);
+  });
+
+  test("resultado é vinculado à campanha somente por referência explícita", () => {
+    const linked = result("linked", 900, 1.5, "camp-1");
+    const unrelated = result("unrelated", 5000, 6, "camp-2");
+    expect(resultsForCampaign(campaign, [linked, unrelated]).map((item) => item.id)).toEqual(["linked"]);
+  });
+
+  test("campanha gerada nunca vira CONFIRMADO automaticamente", () => {
+    const confirmed: ObsidianNote = {
+      id: "n1",
+      path: "01_Estrategia/Base.md",
+      title: "Base",
+      folder: "01_Estrategia",
+      content: "Fato confirmado",
+      frontmatter: { status: "OFICIAL", epistemic_status: "CONFIRMADO" },
+      tags: [],
+      wikilinks: [],
+      lastModified: "2026-08-27 10:00",
+    };
+    expect(deriveCampaignEpistemicStatus([confirmed], [confirmed.path])).toBe("HIPÓTESE");
+  });
+
+  test("tarefas sugeridas não recebem data horário ou lembrete que não vieram da geração", () => {
+    const tasks = normalizeSuggestedTasks(
+      [{ title: "Revisar peça", priority: "high", obsidianTaskString: "- [ ] Revisar peça" }],
+      "camp-1",
+      "04_Campanhas/Campanha real.md"
+    );
+    expect(tasks).toHaveLength(1);
+    expect(tasks[0].dueDate).toBe("");
+    expect(tasks[0].dueTime).toBeUndefined();
+    expect(tasks[0].reminderDate).toBeUndefined();
+    expect(tasks[0].reminderTime).toBeUndefined();
+    expect(tasks[0].isReminderActive).toBe(false);
+  });
+
+  test("tarefa sem prioridade explícita é descartada em vez de receber prioridade artificial", () => {
+    expect(normalizeSuggestedTasks([{ title: "Sem prioridade" }], "camp-1", "04_Campanhas/Campanha real.md")).toEqual([]);
+  });
+
+  test("tela de resultados não deve conter métricas ou datas simuladas", async () => {
+    const source = await read("src/components/CampaignsView.tsx");
+    expect(source).not.toContain("Math.random");
+    expect(source).not.toContain("2026-08-26");
+    expect(source).not.toContain("↑ 12%");
+    expect(source).not.toContain("startDate: today");
+    expect(source).not.toContain("86400000 * 20");
+  });
+});
