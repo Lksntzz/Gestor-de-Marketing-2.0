@@ -6,22 +6,17 @@ import {
   RefreshCw,
   FolderOpen,
   Zap,
-  Layers,
   Calendar,
   Compass,
   Menu,
   X,
   Plus,
-  TrendingUp,
   Cpu,
   FileText,
   Lightbulb,
-  ExternalLink,
   ChevronDown,
-  Check,
-  HelpCircle,
-  BookOpen,
-  Laptop,
+  Search,
+  Bell,
 } from "lucide-react";
 import { ObsidianApiConfig, EngineMode } from "../types";
 
@@ -75,15 +70,19 @@ export const Navbar: React.FC<NavbarProps> = ({
       return (
         <button
           onClick={onOpenSettings}
-          className="flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-emerald-50 text-emerald-800 border border-emerald-200/60 hover:bg-emerald-100/60 transition-all text-[11px] font-medium cursor-pointer"
+          className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-purple-50 text-purple-900 border border-purple-200/50 hover:bg-purple-100/50 transition-all text-xs font-bold cursor-pointer shrink-0"
           title="Obsidian Local REST API conectado com sucesso"
         >
-          <span className="relative flex h-2 w-2">
+          {/* Obsidian Gemstone icon */}
+          <svg className="w-3.5 h-3.5 text-purple-700 shrink-0" viewBox="0 0 24 24" fill="currentColor">
+            <path d="M12 2L2 9L12 22L22 9L12 2ZM12 4.5L18.5 9L12 13.5L5.5 9L12 4.5ZM12 19.5L5 10L12 15L19 10L12 19.5Z" />
+          </svg>
+          <span className="truncate max-w-[120px] sm:max-w-none">
+            {apiConfig.vaultName || "Obsidian"} Conectado
+          </span>
+          <span className="relative flex h-2 w-2 shrink-0">
             <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
             <span className="relative inline-flex rounded-full h-2 w-2 bg-emerald-500"></span>
-          </span>
-          <span className="font-semibold truncate max-w-[90px] sm:max-w-none">
-            {apiConfig.vaultName || "Obsidian"} Conectado
           </span>
         </button>
       );
@@ -91,58 +90,57 @@ export const Navbar: React.FC<NavbarProps> = ({
     return (
       <button
         onClick={onOpenSettings}
-        className="flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-stone-100 text-stone-600 border border-stone-200 hover:bg-stone-200 transition-all text-[11px] font-medium cursor-pointer"
+        className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-stone-150 text-stone-700 border border-stone-250 hover:bg-stone-200 transition-all text-xs font-bold cursor-pointer shrink-0"
         title="Modo local simulado. Clique para conectar a REST API do Obsidian."
       >
-        <span className="w-2 h-2 rounded-full bg-stone-400"></span>
-        <span className="truncate max-w-[90px] sm:max-w-none">Modo IA</span>
+        <span className="w-2 h-2 rounded-full bg-stone-400 shrink-0"></span>
+        <span className="truncate max-w-[100px] sm:max-w-none">Modo IA</span>
       </button>
     );
   };
 
-  // Natural Story of Work: Início -> Conhecimento -> Planejamento -> Execução -> Resultados -> Automações
   const navItems = [
     {
       id: "dashboard" as const,
       label: "Início",
       icon: Compass,
-      description: "Visão Geral e o que fazer agora",
+      description: "Visão Geral",
     },
     {
       id: "vault" as const,
       label: "Cofre Obsidian",
       icon: FolderOpen,
-      description: "Cofre Markdown e notas PKM",
+      description: "Cofre PKM",
     },
     {
       id: "knowledge" as const,
       label: "Adicionar Conhecimento",
       icon: FileText,
-      description: "Captura rápida com processamento IA automático",
+      description: "Capturar e Processar",
     },
     {
       id: "routine" as const,
       label: "Planejamento",
       icon: Calendar,
-      description: "Rotinas, melhores horários e métricas",
+      description: "Rotinas e Horários",
     },
     {
       id: "tasks" as const,
       label: "Execução",
       icon: CheckSquare,
-      description: "Centro de Tarefas e Kanban",
+      description: "Tarefas e Kanban",
     },
     {
       id: "campaigns" as const,
       label: "Resultados",
       icon: Sparkles,
-      description: "Assistente de Campanhas e Cópias",
+      description: "Campanhas e Cópias",
     },
     {
       id: "automations" as const,
       label: "Automações",
       icon: Zap,
-      description: "Modelos e sincronização do cofre",
+      description: "Sincronizações",
     },
   ];
 
@@ -152,97 +150,103 @@ export const Navbar: React.FC<NavbarProps> = ({
   };
 
   return (
-    <header className="sticky top-0 z-40 bg-white/95 backdrop-blur-md border-b border-stone-200/70">
-      <div className="w-full px-4 md:px-8 lg:px-12">
+    <header className="sticky top-0 z-20 w-full bg-white border-b border-stone-200 select-none">
+      <div className="w-full px-4 sm:px-6 lg:px-8">
         <div className="flex items-center justify-between h-16 gap-4">
           
-          {/* Logo & Brand Identity */}
-          <div className="flex items-center gap-6">
+          {/* Left Block: Search Bar (Desktop) & Logo (Mobile) */}
+          <div className="flex items-center gap-4 flex-1">
+            {/* Mobile Logo Brand */}
             <button
               onClick={() => handleTabClick("dashboard")}
-              className="flex items-center gap-2.5 text-left group cursor-pointer"
+              className="lg:hidden flex items-center gap-2 text-left group cursor-pointer"
             >
-              <div className="w-8 h-8 rounded-xl bg-purple-700 text-white flex items-center justify-center shadow-xs group-hover:bg-purple-800 transition-colors">
-                <Sparkles className="w-4 h-4 text-purple-200" />
-              </div>
-              <div className="hidden sm:block">
-                <span className="font-black text-stone-900 text-sm tracking-tight block leading-none">
-                  Obsidian AI
+              <svg className="w-8 h-8 shrink-0" viewBox="0 0 40 40" fill="none" xmlns="http://www.w3.org/2000/svg">
+                <path
+                  d="M10 26C10 26 13 14 17 14C21 14 21.5 26 25 26C28.5 26 31 14 31 14"
+                  stroke="url(#mob-nisti-pink-grad)"
+                  strokeWidth="5"
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                />
+                <defs>
+                  <linearGradient id="mob-nisti-pink-grad" x1="10" y1="14" x2="31" y2="26" gradientUnits="userSpaceOnUse">
+                    <stop stopColor="#F43F5E" />
+                    <stop stopColor="#D946EF" />
+                  </linearGradient>
+                </defs>
+              </svg>
+              <div>
+                <span className="font-black text-stone-900 text-xs tracking-tight block leading-none">
+                  Nisti Print
                 </span>
-                <span className="text-[10px] text-stone-400 font-medium leading-tight">
+                <span className="text-[9px] text-pink-500 font-extrabold tracking-widest block mt-0.5 uppercase">
                   Marketing Hub
                 </span>
               </div>
             </button>
 
-            {/* Desktop Navigation (Story Flow) */}
-            <nav className="hidden md:flex items-center gap-1 bg-stone-100/70 p-1 rounded-xl border border-stone-200/60">
-              {navItems.map((item) => {
-                const Icon = item.icon;
-                const isActive = activeTab === item.id;
-                return (
-                  <button
-                    key={item.id}
-                    onClick={() => handleTabClick(item.id)}
-                    className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition-all flex items-center gap-1.5 cursor-pointer ${
-                      isActive
-                        ? "bg-white text-stone-900 shadow-3xs"
-                        : "text-stone-600 hover:text-stone-900 hover:bg-stone-200/50"
-                    }`}
-                    title={item.description}
-                  >
-                    <Icon
-                      className={`w-3.5 h-3.5 ${
-                        isActive ? "text-purple-700" : "text-stone-500"
-                      }`}
-                    />
-                    <span>{item.label}</span>
-                  </button>
-                );
-              })}
-            </nav>
+            {/* Desktop Unified Search Bar inside the Header */}
+            <div className="hidden lg:flex items-center relative w-full max-w-md">
+              <Search className="w-4 h-4 text-stone-400 absolute left-3.5 pointer-events-none" />
+              <input
+                type="text"
+                placeholder="Buscar conhecimento, campanhas, tarefas, notas... ⌘ K"
+                className="w-full pl-10 pr-4 py-2 bg-[#F5F6F8] hover:bg-stone-100 text-xs font-medium text-stone-850 placeholder-stone-450 rounded-2xl border border-stone-200/60 focus:outline-none focus:ring-1 focus:ring-purple-500/50 focus:border-purple-500 focus:bg-white transition-all"
+              />
+            </div>
           </div>
 
-          {/* Right Action Bar: Engine Mode, Sync, Create Dropdown, Settings */}
-          <div className="flex items-center gap-2 sm:gap-3">
+          {/* Right Action Bar */}
+          <div className="flex items-center gap-2 sm:gap-3 shrink-0">
             
             {/* Status & Engine Badge */}
-            <div className="hidden lg:flex items-center gap-2">
+            <div className="hidden sm:flex items-center gap-2">
               <button
                 onClick={() => onToggleEngineMode(engineMode === "local" ? "gemini" : "local")}
-                className={`px-2.5 py-1 rounded-lg text-[11px] font-bold border transition-all flex items-center gap-1.5 cursor-pointer ${
+                className={`px-3 py-1.5 rounded-xl text-xs font-bold border transition-all flex items-center gap-1.5 cursor-pointer shadow-3xs ${
                   engineMode === "local"
-                    ? "bg-purple-50 text-purple-800 border-purple-200 hover:bg-purple-100"
-                    : "bg-amber-50 text-amber-800 border-amber-200 hover:bg-amber-100"
+                    ? "bg-[#F5F6F8] text-stone-700 border-stone-200 hover:bg-stone-100"
+                    : "bg-pink-50 text-pink-950 border-pink-100 hover:bg-pink-100"
                 }`}
                 title="Alternar entre Motor Local (0 tokens) e Gemini AI"
               >
-                <Cpu className="w-3 h-3 text-purple-600" />
+                <Cpu className="w-3.5 h-3.5 text-stone-600" />
                 <span>{engineMode === "local" ? "Motor Local" : "IA"}</span>
+                <span className="w-1.5 h-1.5 rounded-full bg-emerald-500" />
               </button>
 
               {getStatusBadge()}
             </div>
 
+            {/* Notification Bell with Badge */}
+            <button className="p-2 bg-[#F5F6F8] hover:bg-stone-100 text-stone-600 hover:text-stone-900 rounded-xl transition-all border border-stone-200/60 cursor-pointer relative">
+              <Bell className="w-4 h-4" />
+              <span className="absolute -top-1 -right-1 w-4 h-4 rounded-full bg-red-500 text-[9px] font-bold text-white flex items-center justify-center border border-white">
+                3
+              </span>
+            </button>
+
             {/* Sync Now Button */}
             <button
               onClick={onSyncNow}
               disabled={isSyncing}
-              className="p-2 text-stone-600 hover:text-stone-900 hover:bg-stone-100 rounded-xl transition-all border border-stone-200/60 cursor-pointer disabled:opacity-50"
+              className="px-3 py-1.5 bg-[#F5F6F8] hover:bg-stone-100 text-stone-700 hover:text-stone-900 rounded-xl transition-all border border-stone-200/60 cursor-pointer disabled:opacity-50 flex items-center gap-1.5"
               title="Sincronizar Cofre Markdown"
             >
-              <RefreshCw className={`w-3.5 h-3.5 ${isSyncing ? "animate-spin text-purple-600" : ""}`} />
+              <RefreshCw className={`w-3.5 h-3.5 ${isSyncing ? "animate-spin text-pink-600" : "text-stone-500"}`} />
+              <span className="text-xs font-bold hidden md:inline">Sincronizar</span>
             </button>
 
             {/* UNIFIED "+ CRIAR" BUTTON WITH DROPDOWN */}
             <div className="relative" ref={createDropdownRef}>
               <button
                 onClick={() => setIsCreateDropdownOpen(!isCreateDropdownOpen)}
-                className="px-3.5 py-1.5 bg-stone-900 hover:bg-stone-850 text-white text-xs font-bold rounded-xl shadow-xs transition-all flex items-center gap-1.5 cursor-pointer"
+                className="px-4 py-2 bg-pink-600 hover:bg-pink-500 text-white text-xs font-bold rounded-xl shadow-sm transition-all flex items-center gap-1.5 cursor-pointer"
               >
-                <Plus className="w-3.5 h-3.5 text-purple-400" />
+                <Plus className="w-3.5 h-3.5 text-white" />
                 <span>Criar</span>
-                <ChevronDown className="w-3 h-3 text-stone-400" />
+                <ChevronDown className="w-3 h-3 text-white/80" />
               </button>
 
               {isCreateDropdownOpen && (
@@ -322,19 +326,19 @@ export const Navbar: React.FC<NavbarProps> = ({
               )}
             </div>
 
-            {/* Settings Button */}
+            {/* Gear Button for settings (only on mobile, as desktop has it in the Sidebar) */}
             <button
               onClick={onOpenSettings}
-              className="p-2 text-stone-600 hover:text-stone-900 hover:bg-stone-100 rounded-xl transition-all border border-stone-200/60 cursor-pointer"
-              title="Configurações (IA, Obsidian, Google Drive)"
+              className="p-2 lg:hidden text-stone-600 hover:text-stone-900 hover:bg-stone-100 rounded-xl transition-all border border-stone-200/60 cursor-pointer"
+              title="Configurações"
             >
               <Settings className="w-4 h-4" />
             </button>
 
-            {/* Mobile Menu Toggle */}
+            {/* Mobile Menu Toggle (Hamburger) */}
             <button
               onClick={() => setIsMobileMenuOpen(!isMobileMenuOpen)}
-              className="p-2 md:hidden text-stone-600 hover:text-stone-900 hover:bg-stone-100 rounded-xl transition-all border border-stone-200/60 cursor-pointer"
+              className="p-2 lg:hidden text-stone-600 hover:text-stone-900 hover:bg-stone-100 rounded-xl transition-all border border-stone-200/60 cursor-pointer"
             >
               {isMobileMenuOpen ? <X className="w-4 h-4" /> : <Menu className="w-4 h-4" />}
             </button>
@@ -343,9 +347,9 @@ export const Navbar: React.FC<NavbarProps> = ({
         </div>
       </div>
 
-      {/* Mobile Drawer Menu */}
+      {/* Mobile Slide-out / Dropdown Menu */}
       {isMobileMenuOpen && (
-        <div className="md:hidden border-t border-stone-200 bg-white px-4 pt-3 pb-6 space-y-3 animate-fadeIn">
+        <div className="lg:hidden border-t border-stone-200 bg-white px-4 pt-3 pb-6 space-y-3 animate-fadeIn">
           <div className="flex items-center justify-between pb-2 border-b border-stone-100">
             <span className="text-[10px] font-bold text-stone-400 uppercase tracking-wider">
               Navegação
@@ -363,11 +367,11 @@ export const Navbar: React.FC<NavbarProps> = ({
                   onClick={() => handleTabClick(item.id)}
                   className={`p-3 rounded-xl text-left transition-all flex flex-col justify-between cursor-pointer ${
                     isActive
-                      ? "bg-purple-50 border border-purple-200 text-purple-900"
+                      ? "bg-pink-50 border border-pink-200 text-pink-950"
                       : "bg-stone-50 border border-stone-200/60 text-stone-700 hover:bg-stone-100"
                   }`}
                 >
-                  <Icon className={`w-4 h-4 mb-2 ${isActive ? "text-purple-700" : "text-stone-500"}`} />
+                  <Icon className={`w-4 h-4 mb-2 ${isActive ? "text-pink-600" : "text-stone-500"}`} />
                   <span className="text-xs font-bold">{item.label}</span>
                   <span className="text-[10px] text-stone-500 mt-0.5">{item.description}</span>
                 </button>

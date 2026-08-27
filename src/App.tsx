@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useMemo, useCallback, useRef } from "react";
 import { Navbar } from "./components/Navbar";
+import { Sidebar } from "./components/Sidebar";
 import { DashboardView } from "./components/DashboardView";
 import { VaultView } from "./components/VaultView";
 import { CampaignsView } from "./components/CampaignsView";
@@ -988,7 +989,7 @@ export default function App() {
   };
 
   return (
-    <div className="min-h-screen bg-stone-100/40 text-stone-900 flex flex-col font-sans selection:bg-purple-200 selection:text-purple-900">
+    <div className="min-h-screen bg-[#F5F6F8] text-stone-900 flex flex-col lg:flex-row font-sans selection:bg-purple-200 selection:text-purple-900">
       {toastMessage && (
         <div className="fixed bottom-6 right-6 z-50 animate-bounce duration-300">
           <div
@@ -1015,33 +1016,44 @@ export default function App() {
         </div>
       )}
 
-      <Navbar
-        activeTab={activeTab}
-        setActiveTab={setActiveTab}
-        apiConfig={apiConfig}
-        onOpenSettings={() => setIsSettingsOpen(true)}
-        onSyncNow={handleSyncNow}
-        isSyncing={isSyncing}
-        onQuickNewCampaign={() => {
-          setActiveTab("campaigns");
-        }}
-        onQuickNewTask={() => setIsTaskModalOpen(true)}
-        onQuickNewNote={() => setIsNoteModalOpen(true)}
-        hasApiKey={Boolean(apiConfig.apiKey.trim())}
-        engineMode={engineMode}
-        onToggleEngineMode={(mode) => {
-          setEngineMode(mode);
-          showToast(
-            "info",
-            mode === "local" ? "Motor Local Ativado" : "Modo IA Gemini Ativado",
-            mode === "local"
-              ? "Operando 100% offline com lógica determinística e 0 consumo de tokens."
-              : "Operando em modo híbrido com a API do Gemini."
-          );
-        }}
-      />
+      {/* Left Sidebar on Desktop */}
+      <div className="hidden lg:block">
+        <Sidebar
+          activeTab={activeTab}
+          setActiveTab={setActiveTab}
+          onOpenSettings={() => setIsSettingsOpen(true)}
+        />
+      </div>
 
-      <main className="flex-1 w-full px-4 sm:px-6 lg:px-8 py-6 md:py-8 overflow-y-auto pb-24 md:pb-8">
+      {/* Right Main Content Area */}
+      <div className="flex-1 flex flex-col min-w-0 h-screen overflow-hidden">
+        <Navbar
+          activeTab={activeTab}
+          setActiveTab={setActiveTab}
+          apiConfig={apiConfig}
+          onOpenSettings={() => setIsSettingsOpen(true)}
+          onSyncNow={handleSyncNow}
+          isSyncing={isSyncing}
+          onQuickNewCampaign={() => {
+            setActiveTab("campaigns");
+          }}
+          onQuickNewTask={() => setIsTaskModalOpen(true)}
+          onQuickNewNote={() => setIsNoteModalOpen(true)}
+          hasApiKey={Boolean(apiConfig.apiKey.trim())}
+          engineMode={engineMode}
+          onToggleEngineMode={(mode) => {
+            setEngineMode(mode);
+            showToast(
+              "info",
+              mode === "local" ? "Motor Local Ativado" : "Modo IA Gemini Ativado",
+              mode === "local"
+                ? "Operando 100% offline com lógica determinística e 0 consumo de tokens."
+                : "Operando em modo híbrido com a API do Gemini."
+            );
+          }}
+        />
+
+        <main className="flex-1 w-full px-4 sm:px-6 lg:px-8 py-6 md:py-8 overflow-y-auto pb-24 md:pb-8">
         {activeTab === "dashboard" && (
           <DashboardView
             notes={notes}
@@ -1219,6 +1231,7 @@ export default function App() {
           />
         )}
       </main>
+      </div>
 
       <ObsidianApiSettingsModal
         isOpen={isSettingsOpen}
