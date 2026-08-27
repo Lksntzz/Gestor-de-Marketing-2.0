@@ -21,7 +21,9 @@ const STANDARD_FOLDERS = [
 ];
 
 const SUPPORTED_KNOWLEDGE_EXTENSIONS = new Set([".pdf", ".png", ".jpg", ".jpeg", ".webp", ".txt"]);
+const PERSISTABLE_SOURCE_EXTENSIONS = new Set([".pdf", ".png", ".jpg", ".jpeg", ".webp"]);
 const MAX_AI_ASSET_BYTES = 10 * 1024 * 1024;
+const MAX_PERSISTED_ASSET_BYTES = 20 * 1024 * 1024;
 const MAX_TEXT_ASSET_CHARS = 120_000;
 const GEMINI_MODELS = ["gemini-flash-latest", "gemini-3.1-flash-lite", "gemini-3.7-flash"];
 
@@ -45,6 +47,17 @@ interface CachedAssetEntry {
   mtime: number;
   size: number;
   analysis: AssetAnalysis;
+}
+
+interface KnowledgeCommitPayload {
+  folder: string;
+  title: string;
+  content: string;
+  frontmatter?: Record<string, unknown>;
+  asset?: {
+    fileName: string;
+    dataUrl: string;
+  };
 }
 
 type AssetIndex = Record<string, CachedAssetEntry>;
@@ -150,6 +163,85 @@ function validateAndResolvePath(folder: string, filename: string): string {
   const vaultPrefix = resolvedVault.endsWith(path.sep) ? resolvedVault : `${resolvedVault}${path.sep}`;
   if (!targetFilePath.startsWith(vaultPrefix)) throw new Error("Violação de segurança: tentativa de acesso fora do limite do Vault Obsidian.");
   return targetFilePath;
+}
+
+function vaultRelativePath(fullPath: string): string {
+  const targetVault = requireSelectedVault();
+  return path.relative(targetVault, fullPath).replace(/\\/g, "/");
+}
+
+async function requireExistingVaultFolder(folder: string): Promise<string> {
+  requireObsidianConnection();
+  const targetVault = requireSelectedVault();
+  const cleanFolder = normalizeVaultFolder(folder);
+  const folderPath = path.resolve(targetVault, cleanFolder);
+  const vaultPrefix = targetVault.endsWith(path.sep) ? targetVault : `${targetVault}${path.sep}`;
+  if (!folderPath.startsWith(vaultPrefix) || !existsSync(folderPath)) {
+    throw new Error("A pasta selecionada não existe no Vault atual. Atualize a lista de pastas antes de salvar.");
+  }
+  const stats = await fs.stat(folderPath);
+  if (!stats.isDirectory()) throw new Error("O destino selecionado não é uma pasta válida do Vault.");
+  return cleanFolder;
+}
+
+async function resolveUniqueVaultPath(folder: string, requestedFileName: string): Promise<string> {
+  const extension = path.extname(requestedFileName);
+  const stem = path.basename(requestedFileName, extension) || "Arquivo";
+  for (let index = 1; index <= 999; index += 1) {
+    const candidate = index === 1 ? requestedFileName : `${stem} (${index})${extension}`;
+    const resolved = validateAndResolvePath(folder, candidate);
+    if (!existsSync(resolved)) return resolved;
+  }
+  throw new Error("Não foi possível gerar um nome de arquivo livre no Vault sem sobrescrever conteúdo existente.");
+}
+
+function serializeFrontmatter(frontmatter?: Record<string, unknown>): string {
+  if (!frontmatter || Object.keys(frontmatter).length === 0) return "";
+  let output = "---\n";
+  for (const [key, value] of Object.entries(frontmatter)) {
+    if (value === undefined || value === null || value === "") continue;
+    if (Array.isArray(value)) {
+      if (value.length === 0) continue;
+      output += `${key}:\n`;
+      for (const item of value) output += `  - "${String(item).replace(/"/g, "'")}"\n`;
+    } else {
+      output += `${key}: "${String(value).replace(/"/g, "'")}"\n`;
+    }
+  }
+  return `${output}---\n\n`;
+}
+
+function decodePersistedAsset(fileName: string, dataUrl: string): { buffer: Buffer; extension: string } {
+  const extension = path.extname(fileName).toLowerCase();
+  if (!PERSISTABLE_SOURCE_EXTENSIONS.has(extension)) {
+    throw new Error("Somente PDF, PNG, JPG/JPEG e WEBP podem ser preservados como fonte binária nesta etapa.");
+  }
+
+  const match = String(dataUrl || "").match(/^data:([^;,]+);base64,([A-Za-z0-9+/=\r\n]+)$/);
+  if (!match) throw new Error("A fonte binária recebida não está em um Data URL base64 válido.");
+
+  const allowedMimeByExtension: Record<string, string[]> = {
+    ".pdf": ["application/pdf"],
+    ".png": ["image/png"],
+    ".jpg": ["image/jpeg"],
+    ".jpeg": ["image/jpeg"],
+    ".webp": ["image/webp"],
+  };
+  const mime = match[1].toLowerCase();
+  if (!allowedMimeByExtension[extension]?.includes(mime)) {
+    throw new Error("O tipo real da fonte não corresponde à extensão informada.");
+  }
+
+  const buffer = Buffer.from(match[2].replace(/[\r\n]/g, ""), "base64");
+  if (buffer.length === 0) throw new Error("A fonte binária está vazia.");
+  if (buffer.length > MAX_PERSISTED_ASSET_BYTES) {
+    throw new Error("A fonte excede o limite de preservação local de 20 MB.");
+  }
+  return { buffer, extension };
+}
+
+function assetKindForExtension(extension: string): "pdf" | "image" {
+  return extension === ".pdf" ? "pdf" : "image";
 }
 
 function escapeRegExp(value: string): string {
@@ -366,10 +458,22 @@ async function scanVaultKnowledge(): Promise<any[]> {
 
   await scanDirectory(targetVault);
 
+  const curatedAssetVersions = new Map<string, number>();
+  for (const note of notes) {
+    const assetPath = String(note.frontmatter?.asset_path || "").replace(/\\/g, "/").replace(/^\/+/, "");
+    const assetMtime = Number(note.frontmatter?.asset_mtime);
+    if (assetPath && Number.isFinite(assetMtime)) curatedAssetVersions.set(assetPath, assetMtime);
+  }
+
   const index = await loadAssetIndex();
   let indexChanged = false;
   for (const asset of assets) {
     const cacheKey = asset.relativePath.replace(/\\/g, "/");
+    const curatedMtime = curatedAssetVersions.get(cacheKey);
+    if (curatedMtime !== undefined && Math.abs(curatedMtime - asset.mtimeMs) < 1) {
+      continue;
+    }
+
     let analysis = index[cacheKey]?.analysis;
     if (!analysis || index[cacheKey].mtime !== asset.mtimeMs || index[cacheKey].size !== asset.size) {
       analysis = await callGeminiForAsset(asset.fullPath, asset.relativePath, asset.ext);
@@ -457,27 +561,82 @@ ipcMain.handle("vault:connection-state", (_event, connected: boolean) => {
 ipcMain.handle("vault:list-folders", async () => await listVaultFolders());
 ipcMain.handle("notes:read-all", async () => await scanVaultKnowledge());
 
+ipcMain.handle("knowledge:commit", async (_, payload: KnowledgeCommitPayload) => {
+  let persistedAssetPath: string | null = null;
+  try {
+    const folder = await requireExistingVaultFolder(payload.folder);
+    const title = String(payload.title || "Novo Conhecimento").trim();
+    const content = String(payload.content || "").trim();
+    if (!title || !content) throw new Error("Título e conteúdo são obrigatórios para gravar conhecimento.");
+
+    let assetMetadata: {
+      relativePath: string;
+      storedFileName: string;
+      mtimeMs: number;
+      size: number;
+      kind: "pdf" | "image";
+    } | null = null;
+
+    if (payload.asset) {
+      const decoded = decodePersistedAsset(payload.asset.fileName, payload.asset.dataUrl);
+      const assetPath = await resolveUniqueVaultPath(folder, payload.asset.fileName);
+      await fs.writeFile(assetPath, decoded.buffer, { flag: "wx" });
+      persistedAssetPath = assetPath;
+      const stats = await fs.stat(assetPath);
+      assetMetadata = {
+        relativePath: vaultRelativePath(assetPath),
+        storedFileName: path.basename(assetPath),
+        mtimeMs: stats.mtimeMs,
+        size: stats.size,
+        kind: assetKindForExtension(decoded.extension),
+      };
+    }
+
+    const notePath = await resolveUniqueVaultPath(folder, `${title}.md`);
+    const noteTitle = path.basename(notePath, ".md");
+    const frontmatter: Record<string, unknown> = { ...(payload.frontmatter || {}) };
+    let noteBody = content;
+
+    if (assetMetadata) {
+      frontmatter.source_type = "curated_asset";
+      frontmatter.asset_kind = assetMetadata.kind;
+      frontmatter.asset_path = assetMetadata.relativePath;
+      frontmatter.asset_mtime = String(assetMetadata.mtimeMs);
+      frontmatter.asset_size = String(assetMetadata.size);
+      frontmatter.origem = assetMetadata.relativePath;
+      noteBody = `${noteBody.trim()}\n\n## Fonte original\n[[${assetMetadata.relativePath}]]`;
+    }
+
+    await fs.writeFile(notePath, `${serializeFrontmatter(frontmatter)}${noteBody}`, { encoding: "utf8", flag: "wx" });
+
+    return {
+      success: true,
+      noteTitle,
+      noteRelativePath: vaultRelativePath(notePath),
+      assetRelativePath: assetMetadata?.relativePath,
+      assetFileName: assetMetadata?.storedFileName,
+      assetMtimeMs: assetMetadata?.mtimeMs,
+      assetSize: assetMetadata?.size,
+    };
+  } catch (err: any) {
+    if (persistedAssetPath && existsSync(persistedAssetPath)) {
+      try {
+        await fs.unlink(persistedAssetPath);
+      } catch (cleanupError) {
+        console.warn("Could not roll back knowledge asset after note failure:", cleanupError);
+      }
+    }
+    return { success: false, error: err.message || "Falha ao gravar conhecimento no Vault." };
+  }
+});
+
 ipcMain.handle("notes:write", async (_, payload: { folder: string; title: string; content: string; frontmatter?: any }) => {
   try {
     const filename = payload.title.endsWith(".md") ? payload.title : `${payload.title}.md`;
     const resolvedPath = validateAndResolvePath(payload.folder, filename);
     const dirPath = path.dirname(resolvedPath);
     if (!existsSync(dirPath)) await fs.mkdir(dirPath, { recursive: true });
-    let fileContent = "";
-    if (payload.frontmatter && Object.keys(payload.frontmatter).length > 0) {
-      fileContent += "---\n";
-      for (const [key, value] of Object.entries(payload.frontmatter)) {
-        if (Array.isArray(value)) {
-          fileContent += `${key}:\n`;
-          for (const item of value) fileContent += `  - "${item}"\n`;
-        } else {
-          fileContent += `${key}: "${value}"\n`;
-        }
-      }
-      fileContent += "---\n\n";
-    }
-    fileContent += payload.content;
-    await fs.writeFile(resolvedPath, fileContent, "utf8");
+    await fs.writeFile(resolvedPath, `${serializeFrontmatter(payload.frontmatter)}${payload.content}`, "utf8");
     return { success: true, path: resolvedPath };
   } catch (err: any) {
     return { success: false, error: err.message };
