@@ -1,18 +1,19 @@
 {
-  "name": "nisti-pkm-marketing-hub",
+  "name": "nisti-marketing",
   "private": true,
-  "version": "1.0.0",
-  "description": "Nisti Print PKM Marketing Hub - Gestor de Marketing e Obsidian PKM",
+  "version": "2.0.0",
+  "description": "Nisti Marketing - sistema local-first de gestão de marketing integrado ao Obsidian e IA Gemini",
   "author": "Nisti Print Solutions",
   "main": "dist/electron-main.cjs",
   "type": "module",
   "scripts": {
     "dev": "tsx secure-server.ts",
-    "build": "vite build && esbuild secure-server.ts --bundle --platform=node --format=cjs --packages=external --sourcemap --outfile=dist/server.cjs && esbuild src/preload.ts --bundle --platform=node --format=cjs --outfile=dist/preload.cjs && esbuild electron-bootstrap.ts --bundle --platform=node --format=cjs --packages=external --outfile=dist/electron-main.cjs",
+    "build": "vite build && node scripts/build-backend.mjs && esbuild src/preload.ts --bundle --platform=node --format=cjs --outfile=dist/preload.cjs && esbuild electron-bootstrap.ts --bundle --platform=node --format=cjs --packages=external --outfile=dist/electron-main.cjs",
     "start": "node dist/server.cjs",
     "electron:start": "electron dist/electron-main.cjs",
     "electron:dev": "bun run build && electron dist/electron-main.cjs",
     "electron:build": "bun run verify && bunx electron-builder@26.0.12 --win --x64",
+    "electron:build:signed": "bun run verify && bunx electron-builder@26.0.12 --win --x64 --config.win.forceCodeSigning=true",
     "electron:build:all": "bun run verify && bunx electron-builder@26.0.12 --win --mac --linux",
     "dist": "bun run verify && bunx electron-builder@26.0.12",
     "preview": "vite preview",
@@ -23,7 +24,7 @@
   },
   "build": {
     "appId": "com.nistiprint.pkm",
-    "productName": "Nisti Print PKM Marketing Hub",
+    "productName": "Nisti Marketing",
     "copyright": "Copyright © 2026 Nisti Print Solutions",
     "asar": false,
     "directories": {
@@ -45,8 +46,8 @@
         }
       ],
       "requestedExecutionLevel": "asInvoker",
-      "legalTrademarks": "Nisti Print PKM Solutions",
-      "signAndEditExecutable": false,
+      "legalTrademarks": "Nisti Print Solutions",
+      "signAndEditExecutable": true,
       "forceCodeSigning": false
     },
     "nsis": {
@@ -54,13 +55,14 @@
       "allowToChangeInstallationDirectory": true,
       "createDesktopShortcut": true,
       "createStartMenuShortcut": true,
-      "shortcutName": "Nisti Print PKM Marketing Hub",
+      "shortcutName": "Nisti Marketing",
       "perMachine": false,
       "runAfterFinish": true,
       "deleteAppDataOnUninstall": false,
       "installerLanguages": ["pt_BR", "en_US"],
       "displayLanguageSelector": false,
-      "uninstallDisplayName": "Nisti Print PKM Marketing Hub"
+      "uninstallDisplayName": "Nisti Marketing",
+      "useZip": true
     },
     "mac": {
       "target": ["dmg", "zip"],
