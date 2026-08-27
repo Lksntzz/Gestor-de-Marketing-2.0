@@ -13,6 +13,7 @@ export interface AutomationBlueprint {
   action: AutomationRule["action"];
   requiresObsidian: boolean;
   requiresNotePath: boolean;
+  requiresDailyTime: boolean;
   runtimeNotice: string;
 }
 
@@ -52,7 +53,9 @@ export const AUTOMATION_BLUEPRINTS: AutomationBlueprint[] = [
     action: "create_tasks_in_daily_note",
     requiresObsidian: true,
     requiresNotePath: false,
-    runtimeNotice: "Execução manual nesta versão; não roda em segundo plano.",
+    requiresDailyTime: true,
+    runtimeNotice:
+      "Pode rodar automaticamente uma vez por dia enquanto o Nisti estiver aberto, após o horário explicitamente configurado.",
   },
   {
     id: "rule_vault_audit",
@@ -63,6 +66,7 @@ export const AUTOMATION_BLUEPRINTS: AutomationBlueprint[] = [
     action: "generate_status_report",
     requiresObsidian: true,
     requiresNotePath: false,
+    requiresDailyTime: false,
     runtimeNotice: "Execução manual nesta versão; o Vault é relido antes da análise.",
   },
   {
@@ -74,6 +78,7 @@ export const AUTOMATION_BLUEPRINTS: AutomationBlueprint[] = [
     action: "push_to_obsidian_api",
     requiresObsidian: true,
     requiresNotePath: true,
+    requiresDailyTime: false,
     runtimeNotice: "Execução manual nesta versão; exige caminho de nota explícito.",
   },
 ];
@@ -89,6 +94,35 @@ export function findAutomationBlueprint(rule: AutomationRule): AutomationBluepri
   );
 }
 
+export function parseDailyScheduleTime(value?: string): string | null {
+  const clean = String(value || "").trim();
+  return /^([01]\d|2[0-3]):[0-5]\d$/.test(clean) ? clean : null;
+}
+
+function localDateKey(date: Date): string {
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, "0");
+  const day = String(date.getDate()).padStart(2, "0");
+  return `${year}-${month}-${day}`;
+}
+
+function localTimeKey(date: Date): string {
+  return `${String(date.getHours()).padStart(2, "0")}:${String(date.getMinutes()).padStart(2, "0")}`;
+}
+
+export function isDailyRuleDue(rule: AutomationRule, now = new Date()): boolean {
+  if (!rule.enabled || rule.trigger !== "daily_schedule") return false;
+  const scheduled = parseDailyScheduleTime(rule.conditionParam);
+  if (!scheduled) return false;
+
+  if (rule.lastRun) {
+    const lastRun = new Date(rule.lastRun);
+    if (!Number.isNaN(lastRun.getTime()) && localDateKey(lastRun) === localDateKey(now)) return false;
+  }
+
+  return localTimeKey(now) >= scheduled;
+}
+
 export function createAutomationRuleFromBlueprint(id: AutomationBlueprintId): AutomationRule {
   const blueprint = AUTOMATION_BLUEPRINTS.find((item) => item.id === id);
   if (!blueprint) throw new Error(`Blueprint de automação não encontrado: ${id}`);
@@ -99,7 +133,7 @@ export function createAutomationRuleFromBlueprint(id: AutomationBlueprintId): Au
     description: blueprint.description,
     trigger: blueprint.trigger,
     action: blueprint.action,
-    conditionParam: blueprint.requiresNotePath ? "" : undefined,
+    conditionParam: blueprint.requiresNotePath || blueprint.requiresDailyTime ? "" : undefined,
     enabled: false,
     executionCount: 0,
   };
@@ -108,9 +142,9 @@ export function createAutomationRuleFromBlueprint(id: AutomationBlueprintId): Au
 export function automationTriggerLabel(trigger: AutomationRule["trigger"]): string {
   const labels: Record<AutomationRule["trigger"], string> = {
     on_campaign_created: "Ao criar campanha",
-    daily_schedule: "Agendamento diário (intenção)",
-    on_note_tagged: "Evento de nota (intenção)",
-    reminder_triggered: "Disparo de lembrete (intenção)",
+    daily_schedule: "Agendamento diário",
+    on_note_tagged: "Evento de nota (manual nesta versão)",
+    reminder_triggered: "Disparo de lembrete (manual nesta versão)",
   };
   return labels[trigger];
 }
@@ -153,6 +187,10 @@ export function validateAutomationRule(
     reasons.push("Obsidian não está validado neste runtime.");
   }
 
+  if (blueprint?.requiresDailyTime && !parseDailyScheduleTime(rule.conditionParam)) {
+    reasons.push("Defina explicitamente um horário diário válido no formato HH:MM.");
+  }
+
   if (rule.action === "create_tasks_in_daily_note") {
     const pending = context.tasks.filter((task) => task.status !== "done" && task.obsidianTaskString.trim());
     if (pending.length === 0) reasons.push("Nenhuma tarefa pendente com Markdown explícito para sincronizar.");
@@ -171,7 +209,15 @@ export function validateAutomationRule(
     reasons.push("Agendamento automático de lembretes ainda não possui executor seguro nesta versão.");
   }
 
-  const configured = supported && reasons.every((reason) => !reason.includes("Selecione explicitamente") && !reason.includes("não existe no snapshot") && !reason.includes("não possui executor"));
+  const configured =
+    supported &&
+    reasons.every(
+      (reason) =>
+        !reason.includes("Defina explicitamente") &&
+        !reason.includes("Selecione explicitamente") &&
+        !reason.includes("não existe no snapshot") &&
+        !reason.includes("não possui executor")
+    );
   const runnable = Boolean(rule.enabled && supported && reasons.length === 0);
 
   return {

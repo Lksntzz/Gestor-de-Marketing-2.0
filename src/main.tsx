@@ -4,6 +4,7 @@ import { FolderLock, Settings, ShieldCheck } from "lucide-react";
 import App from "./App.tsx";
 import "./index.css";
 import { api } from "./services/api";
+import { startAutomationRuntime, stopAutomationRuntime } from "./services/automationRuntime";
 import {
   OBSIDIAN_CONNECTED_EVENT,
   OBSIDIAN_DISCONNECTED_EVENT,
@@ -41,6 +42,11 @@ function ObsidianRuntimeGate({ children }: { children: ReactNode }) {
   const [connected, setConnected] = useState(() => isObsidianRuntimeConnected());
   const [checking, setChecking] = useState(true);
   const [reason, setReason] = useState("Conecte o Obsidian Local REST API e selecione o Vault físico para liberar o banco de conhecimento.");
+
+  useEffect(() => {
+    startAutomationRuntime();
+    return () => stopAutomationRuntime();
+  }, []);
 
   useEffect(() => {
     const onConnected = () => {
