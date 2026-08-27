@@ -43,7 +43,6 @@ describe("reliability utilities", () => {
   test("upserts a managed Markdown section instead of duplicating it", () => {
     const initial = upsertManagedSection("# Daily", "tasks", "Tarefas", "- [ ] A");
     const updated = upsertManagedSection(initial, "tasks", "Tarefas", "- [ ] B");
-
     expect(updated).toContain("- [ ] B");
     expect(updated).not.toContain("- [ ] A");
     expect(updated.match(/nisti:start:tasks/g)?.length).toBe(1);
@@ -53,19 +52,8 @@ describe("reliability utilities", () => {
   test("creates stable routine IDs and refreshes metadata without resetting completion", () => {
     const anchor = new Date(2026, 7, 26, 12, 0, 0);
     const id = stableRoutineTaskId(anchor, "slot-segunda");
-    const first = task({
-      id,
-      title: "Primeira versão",
-      status: "done",
-      completedAt: "2026-08-26T10:00:00.000Z",
-    });
-    const second = task({
-      id,
-      title: "Versão atualizada",
-      status: "todo",
-      dueTime: "15:30",
-    });
-
+    const first = task({ id, title: "Primeira versão", status: "done", completedAt: "2026-08-26T10:00:00.000Z" });
+    const second = task({ id, title: "Versão atualizada", status: "todo", dueTime: "15:30" });
     const result = upsertItemsById([first], [second]);
     expect(result).toHaveLength(1);
     expect(result[0].title).toBe("Versão atualizada");
@@ -82,17 +70,15 @@ describe("reliability utilities", () => {
     expect(isReminderDue(task({ status: "done" }), new Date(2026, 7, 26, 9, 1, 0))).toBe(false);
   });
 
-  test("merges incoming vault notes by path without deleting local-only notes", () => {
+  test("verified Vault snapshot replaces local-only knowledge", () => {
     const local = [
       { path: "00_Inbox/A.md", value: "old" },
-      { path: "00_Inbox/Local.md", value: "local" },
+      { path: "00_Inbox/Local.md", value: "local-only" },
     ];
-    const incoming = [{ path: "00_Inbox/A.md", value: "new" }];
-    const merged = mergeByPath(local, incoming);
-
-    expect(merged).toEqual([
+    const incoming = [
       { path: "00_Inbox/A.md", value: "new" },
-      { path: "00_Inbox/Local.md", value: "local" },
-    ]);
+      { path: "01_Estrategia/B.md", value: "vault" },
+    ];
+    expect(mergeByPath(local, incoming)).toEqual(incoming);
   });
 });
