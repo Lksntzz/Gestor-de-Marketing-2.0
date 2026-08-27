@@ -56,6 +56,56 @@ describe("v2.0.0 hardening invariants", () => {
     expect(source).not.toContain('localStorage.getItem("obsidian_api_config")');
   });
 
+  test("Obsidian runtime fails closed until REST and physical Vault are validated", async () => {
+    const desktop = await read("electron-main.ts");
+    const apiSource = await read("src/services/api.ts");
+    const runtime = await read("src/services/obsidianRuntimeState.ts");
+    const main = await read("src/main.tsx");
+
+    expect(desktop).toContain("obsidianConnectionAuthorized = false");
+    expect(desktop).toContain("requireObsidianConnection");
+    expect(desktop).toContain('ipcMain.handle("vault:connection-state"');
+    expect(apiSource).toContain("setDesktopObsidianAuthorization(true)");
+    expect(apiSource).toContain("setDesktopObsidianAuthorization(false)");
+    expect(apiSource).toContain("markObsidianRuntimeConnected");
+    expect(apiSource).toContain("markObsidianRuntimeDisconnected");
+    expect(runtime).toContain("let connected = false");
+    expect(main).toContain("ObsidianRuntimeGate");
+    expect(main).toContain("OBSIDIAN_DISCONNECTED_EVENT");
+  });
+
+  test("Vault scan indexes supported document and image sources with epistemic status", async () => {
+    const desktop = await read("electron-main.ts");
+    const vault = await read("src/components/VaultView.tsx");
+
+    expect(desktop).toContain('".pdf"');
+    expect(desktop).toContain('".png"');
+    expect(desktop).toContain('".jpg"');
+    expect(desktop).toContain('".jpeg"');
+    expect(desktop).toContain('".webp"');
+    expect(desktop).toContain('".txt"');
+    expect(desktop).toContain("epistemic_status");
+    expect(desktop).toContain("CONFIRMADO");
+    expect(desktop).toContain("HIPÓTESE");
+    expect(desktop).toContain("PENDENTE");
+    expect(vault).toContain("OBSIDIAN_SNAPSHOT_EVENT");
+    expect(vault).toContain("vaultFolders");
+  });
+
+  test("knowledge ingestion is authenticated and only mutates UI after Obsidian confirms write", async () => {
+    const apiSource = await read("src/services/api.ts");
+    const knowledge = await read("src/components/AddKnowledgeView.tsx");
+    const noteModal = await read("src/components/NoteModal.tsx");
+
+    expect(apiSource).toContain("async processKnowledge");
+    expect(apiSource).toContain('fetch("/api/gemini/process-knowledge"');
+    expect(knowledge).toContain("api.processKnowledge");
+    expect(knowledge).not.toContain('fetch("/api/gemini/process-knowledge"');
+    expect(knowledge).toContain("api.pushNoteToObsidian");
+    expect(knowledge.indexOf("api.pushNoteToObsidian")).toBeLessThan(knowledge.indexOf("onAddNote(newNote)"));
+    expect(noteModal.indexOf("api.pushNoteToObsidian")).toBeLessThan(noteModal.indexOf("onSaveNote(newNote)"));
+  });
+
   test("local engine keeps unsupported business claims pending", async () => {
     const source = await read("src/utils/localEngine.ts");
     expect(source).toContain("CONFIRMADO, HIPÓTESE ou PENDENTE");
