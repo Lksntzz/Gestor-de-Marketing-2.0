@@ -1,20 +1,20 @@
-import React, { useState, useMemo } from "react";
+import React, { useMemo, useState } from "react";
 import {
-  Sparkles,
-  CheckSquare,
-  Clock,
-  FolderOpen,
-  ArrowRight,
-  Zap,
+  ArrowRightLeft,
+  Bot,
+  CalendarDays,
   CheckCircle2,
-  Calendar,
   FileText,
-  ExternalLink,
-  Check,
-  RotateCcw,
-  ArrowUpRight,
-  Laptop,
-  ShieldCheck,
+  Folder,
+  FolderTree,
+  Hash,
+  LibraryBig,
+  Map,
+  Megaphone,
+  MoreHorizontal,
+  Play,
+  Sparkles,
+  Zap,
 } from "lucide-react";
 import {
   ObsidianNote,
@@ -27,7 +27,6 @@ import {
   VisualAsset,
   EngineMode,
 } from "../types";
-import { buildObsidianOpenUri } from "../utils/obsidianUri";
 import confetti from "canvas-confetti";
 
 interface DashboardViewProps {
@@ -57,478 +56,395 @@ interface DashboardViewProps {
   onOpenSetupWizard?: () => void;
 }
 
+type PriorityAction = {
+  id: string;
+  kind: "task" | "campaign" | "setup";
+  title: string;
+  description: string;
+  channel: string;
+  dueLabel: string;
+  tags: string[];
+  filePath?: string;
+};
+
+function formatActivityTime(value?: string): string {
+  if (!value) return "Agora";
+  const parsed = new Date(value);
+  if (Number.isNaN(parsed.getTime())) return value;
+  const diffMinutes = Math.max(0, Math.round((Date.now() - parsed.getTime()) / 60000));
+  if (diffMinutes < 1) return "Agora";
+  if (diffMinutes < 60) return `Há ${diffMinutes} min`;
+  const diffHours = Math.round(diffMinutes / 60);
+  if (diffHours < 24) return `Há ${diffHours} h`;
+  return parsed.toLocaleDateString("pt-BR");
+}
+
 export const DashboardView: React.FC<DashboardViewProps> = ({
   notes = [],
   campaigns = [],
   tasks = [],
   ideas = [],
-  scripts: _scripts = [],
-  visuals: _visuals = [],
   apiConfig,
   engineMode,
   onNavigateTab,
-  onSelectNote: _onSelectNote,
   onToggleTaskStatus,
   onOpenNewCampaignModal,
-  onOpenNewTaskModal: _onOpenNewTaskModal,
-  onOpenNewNoteModal: _onOpenNewNoteModal,
-  onAuditVault: _onAuditVault,
-  isAuditing: _isAuditing,
-  auditInsight: _auditInsight,
   onSyncDailyNote,
-  onAddIdea: _onAddIdea,
-  onUpdateIdeaStatus: _onUpdateIdeaStatus,
-  onConvertIdeaToCampaign: _onConvertIdeaToCampaign,
-  onExportScriptToVault: _onExportScriptToVault,
   onOpenGuide,
-  onOpenSetupWizard,
 }) => {
-  // Status of the top priority action
   const [priorityActionStatus, setPriorityActionStatus] = useState<"pending" | "done" | "postponed">("pending");
 
-  const pendingTasks = useMemo(() => tasks.filter((t) => t.status !== "done"), [tasks]);
-  const completedTasks = useMemo(() => tasks.filter((t) => t.status === "done"), [tasks]);
+  const pendingTasks = useMemo(() => tasks.filter((task) => task.status !== "done"), [tasks]);
+  const completedTasks = useMemo(() => tasks.filter((task) => task.status === "done"), [tasks]);
 
-  // Next Priority Action (O que fazer agora)
-  const nextPriorityAction = useMemo(() => {
-    // 1. Check if there is an urgent/high priority task
-    const urgentTask = pendingTasks.find((t) => t.priority === "urgent" || t.priority === "high");
+  const priorityAction = useMemo<PriorityAction>(() => {
+    const urgentTask = pendingTasks
+      .slice()
+      .sort((a, b) => {
+        const rank = { urgent: 4, high: 3, medium: 2, low: 1 };
+        return rank[b.priority] - rank[a.priority];
+      })[0];
+
     if (urgentTask) {
+      const tags = [urgentTask.channel, ...(urgentTask.tags || [])].filter(Boolean) as string[];
       return {
         id: urgentTask.id,
-        type: "task" as const,
+        kind: "task",
         title: urgentTask.title,
-        subtitle: urgentTask.description || "Tarefa de alta prioridade sincronizada com Obsidian Tasks.",
-        channel: urgentTask.channel || "Geral",
-        time: urgentTask.dueTime || "11:30",
-        date: urgentTask.dueDate || "Hoje",
-        persona: "Público Alvo Nisti Print",
-        hook: "Avançar na execução desta pendência destrava a produção da esteira de campanhas.",
-        filePath: urgentTask.obsidianFilePath || "04_Campanhas/Lançamento Planners 2026.md",
+        description: urgentTask.description || "Tarefa pendente registrada no fluxo de execução.",
+        channel: urgentTask.channel || "Execução",
+        dueLabel: [urgentTask.dueDate || "Hoje", urgentTask.dueTime].filter(Boolean).join(", "),
+        tags: tags.slice(0, 3),
+        filePath: urgentTask.obsidianFilePath,
       };
     }
 
-    // 2. High-leverage marketing action from Local Engine
-    const activeCamp = campaigns[0];
-    if (activeCamp) {
+    const activeCampaign = campaigns.find((campaign) => campaign.status === "active") || campaigns[0];
+    if (activeCampaign) {
       return {
-        id: activeCamp.id,
-        type: "campaign" as const,
-        title: activeCamp.title,
-        subtitle: activeCamp.summary || "Estratégia multicanal ativa no cofre.",
-        channel: activeCamp.channels?.[0] || "Omnichannel",
-        time: "11:30",
-        date: "Hoje",
-        persona: activeCamp.targetPersona || "Público Alvo",
-        hook: activeCamp.strategy || "Avançar na execução dos criativos desta campanha.",
-        filePath: activeCamp.obsidianOutputNotePath || undefined,
+        id: activeCampaign.id,
+        kind: "campaign",
+        title: activeCampaign.title,
+        description: activeCampaign.summary || activeCampaign.strategy || "Campanha disponível para revisão e continuidade.",
+        channel: activeCampaign.channels?.[0] || "Planejamento",
+        dueLabel: activeCampaign.endDate ? `Até ${activeCampaign.endDate}` : "Em andamento",
+        tags: (activeCampaign.channels || []).slice(0, 3),
+        filePath: activeCampaign.obsidianOutputNotePath,
       };
     }
 
-    // 3. Clean Empty Vault State
-    return {
-      id: "initial_setup",
-      type: "campaign" as const,
-      title: "Cofre pronto para receber suas notas e campanhas",
-      subtitle: "Comece criando uma nova campanha ou sincronizando suas notas do Obsidian para estruturar seu marketing.",
-      channel: "Obsidian Vault",
-      time: "Agora",
-      date: "Hoje",
-      persona: "Seu Negócio / Projeto",
-      hook: "Clique no botão 'Nova Campanha' ou use o assistente para iniciar o seu planejamento.",
-      filePath: undefined,
-    };
-  }, [pendingTasks, campaigns]);
-
-  // Handle Mark Done
-  const handleMarkActionDone = () => {
-    setPriorityActionStatus("done");
-    if (nextPriorityAction.type === "task") {
-      onToggleTaskStatus(nextPriorityAction.id);
+    if (apiConfig.connectionStatus !== "connected") {
+      return {
+        id: "connect-obsidian",
+        kind: "setup",
+        title: "Conectar o Obsidian para liberar a base de conhecimento",
+        description: "O sistema precisa validar a conexão e sincronizar o Vault antes de usar o conhecimento do Obsidian.",
+        channel: "Configuração",
+        dueLabel: "Agora",
+        tags: ["Obsidian", "Sincronização"],
+      };
     }
-    confetti({ particleCount: 35, spread: 60, origin: { y: 0.7 } });
+
+    return {
+      id: "sync-vault",
+      kind: "setup",
+      title: "Sincronizar o Vault e iniciar o planejamento",
+      description: notes.length > 0
+        ? "A base está conectada. Sincronize a Daily Note ou abra o planejamento para definir a próxima ação."
+        : "O Vault está conectado, mas ainda não há notas indexadas no painel.",
+      channel: "Conhecimento",
+      dueLabel: "Agora",
+      tags: ["Vault", "Base de conhecimento"],
+    };
+  }, [pendingTasks, campaigns, apiConfig.connectionStatus, notes.length]);
+
+  const executionRate = tasks.length > 0 ? Math.round((completedTasks.length / tasks.length) * 100) : 0;
+
+  const recentActivities = useMemo(() => {
+    const activity: Array<{ id: string; title: string; meta: string; dotClass: string; timestamp?: string }> = [];
+
+    if (apiConfig.lastSyncTime) {
+      activity.push({
+        id: "obsidian-sync",
+        title: "Vault sincronizado",
+        meta: "Obsidian",
+        dotClass: "bg-emerald-400",
+        timestamp: apiConfig.lastSyncTime,
+      });
+    }
+
+    const latestNote = notes
+      .slice()
+      .sort((a, b) => String(b.lastModified || "").localeCompare(String(a.lastModified || "")))[0];
+    if (latestNote) {
+      activity.push({
+        id: `note-${latestNote.id}`,
+        title: `Nota atualizada: ${latestNote.title}`,
+        meta: latestNote.folder || "Cofre",
+        dotClass: "bg-cyan-400",
+        timestamp: latestNote.lastModified,
+      });
+    }
+
+    const latestCampaign = campaigns
+      .slice()
+      .sort((a, b) => String(b.createdDate || "").localeCompare(String(a.createdDate || "")))[0];
+    if (latestCampaign) {
+      activity.push({
+        id: `campaign-${latestCampaign.id}`,
+        title: `Campanha: ${latestCampaign.title}`,
+        meta: "Planejamento",
+        dotClass: "bg-blue-500",
+        timestamp: latestCampaign.createdDate,
+      });
+    }
+
+    const latestCompleted = tasks
+      .filter((task) => task.completedAt)
+      .sort((a, b) => String(b.completedAt || "").localeCompare(String(a.completedAt || "")))[0];
+    if (latestCompleted) {
+      activity.push({
+        id: `task-${latestCompleted.id}`,
+        title: `Tarefa concluída: ${latestCompleted.title}`,
+        meta: "Execução",
+        dotClass: "bg-slate-500",
+        timestamp: latestCompleted.completedAt,
+      });
+    }
+
+    if (activity.length === 0) {
+      activity.push({
+        id: "empty",
+        title: "Nenhuma atividade registrada ainda",
+        meta: "Os eventos reais aparecerão aqui após o uso do sistema.",
+        dotClass: "bg-slate-600",
+      });
+    }
+
+    return activity.slice(0, 4);
+  }, [apiConfig.lastSyncTime, notes, campaigns, tasks]);
+
+  const handleCompletePriority = () => {
+    if (priorityAction.kind === "task") {
+      onToggleTaskStatus(priorityAction.id);
+    } else if (priorityAction.kind === "campaign") {
+      onNavigateTab("campaigns");
+    } else if (apiConfig.connectionStatus === "connected") {
+      onSyncDailyNote();
+    } else {
+      onNavigateTab("vault");
+    }
+    setPriorityActionStatus("done");
+    confetti({ particleCount: 28, spread: 55, origin: { y: 0.72 } });
   };
-
-  // Handle Postpone
-  const handlePostponeAction = () => {
-    setPriorityActionStatus("postponed");
-  };
-
-  // MAXIMUM 3 KPIS WITH REAL DATA
-  const kpis = useMemo(() => {
-    const taskCompletionRate = tasks.length > 0
-      ? Math.round((completedTasks.length / tasks.length) * 100)
-      : 100;
-
-    return [
-      {
-        id: "campaigns",
-        label: "Campanhas Estruturadas",
-        value: `${campaigns.length}`,
-        sub: `${campaigns.length} ${campaigns.length === 1 ? "estratégia ativa" : "estratégias ativas"}`,
-        trend: "positive",
-        badge: "Em Andamento",
-        hint: "Planos multicanais gerados",
-      },
-      {
-        id: "execution",
-        label: "Taxa de Execução",
-        value: `${taskCompletionRate}%`,
-        sub: `${completedTasks.length} de ${tasks.length} concluídas`,
-        trend: "positive",
-        badge: pendingTasks.length === 0 ? "100% Concluído" : "No Prazo",
-        hint: "Aderência às rotinas e prazos",
-      },
-      {
-        id: "knowledge",
-        label: "Conhecimento Indexado",
-        value: `${notes.length} notas`,
-        sub: "100% Markdown local",
-        trend: "neutral",
-        badge: "0 Tokens",
-        hint: "Base pronta no cofre Obsidian",
-      },
-    ];
-  }, [campaigns, tasks, completedTasks, pendingTasks, notes]);
-
-  // Chronological Activity Timeline (Últimas Ações do Cérebro)
-  const activityTimeline = useMemo(() => {
-    const items = [
-      {
-        id: "1",
-        time: "Agora",
-        action: "Motor Local sincronizado",
-        detail: `${notes.length} notas no cofre e ${ideas.length} ideias indexadas`,
-        icon: Zap,
-        color: "text-purple-600 bg-purple-50",
-      },
-      {
-        id: "2",
-        time: "Hoje",
-        action: "Daily Note de Marketing",
-        detail: "Sincronização de tarefas com formato oficial Obsidian Tasks (- [ ])",
-        icon: Calendar,
-        color: "text-emerald-600 bg-emerald-50",
-      },
-      {
-        id: "3",
-        time: "Recomendado",
-        action: "Slot de Conteúdo Prioritário",
-        detail: "Publicação sobre acabamento Soft Touch e lote a partir de 10 unidades",
-        icon: Sparkles,
-        color: "text-amber-600 bg-amber-50",
-      },
-      {
-        id: "4",
-        time: "Base",
-        action: "Taxonomia Oficial Nisti Print",
-        detail: "10 pastas padrão estruturadas com frontmatter YAML e tags",
-        icon: FileText,
-        color: "text-stone-600 bg-stone-100",
-      },
-    ];
-    return items;
-  }, [notes, ideas]);
 
   return (
-    <div className="w-full px-4 md:px-8 lg:px-12 space-y-8 pb-20 animate-fadeIn">
-      
-      {/* 1. HEADER MINIMALISTA: BOAS-VINDAS & RESPOSTA DIRETA */}
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 pb-4 border-b border-stone-200/60">
-        <div>
-          <div className="flex items-center gap-2">
-            <span className="text-[10px] font-bold text-stone-700 bg-stone-100 px-2 py-0.5 rounded-md border border-stone-200 uppercase tracking-wider">
-              {engineMode === "local" ? "⚡ Motor Local Ativo" : "✨ Gemini IA Conectado"}
-            </span>
-            <span className="text-xs text-stone-400 font-medium">
-              Sincronização Contínua
-            </span>
+    <div className="min-h-[calc(100vh-4rem)] bg-[#0f131c] text-slate-100 -mx-4 sm:-mx-6 lg:-mx-8 -my-6 md:-my-8 px-6 py-7 md:px-7 md:py-7 font-sans">
+      <div className="max-w-[1600px] mx-auto h-full flex flex-col gap-6">
+        <div className="flex flex-col xl:flex-row xl:items-end justify-between gap-4">
+          <div>
+            <h1 className="text-3xl md:text-[32px] leading-tight font-bold tracking-tight text-slate-50">O que fazer agora?</h1>
+            <p className="text-sm text-slate-400 mt-1">Visão geral das prioridades, execução e conhecimento</p>
           </div>
-          <h1 className="text-xl sm:text-2xl font-black text-stone-900 tracking-tight mt-1">
-            O que fazer agora?
-          </h1>
-          <p className="text-xs text-stone-500">
-            Sua visão centralizada de prioridades, métricas essenciais e histórico recente.
-          </p>
-        </div>
-
-        {/* Quick Sync & Create Shortcuts */}
-        <div className="flex items-center gap-2 self-start sm:self-center flex-wrap">
-          {onOpenSetupWizard && (
+          <div className="flex flex-wrap items-center gap-3">
             <button
-              onClick={onOpenSetupWizard}
-              className="px-3 py-2 bg-purple-50 hover:bg-purple-100 text-purple-900 text-xs font-bold rounded-xl transition-all border border-purple-200 flex items-center gap-1.5 cursor-pointer"
-              title="Assistente de Instalação e Configuração Inicial"
+              type="button"
+              onClick={onSyncDailyNote}
+              className="h-9 px-4 rounded-sm border border-[#334155] bg-[#182234] hover:bg-[#1f2d44] text-xs font-semibold text-slate-100 flex items-center gap-2 transition-colors"
             >
-              <Laptop className="w-3.5 h-3.5 text-purple-700" />
-              <span>Instalador & Setup</span>
+              <ArrowRightLeft className="w-4 h-4" />
+              Sincronizar Daily Note
             </button>
-          )}
-
-          <button
-            onClick={onSyncDailyNote}
-            className="px-3.5 py-2 bg-stone-100 hover:bg-stone-200 text-stone-800 text-xs font-semibold rounded-xl transition-all border border-stone-200/80 flex items-center gap-1.5 cursor-pointer"
-            title="Sincronizar Daily Note de hoje no Obsidian"
-          >
-            <Calendar className="w-3.5 h-3.5 text-stone-500" />
-            <span>Sincronizar Daily</span>
-          </button>
-
-          <button
-            onClick={onOpenNewCampaignModal}
-            className="px-4 py-2 bg-stone-900 hover:bg-stone-850 text-white text-xs font-bold rounded-xl shadow-xs transition-all flex items-center gap-1.5 cursor-pointer"
-          >
-            <Sparkles className="w-3.5 h-3.5 text-purple-400" />
-            <span>Nova Campanha</span>
-          </button>
+            <button
+              type="button"
+              onClick={onOpenNewCampaignModal}
+              className="h-9 px-4 rounded-sm bg-[#2563eb] hover:bg-blue-500 text-xs font-semibold text-white flex items-center gap-2 transition-colors"
+            >
+              <Megaphone className="w-4 h-4" />
+              Nova Campanha
+            </button>
+          </div>
         </div>
-      </div>
 
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-8 items-start">
-        {/* Left Column: Recommended Actions and Impact Metrics */}
-        <div className="lg:col-span-2 space-y-8">
-          {/* 2. CARD PRINCIPAL: "O QUE FAZER AGORA" (AÇÃO PRIORITÁRIA DE ALTO IMPACTO) */}
-          <div className="bg-white rounded-3xl border border-stone-200/80 p-6 sm:p-8 shadow-xs space-y-6 relative overflow-hidden">
-            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
-              <div className="flex items-center gap-2.5">
-                <span className="w-2.5 h-2.5 rounded-full bg-purple-600 animate-pulse" />
-                <span className="text-[11px] font-bold uppercase tracking-wider text-purple-700">
-                  Ação Recomendada de Hoje
-                </span>
-              </div>
-              <span className="text-xs font-mono font-bold text-stone-700 bg-stone-100 px-2.5 py-1 rounded-lg self-start sm:self-auto border border-stone-200/70">
-                ⏰ {nextPriorityAction.time} • #{nextPriorityAction.channel}
-              </span>
-            </div>
-
-            <div className="space-y-3">
-              <div className="flex flex-wrap items-center gap-2">
-                <span className="text-[10px] font-bold uppercase px-2 py-0.5 rounded bg-stone-100 text-stone-700">
-                  {nextPriorityAction.persona}
-                </span>
-                <span className="text-[10px] font-bold uppercase px-2 py-0.5 rounded bg-purple-50 text-purple-700 border border-purple-150">
-                  Alta Conversão
-                </span>
+        <div className="grid grid-cols-12 gap-6 flex-1 min-h-0">
+          <section className="col-span-12 xl:col-span-8 flex flex-col gap-6 min-h-0">
+            <div className="bg-[#182234] border border-[#334155] border-l-4 border-l-[#2563eb] rounded-sm p-6 flex-1 min-h-[420px] flex flex-col shadow-sm">
+              <div className="flex items-start justify-between gap-4 mb-5">
+                <div className="flex items-center gap-2 flex-wrap">
+                  <span className="inline-flex items-center gap-1 px-2 py-1 rounded-sm bg-red-950/70 text-red-200 text-[10px] font-bold uppercase tracking-[0.08em]">
+                    <span className="w-2 h-2 border border-red-300 rotate-45" />
+                    {priorityAction.kind === "task" ? "Prioridade" : priorityAction.kind === "campaign" ? "Campanha" : "Ação"}
+                  </span>
+                  <span className="px-2 py-1 rounded-sm bg-[#262a33] text-slate-400 text-[10px] font-bold uppercase tracking-[0.08em]">
+                    {priorityAction.channel}
+                  </span>
+                </div>
+                <span className="text-xs font-mono text-slate-400 whitespace-nowrap">{priorityAction.dueLabel}</span>
               </div>
 
-              <h2 className="text-lg sm:text-xl font-black text-stone-900 leading-snug">
-                {nextPriorityAction.title}
-              </h2>
+              <h2 className="text-xl md:text-[22px] leading-7 font-semibold text-slate-50">{priorityAction.title}</h2>
+              <p className="text-sm leading-6 text-slate-400 mt-2 max-w-3xl">{priorityAction.description}</p>
 
-              <p className="text-xs sm:text-sm text-stone-600 leading-relaxed font-sans bg-stone-50/70 p-4 rounded-2xl border border-stone-150/80">
-                <strong>Gancho sugerido:</strong> "{nextPriorityAction.hook}"
-              </p>
-            </div>
+              <div className="flex flex-wrap items-center gap-x-4 gap-y-2 mt-5 text-xs text-slate-400 font-mono">
+                {priorityAction.tags.map((tag) => (
+                  <span key={tag} className="inline-flex items-center gap-1.5">
+                    <Hash className="w-3.5 h-3.5" /> {tag}
+                  </span>
+                ))}
+                {priorityAction.filePath && (
+                  <span className="inline-flex items-center gap-1.5">
+                    <Folder className="w-3.5 h-3.5" /> {priorityAction.filePath}
+                  </span>
+                )}
+              </div>
 
-            {/* Action Controls */}
-            <div className="flex flex-wrap items-center justify-between gap-3 pt-4 border-t border-stone-150">
-              <div className="flex items-center gap-2">
+              <div className="mt-auto pt-5 border-t border-[#334155] flex flex-wrap items-center gap-3">
                 {priorityActionStatus === "done" ? (
-                  <span className="text-xs font-bold text-emerald-700 bg-emerald-50 px-3 py-1.5 rounded-xl border border-emerald-200 flex items-center gap-1.5">
-                    <CheckCircle2 className="w-4 h-4 text-emerald-600" />
-                    <span>Ação concluída com sucesso!</span>
+                  <span className="inline-flex items-center gap-2 h-9 px-4 rounded-sm bg-emerald-950/40 border border-emerald-700/50 text-emerald-300 text-xs font-semibold">
+                    <CheckCircle2 className="w-4 h-4" /> Ação encaminhada
                   </span>
                 ) : (
                   <>
                     <button
-                      onClick={handleMarkActionDone}
-                      className="px-4 py-2 bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-bold rounded-xl transition-all flex items-center gap-1.5 cursor-pointer shadow-3xs"
+                      type="button"
+                      onClick={handleCompletePriority}
+                      className="h-9 px-5 rounded-sm bg-[#2563eb] hover:bg-blue-500 text-white text-xs font-semibold inline-flex items-center gap-2"
                     >
-                      <Check className="w-3.5 h-3.5" />
-                      <span>Concluir Agora</span>
+                      <CheckCircle2 className="w-4 h-4" />
+                      {priorityAction.kind === "task" ? "Concluir agora" : priorityAction.kind === "campaign" ? "Abrir campanha" : "Executar agora"}
                     </button>
-
                     <button
-                      onClick={handlePostponeAction}
-                      className="px-3.5 py-2 bg-stone-50 hover:bg-stone-100 text-stone-700 text-xs font-bold rounded-xl border border-stone-200 transition-all flex items-center gap-1.5 cursor-pointer"
+                      type="button"
+                      onClick={() => setPriorityActionStatus("postponed")}
+                      className="h-9 px-5 rounded-sm bg-[#0f131c] border border-[#334155] hover:bg-[#1c2028] text-slate-200 text-xs font-semibold"
                     >
-                      <RotateCcw className="w-3.5 h-3.5 text-stone-400" />
-                      <span>Adiar Slot</span>
+                      {priorityActionStatus === "postponed" ? "Adiado" : "Adiar"}
                     </button>
                   </>
                 )}
-              </div>
 
-              <div className="flex items-center gap-2">
                 <button
-                  onClick={onOpenNewCampaignModal}
-                  className="px-4 py-2 bg-stone-900 hover:bg-stone-850 text-white text-xs font-bold rounded-xl transition-all flex items-center gap-1.5 cursor-pointer shadow-3xs"
+                  type="button"
+                  onClick={() => onNavigateTab(priorityAction.kind === "task" ? "tasks" : priorityAction.kind === "campaign" ? "campaigns" : "routine")}
+                  className="sm:ml-auto h-9 px-4 rounded-sm bg-violet-500/10 border border-violet-400/30 text-violet-300 hover:bg-violet-500/20 text-xs font-semibold inline-flex items-center gap-2"
                 >
-                  <Sparkles className="w-3.5 h-3.5 text-purple-400" />
-                  <span>Gerar no Assistente IA</span>
+                  <Sparkles className="w-4 h-4" /> Gerar/Abrir no Assistente
                 </button>
-
-                {nextPriorityAction.filePath && (
-                  <a
-                    href={buildObsidianOpenUri(apiConfig.vaultName, nextPriorityAction.filePath)}
-                    className="p-2 text-stone-500 hover:text-stone-900 border border-stone-200 rounded-xl hover:bg-stone-50 transition-colors"
-                    title="Abrir nota de origem no Obsidian"
-                  >
-                    <ExternalLink className="w-4 h-4" />
-                  </a>
-                )}
               </div>
             </div>
-          </div>
 
-          {/* 3. KPIS ESSENCIAIS COM TENDÊNCIAS */}
-          <div className="space-y-3">
-            <div className="flex items-center justify-between">
-              <span className="text-[11px] font-bold text-stone-400 uppercase tracking-wider">
-                Métricas de Impacto
-              </span>
-              <span className="text-xs text-stone-400">Tempo real</span>
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-4 shrink-0">
+              <MetricCard
+                icon={<Megaphone className="w-5 h-5" />}
+                value={String(campaigns.length)}
+                label="Campanhas Estruturadas"
+                hint={campaigns.length > 0 ? `${campaigns.filter((campaign) => campaign.status === "active").length} ativas` : "Nenhuma campanha ainda"}
+                hintClass="text-emerald-400"
+              />
+              <MetricCard
+                icon={<Zap className="w-5 h-5" />}
+                value={`${executionRate}%`}
+                label="Taxa de Execução"
+                hint={`${completedTasks.length}/${tasks.length} tarefas concluídas`}
+                progress={executionRate}
+                hintClass="text-amber-400"
+              />
+              <MetricCard
+                icon={<FileText className="w-5 h-5" />}
+                value={String(notes.length)}
+                label="Notas Indexadas"
+                hint={apiConfig.connectionStatus === "connected" ? "Obsidian conectado" : "Obsidian desconectado"}
+                hintClass={apiConfig.connectionStatus === "connected" ? "text-emerald-400" : "text-slate-500"}
+              />
+            </div>
+          </section>
+
+          <aside className="col-span-12 xl:col-span-4 flex flex-col gap-6 min-h-0">
+            <div className="bg-[#182234] border border-[#334155] rounded-sm p-5 flex-1 min-h-[360px] flex flex-col">
+              <div className="flex items-center justify-between mb-6">
+                <h3 className="text-sm font-semibold text-slate-100">Atividades Recentes</h3>
+                <MoreHorizontal className="w-5 h-5 text-slate-500" />
+              </div>
+
+              <div className="relative border-l border-[#334155] pl-4 space-y-6 flex-1">
+                {recentActivities.map((activity) => (
+                  <div key={activity.id} className="relative">
+                    <span className={`absolute -left-[21px] top-1 w-2.5 h-2.5 rounded-full border-2 border-[#182234] ${activity.dotClass}`} />
+                    <p className="text-xs font-medium text-slate-200">{activity.title}</p>
+                    <p className="text-[10px] font-mono text-slate-500 mt-1">
+                      {formatActivityTime(activity.timestamp)} • {activity.meta}
+                    </p>
+                  </div>
+                ))}
+              </div>
+
+              <button
+                type="button"
+                onClick={() => onNavigateTab("tasks")}
+                className="mt-4 pt-4 border-t border-[#334155] text-xs text-slate-400 hover:text-slate-200 transition-colors text-center"
+              >
+                Ver execução
+              </button>
             </div>
 
-            <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-              {kpis.map((kpi) => (
-                <div
-                  key={kpi.id}
-                  className="bg-white p-5 rounded-2xl border border-stone-200/80 shadow-3xs space-y-2"
-                >
-                  <div className="flex items-center justify-between">
-                    <span className="text-[11px] font-bold text-stone-500 uppercase tracking-wider">
-                      {kpi.label}
-                    </span>
-                    <span className="text-[10px] font-mono font-bold text-emerald-700 bg-emerald-50 px-2 py-0.5 rounded-md border border-emerald-200/60 flex items-center gap-0.5">
-                      <ArrowUpRight className="w-3 h-3" />
-                      {kpi.badge}
-                    </span>
-                  </div>
-
-                  <div className="flex items-baseline justify-between pt-1">
-                    <span className="text-2xl font-black text-stone-900 tracking-tight">
-                      {kpi.value}
-                    </span>
-                  </div>
-
-                  <p className="text-[11px] text-stone-500 font-medium">
-                    {kpi.sub}
-                  </p>
-                </div>
-              ))}
+            <div className="grid grid-cols-2 gap-3 shrink-0">
+              <Shortcut icon={<LibraryBig className="w-5 h-5" />} label="Conhecimento" onClick={() => onNavigateTab("vault")} />
+              <Shortcut icon={<Map className="w-5 h-5" />} label="Planejamento" onClick={() => onNavigateTab("routine")} />
+              <Shortcut icon={<Play className="w-5 h-5" />} label="Execução" onClick={() => onNavigateTab("tasks")} />
+              <Shortcut icon={<Bot className="w-5 h-5" />} label="Guia do Sistema" onClick={() => onOpenGuide?.()} disabled={!onOpenGuide} />
             </div>
-          </div>
+          </aside>
         </div>
 
-        {/* Right Column: Activities and Shortcuts */}
-        <div className="space-y-8">
-          {/* 4. TIMELINE LINEAR DAS ÚLTIMAS AÇÕES & ATIVIDADES DO CÉREBRO */}
-          <div className="bg-white rounded-3xl border border-stone-200/80 p-6 sm:p-7 shadow-xs space-y-4">
-            <div className="flex items-center justify-between pb-3 border-b border-stone-100">
-              <div className="flex items-center gap-2">
-                <Clock className="w-4 h-4 text-purple-600" />
-                <h2 className="text-sm font-bold text-stone-900 uppercase tracking-wider">
-                  Atividades Recentes
-                </h2>
-              </div>
-              <span className="text-xs text-stone-400">Últimos eventos</span>
-            </div>
-
-            <div className="divide-y divide-stone-100">
-              {activityTimeline.map((item) => {
-                const Icon = item.icon;
-                return (
-                  <div key={item.id} className="py-3.5 flex items-start justify-between gap-3 group">
-                    <div className="flex items-start gap-3">
-                      <div className={`w-7 h-7 rounded-xl flex items-center justify-center shrink-0 mt-0.5 ${item.color}`}>
-                        <Icon className="w-3.5 h-3.5" />
-                      </div>
-                      <div>
-                        <span className="text-xs font-bold text-stone-900 block leading-tight">
-                          {item.action}
-                        </span>
-                        <span className="text-[11px] text-stone-500 mt-0.5 block">
-                          {item.detail}
-                        </span>
-                      </div>
-                    </div>
-
-                    <span className="text-[10px] font-mono text-stone-400 shrink-0">
-                      {item.time}
-                    </span>
-                  </div>
-                );
-              })}
-            </div>
-          </div>
-
-          {/* 5. ATALHOS RÁPIDOS PARA OS PILARES (CONHECIMENTO, PLANEJAMENTO, EXECUÇÃO) */}
-          <div className="space-y-3">
-            <span className="text-[11px] font-bold text-stone-400 uppercase tracking-wider block">
-              Atalhos de Navegação
-            </span>
-            <div className="grid grid-cols-1 gap-3">
-              <button
-                onClick={() => onNavigateTab("vault")}
-                className="p-4 rounded-2xl bg-white border border-stone-200/80 hover:border-purple-300 text-left transition-all group shadow-3xs cursor-pointer flex items-center justify-between w-full"
-              >
-                <div className="flex items-center gap-3">
-                  <div className="w-9 h-9 rounded-xl bg-purple-50 text-purple-700 flex items-center justify-center border border-purple-100">
-                    <FolderOpen className="w-4 h-4" />
-                  </div>
-                  <div>
-                    <span className="text-xs font-bold text-stone-900 block">Conhecimento</span>
-                    <span className="text-[10px] text-stone-500 block mt-0.5">{notes.length} notas no cofre</span>
-                  </div>
-                </div>
-                <ArrowRight className="w-4 h-4 text-stone-450 group-hover:translate-x-0.5 group-hover:text-purple-600 transition-all" />
-              </button>
-
-              <button
-                onClick={() => onNavigateTab("routine")}
-                className="p-4 rounded-2xl bg-white border border-stone-200/80 hover:border-purple-300 text-left transition-all group shadow-3xs cursor-pointer flex items-center justify-between w-full"
-              >
-                <div className="flex items-center gap-3">
-                  <div className="w-9 h-9 rounded-xl bg-purple-50 text-purple-700 flex items-center justify-center border border-purple-100">
-                    <Calendar className="w-4 h-4" />
-                  </div>
-                  <div>
-                    <span className="text-xs font-bold text-stone-900 block">Planejamento</span>
-                    <span className="text-[10px] text-stone-500 block mt-0.5">Rotina e horários ideais</span>
-                  </div>
-                </div>
-                <ArrowRight className="w-4 h-4 text-stone-450 group-hover:translate-x-0.5 group-hover:text-purple-600 transition-all" />
-              </button>
-
-              <button
-                onClick={() => onNavigateTab("tasks")}
-                className="p-4 rounded-2xl bg-white border border-stone-200/80 hover:border-purple-300 text-left transition-all group shadow-3xs cursor-pointer flex items-center justify-between w-full"
-              >
-                <div className="flex items-center gap-3">
-                  <div className="w-9 h-9 rounded-xl bg-purple-50 text-purple-700 flex items-center justify-center border border-purple-100">
-                    <CheckSquare className="w-4 h-4" />
-                  </div>
-                  <div>
-                    <span className="text-xs font-bold text-stone-900 block">Execução</span>
-                    <span className="text-[10px] text-stone-500 block mt-0.5">{pendingTasks.length} tarefas a fazer</span>
-                  </div>
-                </div>
-                <ArrowRight className="w-4 h-4 text-stone-450 group-hover:translate-x-0.5 group-hover:text-purple-600 transition-all" />
-              </button>
-
-              {onOpenGuide && (
-                <button
-                  onClick={onOpenGuide}
-                  className="p-4 rounded-2xl bg-linear-to-br from-purple-50 to-stone-50 border border-purple-200 hover:border-purple-300 text-left transition-all group shadow-3xs cursor-pointer flex items-center justify-between w-full mt-1"
-                >
-                  <div className="flex items-center gap-3">
-                    <div className="w-9 h-9 rounded-xl bg-purple-600 text-white flex items-center justify-center shadow-xs">
-                      <Sparkles className="w-4 h-4" />
-                    </div>
-                    <div>
-                      <span className="text-xs font-bold text-purple-950 block">Guia do Sistema</span>
-                      <span className="text-[10px] text-purple-700 block mt-0.5">Instalação Local, Obsidian & Hot Swap</span>
-                    </div>
-                  </div>
-                  <ArrowRight className="w-4 h-4 text-purple-600 group-hover:translate-x-0.5 transition-all" />
-                </button>
-              )}
-            </div>
-          </div>
+        <div className="flex flex-wrap items-center gap-4 text-[10px] font-mono uppercase tracking-[0.12em] text-slate-500 border-t border-[#1f2937] pt-3">
+          <span className="inline-flex items-center gap-1.5"><span className="w-1.5 h-1.5 rounded-full bg-cyan-400" /> IA: {engineMode === "local" ? "Local" : "Gemini"}</span>
+          <span className="inline-flex items-center gap-1.5"><span className={`w-1.5 h-1.5 rounded-full ${apiConfig.connectionStatus === "connected" ? "bg-emerald-400" : "bg-slate-600"}`} /> Obsidian: {apiConfig.connectionStatus === "connected" ? "Conectado" : "Desconectado"}</span>
+          <span className="inline-flex items-center gap-1.5"><FolderTree className="w-3.5 h-3.5" /> {notes.length} notas</span>
+          <span className="inline-flex items-center gap-1.5"><CalendarDays className="w-3.5 h-3.5" /> {ideas.length} ideias</span>
         </div>
       </div>
-
     </div>
   );
 };
+
+const MetricCard: React.FC<{
+  icon: React.ReactNode;
+  value: string;
+  label: string;
+  hint: string;
+  hintClass: string;
+  progress?: number;
+}> = ({ icon, value, label, hint, hintClass, progress }) => (
+  <div className="bg-[#182234] border border-[#334155] rounded-sm p-5 min-h-[150px] flex flex-col justify-between hover:border-[#475569] transition-colors">
+    <div className="flex items-start justify-between gap-3">
+      <span className="text-slate-400">{icon}</span>
+      <span className={`text-[10px] font-mono ${hintClass}`}>{hint}</span>
+    </div>
+    <div className="mt-5">
+      <div className="text-xl font-semibold text-slate-100">{value}</div>
+      <div className="text-xs text-slate-400 mt-1">{label}</div>
+      {typeof progress === "number" && (
+        <div className="mt-3 h-1 w-full bg-[#262a33] rounded-full overflow-hidden">
+          <div className="h-full bg-cyan-400 rounded-full" style={{ width: `${Math.min(100, Math.max(0, progress))}%` }} />
+        </div>
+      )}
+    </div>
+  </div>
+);
+
+const Shortcut: React.FC<{
+  icon: React.ReactNode;
+  label: string;
+  onClick: () => void;
+  disabled?: boolean;
+}> = ({ icon, label, onClick, disabled }) => (
+  <button
+    type="button"
+    onClick={onClick}
+    disabled={disabled}
+    className="min-h-[82px] bg-[#1c2028] hover:bg-[#262a33] disabled:opacity-50 border border-[#334155] rounded-sm p-4 flex flex-col items-center justify-center gap-2 text-slate-400 hover:text-slate-100 transition-colors"
+  >
+    {icon}
+    <span className="text-xs font-medium text-slate-200">{label}</span>
+  </button>
+);
