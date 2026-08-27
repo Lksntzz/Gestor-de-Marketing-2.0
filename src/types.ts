@@ -298,6 +298,17 @@ export interface DailyRoutineSlot {
 
 type ElectronWriteResult = Promise<{ success: boolean; path?: string; error?: string }>;
 
+type KnowledgeCommitResult = Promise<{
+  success: boolean;
+  error?: string;
+  noteTitle?: string;
+  noteRelativePath?: string;
+  assetRelativePath?: string;
+  assetFileName?: string;
+  assetMtimeMs?: number;
+  assetSize?: number;
+}>;
+
 declare global {
   interface Window {
     electronAPI?: {
@@ -307,6 +318,13 @@ declare global {
       setObsidianConnectionState: (connected: boolean) => Promise<{ success: boolean; connected: boolean }>;
       listVaultFolders: () => Promise<string[]>;
       readNotes: () => Promise<any[]>;
+      commitKnowledge: (payload: {
+        folder: string;
+        title: string;
+        content: string;
+        frontmatter?: Record<string, unknown>;
+        asset?: { fileName: string; dataUrl: string };
+      }) => KnowledgeCommitResult;
       writeNote: {
         (folder: string, title: string, content: string, frontmatter?: any): ElectronWriteResult;
         (legacyVaultPath: string, folder: string, title: string, content: string, frontmatter?: any): ElectronWriteResult;
