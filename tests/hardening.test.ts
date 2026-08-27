@@ -74,6 +74,27 @@ describe("v2.0.0 hardening invariants", () => {
     expect(main).toContain("OBSIDIAN_DISCONNECTED_EVENT");
   });
 
+  test("settings cannot simulate a connected Obsidian session", async () => {
+    const settings = await read("src/components/ObsidianApiSettingsModal.tsx");
+    const storage = await read("src/services/storage/StorageManager.ts");
+
+    expect(settings).toContain("api.isObsidianSessionVerified()");
+    expect(settings).toContain("O status conectado só é liberado depois");
+    expect(settings).not.toContain("Ativar Conexão Sandbox");
+    expect(settings).not.toContain("Conexão Sandbox ativada com sucesso");
+    expect(storage).toContain('connectionStatus: "disconnected"');
+  });
+
+  test("desktop note persistence fails closed instead of falling back to localStorage", async () => {
+    const storage = await read("src/services/storage/StorageManager.ts");
+
+    expect(storage).toContain("isObsidianRuntimeConnected");
+    expect(storage).toContain("A gravação foi bloqueada");
+    expect(storage).toContain("A exclusão foi bloqueada");
+    expect(storage).toContain("Desktop Vault read failed closed");
+    expect(storage).not.toContain("Desktop filesystem read failed, falling back to local sandbox");
+  });
+
   test("Vault scan indexes supported document and image sources with epistemic status", async () => {
     const desktop = await read("electron-main.ts");
     const vault = await read("src/components/VaultView.tsx");
