@@ -1,7 +1,7 @@
 {
   "name": "nisti-marketing",
   "private": true,
-  "version": "2.1.7",
+  "version": "2.1.8",
   "description": "Nisti Marketing - sistema local-first de gestão de marketing integrado ao Obsidian e IA multi-provedor",
   "author": "Nisti Print Solutions",
   "main": "dist/electron-main.cjs",
@@ -48,11 +48,15 @@
       "target": [
         {
           "target": "nsis",
-          "arch": ["x64"]
+          "arch": [
+            "x64"
+          ]
         },
         {
           "target": "portable",
-          "arch": ["x64"]
+          "arch": [
+            "x64"
+          ]
         }
       ],
       "requestedExecutionLevel": "asInvoker",
@@ -69,16 +73,25 @@
       "perMachine": false,
       "runAfterFinish": true,
       "deleteAppDataOnUninstall": false,
-      "installerLanguages": ["pt_BR", "en_US"],
+      "installerLanguages": [
+        "pt_BR",
+        "en_US"
+      ],
       "displayLanguageSelector": false,
       "uninstallDisplayName": "Nisti Marketing"
     },
     "mac": {
-      "target": ["dmg", "zip"],
+      "target": [
+        "dmg",
+        "zip"
+      ],
       "category": "public.app-category.productivity"
     },
     "linux": {
-      "target": ["AppImage", "deb"]
+      "target": [
+        "AppImage",
+        "deb"
+      ]
     }
   },
   "dependencies": {
