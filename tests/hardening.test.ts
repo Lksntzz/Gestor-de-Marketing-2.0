@@ -16,7 +16,7 @@ describe("v2 hardening invariants", () => {
     expect(pkg.scripts.electronBuild || pkg.scripts["electron:build"]).toContain("verify");
     expect(pkg.build.productName).toBe("Nisti Marketing");
     expect(pkg.build.win.signAndEditExecutable).toBe(true);
-    expect(pkg.build.nsis.useZip).toBe(true);
+    expect(pkg.build.nsis.useZip ?? false).toBe(false);
   });
 
   test("secure backend is loopback-only on desktop and requires the session token", async () => {
