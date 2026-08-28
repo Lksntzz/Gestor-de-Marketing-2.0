@@ -1,42 +1,61 @@
-# Nisti Print PKM Marketing Hub 🚀
+# Nisti Marketing
 
-Gestor de Marketing e PKM Local-First integrado ao **Obsidian**, com suporte a **IA Gemini**, automação de tarefas e roteiros criativos de campanhas.
+Aplicativo desktop local-first para gestão de marketing da Nisti Print, integrado ao Obsidian e com suporte a IA multi-provedor.
 
----
+## Download para Windows
 
-## 📥 Download do Instalador Pronto (.exe)
+Os instaladores oficiais são publicados na aba **Releases** deste repositório.
 
-Você pode baixar os instaladores prontos para Windows diretamente pelo GitHub:
+Para instalação normal, use sempre o arquivo:
 
-1. Acesse a aba **[Releases / Lançamentos](../../releases)** do repositório no GitHub.
-2. Na versão mais recente, clique no arquivo executável:
-   - **`Nisti Print PKM Marketing Hub Setup X.X.X.exe`** (Instalador NSIS completo do Windows com assistente).
-   - **`Nisti Print PKM Marketing Hub X.X.X.exe`** (Versão portátil para rodar direto sem instalar).
-3. Dê 2 cliques no arquivo baixado e instale normalmente no seu computador!
+`Nisti-Marketing-Setup-X.Y.Z.exe`
 
----
+Depois da primeira instalação, novas versões estáveis são detectadas pelo atualizador interno do aplicativo em **Configuração → Sistema**. O fluxo validado é: verificar atualização → baixar → reiniciar e atualizar → reabrir na nova versão.
 
-## ⚙️ Como os Instaladores são Gerados Automaticamente no GitHub
+O feed do auto-update usa os arquivos publicados em cada Release:
 
-Este repositório possui uma automação configurada via **GitHub Actions** (`.github/workflows/release.yml`):
+- `latest.yml`
+- `Nisti-Marketing-Setup-X.Y.Z.exe`
+- `Nisti-Marketing-Setup-X.Y.Z.exe.blockmap`
 
-- Sempre que uma nova tag/versão for lançada (ou acionada manualmente na aba **Actions > Release & Build Installers**), o GitHub compila o código em uma máquina Windows na nuvem e anexa o arquivo `.exe` pronto para download nos **Releases**.
+## Release Windows
 
----
+O pipeline oficial está em `.github/workflows/release-windows.yml`.
 
-## 💻 Desenvolvimento Local (Opcional)
+Uma release estável pode ser iniciada por:
 
-Se preferir rodar ou compilar em sua máquina local:
+- tag Git no formato `vX.Y.Z`; ou
+- execução manual em **Actions → Release Windows & Auto-Update → Run workflow**.
+
+A versão solicitada deve corresponder exatamente ao campo `version` do `package.json`. Antes de publicar, o workflow executa typecheck, testes, build, smoke test do backend, geração NSIS, validação do `latest.yml`, instalação silenciosa de teste no runner Windows e validação dos assets publicados.
+
+Branches `release-v*` não fazem mais parte do processo oficial.
+
+O procedimento completo está documentado em [`docs/RELEASE_PROCESS.md`](docs/RELEASE_PROCESS.md).
+
+## Assinatura de código
+
+O pipeline aceita assinatura Authenticode quando os secrets `WIN_CSC_LINK` e `WIN_CSC_KEY_PASSWORD` estiverem configurados. Sem certificado, o build continua funcional, porém o Windows SmartScreen pode exibir aviso ao usuário.
+
+Nenhum certificado, senha ou token de assinatura deve ser armazenado no código-fonte.
+
+## Desenvolvimento local
 
 ```bash
-# 1. Instalar dependências
-bun install # ou npm install
-
-# 2. Rodar em modo desenvolvimento
+bun install
 bun run dev
+```
 
-# 3. Gerar instalador localmente
+Para validar a aplicação antes de um release:
+
+```bash
+bun run verify
+```
+
+Para gerar o instalador Windows localmente:
+
+```bash
 bun run electron:build
 ```
 
-Os executáveis gerados localmente ficarão na pasta `dist-electron/`.
+Os executáveis locais são gerados em `dist-electron/`.
