@@ -19,7 +19,7 @@
     "preview": "vite preview",
     "clean": "node -e \"require('fs').rmSync('dist',{recursive:true,force:true});require('fs').rmSync('dist-electron',{recursive:true,force:true})\"",
     "lint": "tsc --noEmit",
-    "test": "bun test tests",
+    "test": "bun test tests/*.test.ts",
     "test:node": "node --import tsx --test tests-node/*.test.ts",
     "smoke:backend": "node scripts/runtime-smoke.mjs",
     "verify": "npm run lint && npm run test && npm run test:node && npm run build"
