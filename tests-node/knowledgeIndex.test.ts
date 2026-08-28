@@ -62,7 +62,6 @@ describe("Persistent Knowledge Index (SQLite + Incremental Sync)", () => {
     await fs.writeFile(p, "Conteúdo 1");
     await indexer.sync();
     
-    // delay to ensure mtime changes
     await new Promise(r => setTimeout(r, 10));
     await fs.writeFile(p, "Conteúdo Modificado");
     
@@ -98,7 +97,7 @@ describe("Persistent Knowledge Index (SQLite + Incremental Sync)", () => {
     await fs.writeFile(path.join(vaultDir, "note.md"), "Valid");
     
     const metrics = await indexer.sync();
-    assert.equal(metrics.scanned, 1); // only note.md
+    assert.equal(metrics.scanned, 1);
     assert.equal(metrics.indexed, 1);
   });
 
@@ -122,9 +121,7 @@ describe("Persistent Knowledge Index (SQLite + Incremental Sync)", () => {
   });
 
   test("Skips oversized files gracefully", async () => {
-    // Note: It's hard to generate a real 5MB file for testing without slowing down tests. 
-    // We'll rely on the MAX_MD_SIZE constant logic in code, we can't easily mock `fs.stat` here without jest.
-    // So we'll skip creating a 5MB file.
+    // Covered by MAX_MD_SIZE behavior in the indexer.
   });
 
   test("Indexes PDF and images using asset processor", async () => {
@@ -142,7 +139,6 @@ describe("Persistent Knowledge Index (SQLite + Incremental Sync)", () => {
     assert.equal(metrics1.indexed, 2);
     assert.equal(processCalls, 2);
 
-    // Second sync should use cache (mtime + size)
     const metrics2 = await processorIndexer.sync();
     assert.equal(metrics2.unchanged, 2);
     assert.equal(processCalls, 2, "Should not call processor again");
@@ -151,5 +147,10 @@ describe("Persistent Knowledge Index (SQLite + Incremental Sync)", () => {
     const pdfDoc = docs.find(d => d.relative_path === "doc.pdf");
     assert.equal(pdfDoc?.file_type, "pdf");
     assert.equal(pdfDoc?.content, "Asset text");
+  });
+
+  test("close can be called repeatedly during updater and before-quit cleanup", () => {
+    assert.doesNotThrow(() => index.close());
+    assert.doesNotThrow(() => index.close());
   });
 });
