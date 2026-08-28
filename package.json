@@ -1,7 +1,7 @@
 {
   "name": "nisti-marketing",
   "private": true,
-  "version": "2.1.8",
+  "version": "2.1.9",
   "description": "Nisti Marketing - sistema local-first de gestão de marketing integrado ao Obsidian e IA multi-provedor",
   "author": "Nisti Print Solutions",
   "main": "dist/electron-main.cjs",
@@ -65,6 +65,7 @@
       "forceCodeSigning": false
     },
     "nsis": {
+      "artifactName": "Nisti-Marketing-Setup-${version}.${ext}",
       "oneClick": false,
       "allowToChangeInstallationDirectory": true,
       "createDesktopShortcut": true,
