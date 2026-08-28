@@ -339,8 +339,6 @@ declare global {
       getSecret: (name: string) => Promise<string>;
       deleteSecret: (name: string) => Promise<{ success: boolean }>;
       setAIConfig: (config: { provider: "gemini" | "openai"; model?: string }) => Promise<{ success: boolean }>;
-      processKnowledgeLocal: (payload: any) => Promise<any>;
-      generateCampaignLocal: (payload: any) => Promise<any>;
       getSystemStatus: () => Promise<any>;
     };
   }

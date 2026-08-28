@@ -72,11 +72,7 @@ async function setDesktopObsidianAuthorization(connected: boolean): Promise<void
   }
 }
 
-async function getSessionHeaders(aiOverride?: {
-  provider?: "gemini" | "openai";
-  apiKey?: string;
-  model?: string;
-}): Promise<Record<string, string>> {
+async function getSessionHeaders(): Promise<Record<string, string>> {
   if (!cachedSessionToken) {
     try {
       const res = await fetch("/api/auth/session", { cache: "no-store" });
@@ -95,19 +91,27 @@ async function getSessionHeaders(aiOverride?: {
   if (cachedSessionToken) {
     headers["x-app-session-token"] = cachedSessionToken;
   }
+  return headers;
+}
+
+async function getAIRequestHeaders(aiOverride?: {
+  provider?: "gemini" | "openai";
+  apiKey?: string;
+  model?: string;
+}): Promise<Record<string, string>> {
+  const headers = await getSessionHeaders();
 
   try {
-    const config = await storage.loadApiConfig(DEFAULT_API_CONFIG);
-    const provider = aiOverride?.provider || config.aiProvider || "gemini";
-    const configuredKey = aiOverride?.apiKey?.trim() || (provider === "openai"
-      ? config.openaiApiKey?.trim()
-      : config.geminiApiKey?.trim());
+    const stored = aiOverride?.provider && aiOverride.apiKey !== undefined
+      ? null
+      : await storage.loadAIRequestConfig(DEFAULT_API_CONFIG);
+    const provider = aiOverride?.provider || stored?.provider || "gemini";
+    const configuredKey = aiOverride?.apiKey?.trim() || stored?.apiKey.trim();
     headers["x-ai-provider"] = provider;
-    const model = aiOverride?.model?.trim() || config.aiModel?.trim();
+    const model = aiOverride?.model?.trim() || stored?.model.trim();
     if (model) headers["x-ai-model"] = model;
     if (configuredKey) {
       headers["x-ai-api-key"] = configuredKey;
-      if (provider === "gemini") headers["x-gemini-api-key"] = configuredKey;
     }
   } catch (e) {
     console.warn("Could not load AI provider credentials from secure storage.", e);
@@ -659,13 +663,13 @@ export const api = {
     try {
       const [headers, config] = await Promise.all([
         getSessionHeaders(),
-        storage.loadApiConfig(DEFAULT_API_CONFIG),
+        storage.loadAIRequestConfig(DEFAULT_API_CONFIG),
       ]);
       const res = await fetch("/api/health", { cache: "no-store", headers });
       const health = await res.json();
       return {
         ...health,
-        hasApiKey: Boolean(health?.hasApiKey || (config.aiProvider === "openai" ? config.openaiApiKey?.trim() : config.geminiApiKey?.trim())),
+        hasApiKey: Boolean(health?.hasApiKey || config.apiKey.trim()),
       };
     } catch {
       return { status: "offline", hasApiKey: false };
@@ -683,7 +687,7 @@ export const api = {
     }
 
     try {
-      const headers = await getSessionHeaders({ ...config, apiKey: cleanKey });
+      const headers = await getAIRequestHeaders({ ...config, apiKey: cleanKey });
       const res = await fetch("/api/ai/test-connection", {
         method: "POST",
         headers,
@@ -721,7 +725,7 @@ export const api = {
   },
 
   async generateGuidelines(payload: { campaignName: string; objective: string; engineMode: string }) {
-    const headers = await getSessionHeaders();
+    const headers = await getAIRequestHeaders();
     const res = await fetch("/api/ai/generate-guidelines", {
       method: "POST",
       headers,
@@ -735,7 +739,7 @@ export const api = {
   },
 
   async processKnowledge(type: string, payload: unknown, engineMode: string) {
-    const headers = await getSessionHeaders();
+    const headers = await getAIRequestHeaders();
     const res = await fetch("/api/ai/process-knowledge", {
       method: "POST",
       headers,
@@ -749,7 +753,7 @@ export const api = {
   },
 
   async generateCampaign(payload: GenerateCampaignPayload) {
-    const headers = await getSessionHeaders();
+    const headers = await getAIRequestHeaders();
     const res = await fetch("/api/ai/generate-campaign", {
       method: "POST",
       headers,
@@ -763,7 +767,7 @@ export const api = {
   },
 
   async extractTasks(payload: ExtractTasksPayload) {
-    const headers = await getSessionHeaders();
+    const headers = await getAIRequestHeaders();
     const res = await fetch("/api/ai/extract-tasks", {
       method: "POST",
       headers,
@@ -777,7 +781,7 @@ export const api = {
   },
 
   async analyzeVault(vaultNotesOverview: any) {
-    const headers = await getSessionHeaders();
+    const headers = await getAIRequestHeaders();
     const res = await fetch("/api/ai/analyze-vault", {
       method: "POST",
       headers,

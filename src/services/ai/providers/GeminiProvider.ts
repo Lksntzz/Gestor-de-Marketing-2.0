@@ -24,6 +24,7 @@ function geminiSchema(value: unknown): unknown {
   const source = value as Record<string, unknown>;
   const normalized: Record<string, unknown> = {};
   for (const [key, child] of Object.entries(source)) {
+    if (key === "additionalProperties") continue;
     normalized[key] = key === "type" && typeof child === "string" ? child.toUpperCase() : geminiSchema(child);
   }
   return normalized;

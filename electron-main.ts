@@ -2,7 +2,7 @@ import { app, BrowserWindow, ipcMain, dialog, Menu, safeStorage } from "electron
 import * as path from "path";
 import * as fs from "fs/promises";
 import { existsSync } from "fs";
-import { AIProviderFactory, DEFAULT_AI_MODELS } from "./src/services/ai/AIProviderFactory";
+import { DEFAULT_AI_MODELS, executeWithModelFallback } from "./src/services/ai/AIProviderFactory";
 import type { AIProviderName } from "./src/services/ai/AIProvider";
 
 let mainWindow: BrowserWindow | null = null;
@@ -27,6 +27,7 @@ const PERSISTABLE_SOURCE_EXTENSIONS = new Set([".pdf", ".png", ".jpg", ".jpeg", 
 const MAX_AI_ASSET_BYTES = 10 * 1024 * 1024;
 const MAX_PERSISTED_ASSET_BYTES = 20 * 1024 * 1024;
 const MAX_TEXT_ASSET_CHARS = 120_000;
+const GEMINI_ASSET_MODELS = ["gemini-flash-latest", "gemini-3.1-flash-lite", "gemini-3.7-flash"];
 
 const configDir = app.getPath("userData");
 const configFilePath = path.join(configDir, "nisti_config.json");
@@ -125,40 +126,7 @@ async function getSecureSecret(key: string): Promise<string | null> {
   }
 }
 
-async function setSecureSecret(key: string, value: string): Promise<void> {
-  if (!safeStorage.isEncryptionAvailable()) {
-    throw new Error("Criptografia não disponível no sistema operativo.");
-  }
-  let store: any = {};
-  if (existsSync(secretsFilePath)) {
-    try {
-      store = JSON.parse(await fs.readFile(secretsFilePath, "utf8"));
-    } catch {
-      store = {};
-    }
-  }
-  store[key] = safeStorage.encryptString(value).toString("base64");
-  await fs.writeFile(secretsFilePath, JSON.stringify(store, null, 2), { encoding: "utf8", mode: 0o600 });
-}
-
-async function deleteSecureSecret(key: string): Promise<void> {
-  if (!existsSync(secretsFilePath)) return;
-  try {
-    const store = JSON.parse(await fs.readFile(secretsFilePath, "utf8"));
-    if (store[key]) {
-      delete store[key];
-      await fs.writeFile(secretsFilePath, JSON.stringify(store, null, 2), { encoding: "utf8", mode: 0o600 });
-    }
-  } catch {
-    // Ignore parse errors on delete
-  }
-}
-
-async function getSecureGeminiKey(): Promise<string> {
-  return (await getSecureSecret("geminiApiKey")) || "";
-}
-
-async function getAIConfig(): Promise<{ provider: AIProviderName; model: string; apiKey: string }> {
+async function getAIConfig(): Promise<{ provider: AIProviderName; model: string; apiKey: string; hasExplicitModel: boolean }> {
   let persisted: { aiProvider?: AIProviderName; aiModel?: string } = {};
   try {
     if (existsSync(configFilePath)) persisted = JSON.parse(await fs.readFile(configFilePath, "utf8"));
@@ -167,7 +135,13 @@ async function getAIConfig(): Promise<{ provider: AIProviderName; model: string;
   }
   const provider = persisted.aiProvider === "openai" ? "openai" : "gemini";
   const apiKey = (await getSecureSecret(provider === "openai" ? "openaiApiKey" : "geminiApiKey")) || "";
-  return { provider, model: persisted.aiModel?.trim() || DEFAULT_AI_MODELS[provider], apiKey };
+  const configuredModel = persisted.aiModel?.trim() || "";
+  return {
+    provider,
+    model: configuredModel || DEFAULT_AI_MODELS[provider],
+    apiKey,
+    hasExplicitModel: Boolean(configuredModel),
+  };
 }
 
 ipcMain.handle("ai:config:set", async (_, config: { provider?: string; model?: string }) => {
@@ -387,9 +361,12 @@ async function callAIForAsset(fullPath: string, relativePath: string, ext: strin
   }
 
   try {
-    const provider = AIProviderFactory.create(aiConfig);
-    const result = await provider.analyzeDocument<any>({
+    const models = aiConfig.provider === "gemini" && !aiConfig.hasExplicitModel
+      ? GEMINI_ASSET_MODELS
+      : [aiConfig.model];
+    const result = await executeWithModelFallback<any>(aiConfig, models, {
       prompt: textPart ? `${prompt}\n\nCONTEÚDO DE TEXTO:\n${textPart}` : prompt,
+      temperature: aiConfig.provider === "gemini" ? 0.1 : undefined,
       schemaName: "vault_asset_analysis",
       schema: {
         type: "object",
@@ -735,30 +712,3 @@ ipcMain.handle("system:status", () => ({
   runtime: "electron",
   isDesktop: true,
 }));
-
-ipcMain.handle("secret:set", async (_, name: string, value: string) => {
-  try {
-    await setSecureSecret(name, value);
-    return { success: true };
-  } catch (err: any) {
-    return { success: false, error: err.message };
-  }
-});
-
-ipcMain.handle("secret:get", async (_, name: string) => {
-  try {
-    const value = await getSecureSecret(name);
-    return value || "";
-  } catch (err: any) {
-    return "";
-  }
-});
-
-ipcMain.handle("secret:delete", async (_, name: string) => {
-  try {
-    await deleteSecureSecret(name);
-    return { success: true };
-  } catch (err: any) {
-    return { success: false, error: err.message };
-  }
-});

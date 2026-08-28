@@ -11,6 +11,27 @@ import {
 
 type FetchLike = typeof fetch;
 
+function strictJsonSchema(value: unknown): unknown {
+  if (Array.isArray(value)) return value.map(strictJsonSchema);
+  if (!value || typeof value !== "object") return value;
+
+  const source = value as Record<string, unknown>;
+  const normalized: Record<string, unknown> = {};
+  for (const [key, child] of Object.entries(source)) {
+    normalized[key] = strictJsonSchema(child);
+  }
+
+  if (source.type === "object") {
+    const properties = source.properties && typeof source.properties === "object"
+      ? source.properties as Record<string, unknown>
+      : {};
+    normalized.properties = strictJsonSchema(properties);
+    normalized.required = Object.keys(properties);
+    normalized.additionalProperties = false;
+  }
+  return normalized;
+}
+
 export class OpenAIProvider implements AIProvider {
   readonly name = "openai" as const;
 
@@ -62,8 +83,8 @@ export class OpenAIProvider implements AIProvider {
                   format: {
                     type: "json_schema",
                     name: request.schemaName || "nisti_response",
-                    schema: request.schema || { type: "object" },
-                    strict: false,
+                    schema: strictJsonSchema(request.schema || { type: "object", properties: {} }),
+                    strict: true,
                   },
                 },
               }

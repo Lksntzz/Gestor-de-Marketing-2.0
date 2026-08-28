@@ -55,11 +55,11 @@ describe("v2.0.0 hardening invariants", () => {
 
   test("AI client reads provider credentials through secure config rather than legacy plaintext storage", async () => {
     const source = await read("src/services/api.ts");
-    expect(source).toContain("storage.loadApiConfig");
+    expect(source).toContain("storage.loadAIRequestConfig");
     expect(source).toContain("testAIConnection");
     expect(source).toContain('headers["x-ai-api-key"]');
     expect(source).toContain('headers["x-ai-provider"]');
-    expect(source).toContain('headers["x-gemini-api-key"]');
+    expect(source).not.toContain('headers["x-gemini-api-key"]');
     expect(source).not.toContain('localStorage.getItem("obsidian_api_config")');
   });
 

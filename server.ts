@@ -218,7 +218,9 @@ function providerConfigFromRequest(req: express.Request) {
     throw new AIProviderError("MISSING_CONFIG", `Provedor de IA não suportado: ${requestedProvider}.`);
   }
   const provider = requestedProvider as AIProviderName;
-  const legacyGeminiKey = provider === "gemini" ? req.headers["x-gemini-api-key"] : undefined;
+  const legacyGeminiKey = provider === "gemini" && req.path.startsWith("/api/gemini/")
+    ? req.headers["x-gemini-api-key"]
+    : undefined;
   const apiKey = String(req.headers["x-ai-api-key"] || legacyGeminiKey || "").trim();
   if (!apiKey) {
     throw new AIProviderError("MISSING_CONFIG", `A chave de API do provedor ${provider} não foi configurada.`, provider);
@@ -240,13 +242,36 @@ function aiErrorStatus(error: unknown): number {
   return 500;
 }
 
-function sendAIError(res: express.Response, error: unknown, fallbackMessage: string) {
+function isLegacyGeminiRoute(req: express.Request): boolean {
+  return req.path.startsWith("/api/gemini/");
+}
+
+function sendAIError(req: express.Request, res: express.Response, error: unknown, fallbackMessage: string) {
   const message = error instanceof Error ? error.message : fallbackMessage;
+  if (isLegacyGeminiRoute(req)) {
+    return res.status(500).json({ success: false, error: message || fallbackMessage });
+  }
   return res.status(aiErrorStatus(error)).json({
     success: false,
     error: message || fallbackMessage,
     code: error instanceof AIProviderError ? error.code : "UNKNOWN",
   });
+}
+
+function sendAISuccess<T>(
+  req: express.Request,
+  res: express.Response,
+  result: { data: T; usedModel: string; usedProvider: AIProviderName; wasFallback: boolean; warning?: string; errorCode?: string }
+) {
+  if (isLegacyGeminiRoute(req)) {
+    return res.json({
+      success: true,
+      data: result.data,
+      usedModel: result.usedModel,
+      wasFallback: result.wasFallback,
+    });
+  }
+  return res.json({ success: true, ...result });
 }
 
 async function executeAIWithFallback<T>(
@@ -352,7 +377,7 @@ app.post(["/api/ai/test-connection", "/api/gemini/test-connection"], async (req,
     const result = await provider.testConnection();
     return res.json({ success: true, provider: result.provider, model: result.model });
   } catch (error) {
-    return sendAIError(res, error, "Não foi possível validar a conexão com o provedor de IA.");
+    return sendAIError(req, res, error, "Não foi possível validar a conexão com o provedor de IA.");
   }
 });
 
@@ -435,7 +460,19 @@ Retorne JSON com summary, strategy, channelsContent, tasks, suggestedReminders e
               required: ["title", "priority", "obsidianTaskString"],
             },
           },
-          suggestedReminders: { type: "array", items: { type: "object" } },
+          suggestedReminders: {
+            type: "array",
+            items: {
+              type: "object",
+              properties: {
+                title: { type: "string" },
+                triggerDate: { type: "string" },
+                triggerTime: { type: "string" },
+                obsidianReminderString: { type: "string" },
+              },
+              required: ["title", "triggerDate", "triggerTime", "obsidianReminderString"],
+            },
+          },
           obsidianNoteMarkdown: { type: "string" },
         },
         required: ["summary", "strategy", "channelsContent", "tasks", "suggestedReminders", "obsidianNoteMarkdown"],
@@ -447,9 +484,9 @@ Retorne JSON com summary, strategy, channelsContent, tasks, suggestedReminders e
       { prompt, schema: schemaConfig.responseSchema, schemaName: "campaign" },
       safeFallback
     );
-    return res.json({ success: true, ...result });
+    return sendAISuccess(req, res, result);
   } catch (error) {
-    return sendAIError(res, error, "Erro na geração da campanha");
+    return sendAIError(req, res, error, "Erro na geração da campanha");
   }
 });
 
@@ -485,9 +522,9 @@ Não invente fatos comerciais. Se uma decisão depender de dados ausentes, marqu
       { prompt, schema: schemaConfig.responseSchema, schemaName: "guidelines" },
       safeFallback
     );
-    return res.json({ success: true, ...result });
+    return sendAISuccess(req, res, result);
   } catch (error) {
-    return sendAIError(res, error, "Erro na geração das diretrizes");
+    return sendAIError(req, res, error, "Erro na geração das diretrizes");
   }
 });
 
@@ -560,7 +597,19 @@ Retorne JSON com extractedTasks, suggestedReminders e summaryInsights. Se não h
               required: ["title", "obsidianTaskString"],
             },
           },
-          suggestedReminders: { type: "array", items: { type: "object" } },
+          suggestedReminders: {
+            type: "array",
+            items: {
+              type: "object",
+              properties: {
+                title: { type: "string" },
+                triggerDate: { type: "string" },
+                triggerTime: { type: "string" },
+                obsidianReminderString: { type: "string" },
+              },
+              required: ["title", "triggerDate", "triggerTime", "obsidianReminderString"],
+            },
+          },
           summaryInsights: { type: "string" },
         },
         required: ["extractedTasks", "suggestedReminders", "summaryInsights"],
@@ -571,9 +620,9 @@ Retorne JSON com extractedTasks, suggestedReminders e summaryInsights. Se não h
       { prompt, schema: schemaConfig.responseSchema, schemaName: "tasks" },
       safeFallback
     );
-    return res.json({ success: true, ...result });
+    return sendAISuccess(req, res, result);
   } catch (error) {
-    return sendAIError(res, error, "Erro na extração de tarefas");
+    return sendAIError(req, res, error, "Erro na extração de tarefas");
   }
 });
 
@@ -779,7 +828,7 @@ Retorne title, summary, content, category, keywords, wikilinks, evidence, hypoth
         fallback,
         "analyzeDocument"
       );
-      return res.json({ success: true, ...result });
+      return sendAISuccess(req, res, result);
     }
 
     if (type === "site") {
@@ -813,7 +862,7 @@ Retorne title, summary, content, category, keywords, wikilinks, evidence, hypoth
         fallback,
         "analyzeDocument"
       );
-      return res.json({ success: true, ...result });
+      return sendAISuccess(req, res, result);
     }
 
     if (type === "image") {
@@ -838,7 +887,7 @@ Retorne title, summary, content, category, keywords, wikilinks, evidence, hypoth
         fallback,
         "analyzeDocument"
       );
-      return res.json({ success: true, ...result });
+      return sendAISuccess(req, res, result);
     }
 
     if (type === "text") {
@@ -861,12 +910,12 @@ Retorne title, summary, content, category, keywords, wikilinks, evidence, hypoth
         fallback,
         "analyzeDocument"
       );
-      return res.json({ success: true, ...result });
+      return sendAISuccess(req, res, result);
     }
 
     return res.status(400).json({ success: false, error: `Tipo de conhecimento não suportado: ${String(type)}` });
   } catch (error) {
-    return sendAIError(res, error, "Erro ao processar conhecimento");
+    return sendAIError(req, res, error, "Erro ao processar conhecimento");
   }
 });
 
@@ -945,8 +994,31 @@ ${JSON.stringify(vaultNotesOverview || [], null, 2)}`;
         properties: {
           readinessScore: { type: "number" },
           scoreAnalysis: { type: "string" },
-          knowledgeGaps: { type: "array", items: { type: "object" } },
-          suggestedCampaigns: { type: "array", items: { type: "object" } },
+          knowledgeGaps: {
+            type: "array",
+            items: {
+              type: "object",
+              properties: {
+                topic: { type: "string" },
+                recommendation: { type: "string" },
+                urgency: { type: "string" },
+              },
+              required: ["topic", "recommendation", "urgency"],
+            },
+          },
+          suggestedCampaigns: {
+            type: "array",
+            items: {
+              type: "object",
+              properties: {
+                title: { type: "string" },
+                rationale: { type: "string" },
+                recommendedChannels: { type: "array", items: { type: "string" } },
+                estimatedEffort: { type: "string" },
+              },
+              required: ["title", "rationale", "recommendedChannels", "estimatedEffort"],
+            },
+          },
           automatedWorkflowRecommendations: { type: "array", items: { type: "string" } },
         },
         required: ["readinessScore", "scoreAnalysis", "knowledgeGaps", "suggestedCampaigns", "automatedWorkflowRecommendations"],
@@ -958,9 +1030,9 @@ ${JSON.stringify(vaultNotesOverview || [], null, 2)}`;
       safeFallback,
       "analyzeDocument"
     );
-    return res.json({ success: true, ...result });
+    return sendAISuccess(req, res, result);
   } catch (error) {
-    return sendAIError(res, error, "Erro na análise do Vault");
+    return sendAIError(req, res, error, "Erro na análise do Vault");
   }
 });
 

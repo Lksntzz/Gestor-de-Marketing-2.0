@@ -29,8 +29,5 @@ contextBridge.exposeInMainWorld("electronAPI", {
   deleteSecret: (name: string) => ipcRenderer.invoke("secret:delete", name),
   setAIConfig: (config: { provider: "gemini" | "openai"; model?: string }) => ipcRenderer.invoke("ai:config:set", config),
 
-  processKnowledgeLocal: (payload: any) => ipcRenderer.invoke("ai:process-knowledge", payload),
-  generateCampaignLocal: (payload: any) => ipcRenderer.invoke("ai:generate-campaign", payload),
-
   getSystemStatus: () => ipcRenderer.invoke("system:status")
 });
