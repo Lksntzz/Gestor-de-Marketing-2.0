@@ -20,4 +20,12 @@ describe("Windows release updater artifacts", () => {
     expect(workflow).toContain("Nisti-Marketing-Setup-");
     expect(workflow).not.toContain("uses: actions/upload-artifact");
   });
+
+  test("NSIS smoke retries only the known hosted-runner access violation and remains fail-closed", async () => {
+    const workflow = await read(".github/workflows/release-windows.yml");
+    expect(workflow).toContain("$accessViolationExitCode = -1073741819");
+    expect(workflow).toContain("$maxAttempts = 3");
+    expect(workflow).toContain("if ($process.ExitCode -ne $accessViolationExitCode)");
+    expect(workflow).toContain("release bloqueada");
+  });
 });
