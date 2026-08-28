@@ -19,6 +19,7 @@ export interface KnowledgeDocument {
 
 export class KnowledgeIndex {
   private db: DatabaseSync;
+  private closed = false;
 
   constructor(dbPath: string) {
     this.db = new DatabaseSync(dbPath);
@@ -171,6 +172,8 @@ export class KnowledgeIndex {
   }
 
   close() {
+    if (this.closed) return;
     this.db.close();
+    this.closed = true;
   }
 }
