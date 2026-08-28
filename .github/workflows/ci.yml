@@ -17,7 +17,7 @@ concurrency:
 jobs:
   build-and-verify:
     runs-on: ubuntu-latest
-    timeout-minutes: 15
+    timeout-minutes: 20
 
     steps:
       - name: Checkout Code
@@ -28,17 +28,25 @@ jobs:
         with:
           bun-version: latest
 
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
       - name: Install Dependencies
         run: bun install --frozen-lockfile
 
       - name: Run TypeScript Typecheck
-        run: bun run lint
+        run: npm run lint
 
-      - name: Run Automated Tests
-        run: bun test
+      - name: Run Bun Test Suite
+        run: npm run test
+
+      - name: Run Node Integration Tests
+        run: npm run test:node
 
       - name: Build Web Client, Hardened Backend & Electron Entrypoints
-        run: bun run build
+        run: npm run build
 
       - name: Smoke Test Self-Contained Production Backend
-        run: node scripts/runtime-smoke.mjs
+        run: npm run smoke:backend
