@@ -87,8 +87,8 @@ export class AutoUpdateService {
       process.env.PORTABLE_EXECUTABLE_FILE || process.env.PORTABLE_EXECUTABLE_DIR
     );
     this.updater = options?.updater ?? (getDefaultAutoUpdater() as AppUpdater);
-    this.checkIntervalMs = options?.checkIntervalMs ?? (4 * 60 * 60 * 1000); // 4 horas
-    this.initialCheckDelayMs = options?.initialCheckDelayMs ?? (8 * 1000); // 8 segundos
+    this.checkIntervalMs = options?.checkIntervalMs ?? (4 * 60 * 60 * 1000);
+    this.initialCheckDelayMs = options?.initialCheckDelayMs ?? (8 * 1000);
     this.cleanupHandler = options?.cleanup;
 
     const currentVer = options?.currentVersion || (electronApp ? electronApp.getVersion() : "0.0.0");
@@ -134,9 +134,7 @@ export class AutoUpdateService {
   }
 
   private configureUpdater(): void {
-    if (this.state.status === "disabled") {
-      return;
-    }
+    if (this.state.status === "disabled") return;
 
     try {
       this.updater.autoDownload = true;
@@ -145,10 +143,7 @@ export class AutoUpdateService {
       this.updater.allowPrerelease = false;
 
       this.updater.on("checking-for-update", () => {
-        this.updateState({
-          status: "checking",
-          errorMessage: undefined,
-        });
+        this.updateState({ status: "checking", errorMessage: undefined });
       });
 
       this.updater.on("update-available", (info: UpdateInfo) => {
@@ -190,10 +185,9 @@ export class AutoUpdateService {
       });
 
       this.updater.on("error", (err: Error) => {
-        const cleanMsg = this.sanitizeErrorMessage(err?.message || "Erro de conexão ao verificar atualizações.");
         this.updateState({
           status: "error",
-          errorMessage: cleanMsg,
+          errorMessage: this.sanitizeErrorMessage(err?.message || "Erro de conexão ao verificar atualizações."),
         });
       });
     } catch (err: any) {
@@ -205,7 +199,7 @@ export class AutoUpdateService {
     if (!msg) return "Não foi possível verificar atualizações.";
 
     let safe = String(msg);
-    safe = safe.replace(/(?:token|access_token|auth|authorization)=[^\s&]+/gi, "$1=***");
+    safe = safe.replace(/(token|access_token|auth|authorization)=[^\s&]+/gi, "$1=***");
     safe = safe.replace(/Bearer\s+[^\s]+/gi, "Bearer ***");
     safe = safe.replace(/gh[pousr]_[A-Za-z0-9_\-]+/g, "***");
     safe = safe.replace(/file:\/\/\/?[^\s]+/gi, "[arquivo local]");
@@ -223,23 +217,19 @@ export class AutoUpdateService {
   }
 
   private updateState(partial: Partial<UpdateState>): void {
-    this.state = {
-      ...this.state,
-      ...partial,
-    };
+    this.state = { ...this.state, ...partial };
     this.broadcastStatus();
   }
 
   private broadcastStatus(): void {
     const BrowserWindow = getElectronBrowserWindow();
     if (!BrowserWindow || typeof BrowserWindow.getAllWindows !== "function") return;
-    const windows = BrowserWindow.getAllWindows();
-    for (const win of windows) {
+    for (const win of BrowserWindow.getAllWindows()) {
       if (!win.isDestroyed()) {
         try {
           win.webContents.send("update:status", this.getState());
         } catch {
-          // Janela pode estar sendo destruída
+          // Janela pode estar sendo destruída.
         }
       }
     }
@@ -250,16 +240,10 @@ export class AutoUpdateService {
   }
 
   public startBackgroundChecks(): void {
-    if (this.state.status === "disabled" || this.isDestroyed) {
-      return;
-    }
+    if (this.state.status === "disabled" || this.isDestroyed) return;
 
-    if (this.initialCheckTimeout) {
-      clearTimeout(this.initialCheckTimeout);
-    }
-    if (this.checkTimer) {
-      clearInterval(this.checkTimer);
-    }
+    if (this.initialCheckTimeout) clearTimeout(this.initialCheckTimeout);
+    if (this.checkTimer) clearInterval(this.checkTimer);
 
     this.initialCheckTimeout = setTimeout(() => {
       void this.checkForUpdates();
@@ -271,13 +255,8 @@ export class AutoUpdateService {
   }
 
   public async checkForUpdates(): Promise<UpdateState> {
-    if (this.state.status === "disabled") {
-      return this.getState();
-    }
-
-    if (this.isChecking || this.state.status === "downloading") {
-      return this.getState();
-    }
+    if (this.state.status === "disabled") return this.getState();
+    if (this.isChecking || this.state.status === "downloading") return this.getState();
 
     this.isChecking = true;
     this.updateState({ status: "checking", errorMessage: undefined });
@@ -287,8 +266,7 @@ export class AutoUpdateService {
         await this.updater.checkForUpdates();
       }
     } catch (err: any) {
-      const cleanMsg = this.sanitizeErrorMessage(err?.message);
-      this.updateState({ status: "error", errorMessage: cleanMsg });
+      this.updateState({ status: "error", errorMessage: this.sanitizeErrorMessage(err?.message) });
     } finally {
       this.isChecking = false;
     }
@@ -298,10 +276,7 @@ export class AutoUpdateService {
 
   public async installUpdate(): Promise<{ success: boolean; error?: string }> {
     if (this.state.status !== "downloaded") {
-      return {
-        success: false,
-        error: "Nenhuma atualização baixada pronta para instalação.",
-      };
+      return { success: false, error: "Nenhuma atualização baixada pronta para instalação." };
     }
 
     try {
