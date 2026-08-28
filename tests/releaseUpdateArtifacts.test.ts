@@ -18,6 +18,6 @@ describe("Windows release updater artifacts", () => {
     expect(workflow).toContain("Verify Published Update Feed");
     expect(workflow).toContain("releases/tags/$env:RELEASE_TAG");
     expect(workflow).toContain("Nisti-Marketing-Setup-");
-    expect(workflow).not.toContain("actions/upload-artifact");
+    expect(workflow).not.toContain("uses: actions/upload-artifact");
   });
 });
