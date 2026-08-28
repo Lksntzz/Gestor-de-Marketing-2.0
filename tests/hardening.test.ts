@@ -5,10 +5,10 @@ async function read(path: string): Promise<string> {
   return await readFile(new URL(`../${path}`, import.meta.url), "utf8");
 }
 
-describe("v2.0.0 hardening invariants", () => {
+describe("v2 hardening invariants", () => {
   test("desktop packaging uses hardened self-contained backend and Electron bootstrap", async () => {
     const pkg = JSON.parse(await read("package.json"));
-    expect(pkg.version).toBe("2.0.0");
+    expect(pkg.version).toMatch(/^\d+\.\d+\.\d+$/);
     expect(pkg.name).toBe("nisti-marketing");
     expect(pkg.scripts.dev).toContain("secure-server.ts");
     expect(pkg.scripts.build).toContain("scripts/build-backend.mjs");
@@ -195,11 +195,12 @@ describe("v2.0.0 hardening invariants", () => {
     expect(source).not.toContain("localStorage");
   });
 
-  test("application identity is aligned to Nisti Marketing 2.0.0", async () => {
+  test("application identity stays aligned with package version", async () => {
+    const pkg = JSON.parse(await read("package.json"));
     const reliability = await read("src/utils/reliability.ts");
     const html = await read("index.html");
     const css = await read("src/index.css");
-    expect(reliability).toContain('APP_VERSION = "2.0.0"');
+    expect(reliability).toContain(`APP_VERSION = "${pkg.version}"`);
     expect(html).toContain("<title>Nisti Marketing</title>");
     expect(html).not.toContain("fonts.googleapis.com");
     expect(css).not.toContain("Plus Jakarta Sans");
