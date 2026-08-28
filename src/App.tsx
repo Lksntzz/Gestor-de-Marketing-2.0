@@ -399,10 +399,6 @@ export default function App() {
           customInstructions: params.customInstructions,
         });
       } else {
-        const contextNotes = matchedNotes
-          .map((n) => `--- NOTA: ${n.title} (Pasta: ${n.folder}) ---\n${n.content}`)
-          .join("\n\n");
-
         try {
           const response = await api.generateCampaign({
             campaignName: params.campaignName,
@@ -410,7 +406,8 @@ export default function App() {
             channels: params.channels,
             audience: params.audience,
             tone: params.tone,
-            contextNotes,
+            knowledgeNotes: notes,
+            preferredSourcePaths: params.selectedNotePaths,
             customInstructions: params.customInstructions,
           });
           if (response.success && response.data) {

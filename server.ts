@@ -6,6 +6,8 @@ import dotenv from "dotenv";
 import * as pdfParseModule from "pdf-parse";
 import { AIProviderFactory, DEFAULT_AI_MODELS } from "./src/services/ai/AIProviderFactory";
 import { AIProviderError, AIProviderName, GenerationRequest } from "./src/services/ai/AIProvider";
+import { buildKnowledgeContextPrompt } from "./src/services/knowledge/KnowledgeContextBuilder";
+import type { KnowledgeSourceTrace } from "./src/services/knowledge/KnowledgeContextService";
 
 dotenv.config();
 
@@ -261,7 +263,16 @@ function sendAIError(req: express.Request, res: express.Response, error: unknown
 function sendAISuccess<T>(
   req: express.Request,
   res: express.Response,
-  result: { data: T; usedModel: string; usedProvider: AIProviderName; wasFallback: boolean; warning?: string; errorCode?: string }
+  result: {
+    data: T;
+    usedModel: string;
+    usedProvider: AIProviderName;
+    wasFallback: boolean;
+    warning?: string;
+    errorCode?: string;
+    sources?: KnowledgeSourceTrace[];
+    contextWarning?: string;
+  }
 ) {
   if (isLegacyGeminiRoute(req)) {
     return res.json({
@@ -383,7 +394,7 @@ app.post(["/api/ai/test-connection", "/api/gemini/test-connection"], async (req,
 
 app.post(["/api/ai/generate-campaign", "/api/gemini/generate-campaign"], async (req, res) => {
   try {
-    const { campaignName, objective, channels, audience, tone, contextNotes, customInstructions, engineMode } = req.body || {};
+    const { campaignName, objective, channels, audience, tone, knowledgeSources, customInstructions, engineMode } = req.body || {};
     const name = String(campaignName || "").trim();
     const goal = String(objective || "").trim();
     const channelList = Array.isArray(channels) ? channels.map(String).map((item) => item.trim()).filter(Boolean) : [];
@@ -399,11 +410,7 @@ app.post(["/api/ai/generate-campaign", "/api/gemini/generate-campaign"], async (
       tone: String(tone || "").trim() || undefined,
     });
 
-    if (engineMode === "local") {
-      return res.json({ success: true, data: safeFallback(), usedModel: "local-grounded-engine", wasFallback: false });
-    }
-
-    const prompt = `Você é o copiloto de marketing do Nisti Marketing. Crie um plano de campanha usando SOMENTE os dados do briefing e os fatos presentes no contexto do Vault.
+    const businessPrompt = `Você é o copiloto de marketing do Nisti Marketing. Crie um plano de campanha usando SOMENTE os dados do briefing e os fatos presentes no contexto do Vault.
 
 REGRAS EPISTÊMICAS OBRIGATÓRIAS:
 - Não invente preços, prazos, quantidades mínimas, margens, métricas, diferenciais, materiais, estoque, garantias, clientes ou resultados.
@@ -419,10 +426,20 @@ Público informado: ${String(audience || "PENDENTE")}
 Tom informado: ${String(tone || "PENDENTE")}
 Instruções adicionais: ${String(customInstructions || "Nenhuma")}
 
-CONTEXTO DO VAULT:
-${String(contextNotes || "Nenhum contexto fornecido.")}
-
 Retorne JSON com summary, strategy, channelsContent, tasks, suggestedReminders e obsidianNoteMarkdown.`;
+    const knowledgeContext = buildKnowledgeContextPrompt(businessPrompt, knowledgeSources);
+
+    if (engineMode === "local") {
+      const requestedProvider = String(req.headers["x-ai-provider"] || "gemini") === "openai" ? "openai" : "gemini";
+      return sendAISuccess(req, res, {
+        data: safeFallback(),
+        usedModel: "local-grounded-engine",
+        usedProvider: requestedProvider,
+        wasFallback: false,
+        sources: knowledgeContext.sources,
+        contextWarning: knowledgeContext.warning,
+      });
+    }
 
     const schemaConfig = {
       responseMimeType: "application/json",
@@ -481,10 +498,19 @@ Retorne JSON com summary, strategy, channelsContent, tasks, suggestedReminders e
 
     const result = await executeAIWithFallback(
       req,
-      { prompt, schema: schemaConfig.responseSchema, schemaName: "campaign" },
+      {
+        prompt: knowledgeContext.prompt,
+        systemPrompt: knowledgeContext.systemPrompt,
+        schema: schemaConfig.responseSchema,
+        schemaName: "campaign",
+      },
       safeFallback
     );
-    return sendAISuccess(req, res, result);
+    return sendAISuccess(req, res, {
+      ...result,
+      sources: knowledgeContext.sources,
+      contextWarning: knowledgeContext.warning,
+    });
   } catch (error) {
     return sendAIError(req, res, error, "Erro na geração da campanha");
   }
@@ -492,7 +518,7 @@ Retorne JSON com summary, strategy, channelsContent, tasks, suggestedReminders e
 
 app.post(["/api/ai/generate-guidelines", "/api/gemini/generate-guidelines"], async (req, res) => {
   try {
-    const { campaignName, objective, engineMode } = req.body || {};
+    const { campaignName, objective, knowledgeSources, engineMode } = req.body || {};
     const name = String(campaignName || "").trim();
     const goal = String(objective || "").trim();
     if (!name || !goal) return res.status(400).json({ success: false, error: "Campanha e objetivo são obrigatórios." });
@@ -501,14 +527,22 @@ app.post(["/api/ai/generate-guidelines", "/api/gemini/generate-guidelines"], asy
       guidelines: `Para a campanha "${name}", mantenha o foco no objetivo informado: "${goal}". Antes de definir promessas, diferenciais ou métricas, valide cada afirmação no Vault. Use apenas fatos CONFIRMADOS; trate o restante como HIPÓTESE ou PENDENTE.`,
     });
 
-    if (engineMode === "local") {
-      return res.json({ success: true, data: safeFallback(), usedModel: "local-grounded-engine", wasFallback: false });
-    }
-
-    const prompt = `Gere diretrizes estratégicas concisas para a campanha abaixo.
+    const businessPrompt = `Gere diretrizes estratégicas concisas para a campanha abaixo.
 Campanha: ${name}
 Objetivo: ${goal}
 Não invente fatos comerciais. Se uma decisão depender de dados ausentes, marque como PENDENTE. Retorne JSON com a propriedade guidelines.`;
+    const knowledgeContext = buildKnowledgeContextPrompt(businessPrompt, knowledgeSources);
+    if (engineMode === "local") {
+      const requestedProvider = String(req.headers["x-ai-provider"] || "gemini") === "openai" ? "openai" : "gemini";
+      return sendAISuccess(req, res, {
+        data: safeFallback(),
+        usedModel: "local-grounded-engine",
+        usedProvider: requestedProvider,
+        wasFallback: false,
+        sources: knowledgeContext.sources,
+        contextWarning: knowledgeContext.warning,
+      });
+    }
     const schemaConfig = {
       responseMimeType: "application/json",
       responseSchema: {
@@ -519,10 +553,19 @@ Não invente fatos comerciais. Se uma decisão depender de dados ausentes, marqu
     };
     const result = await executeAIWithFallback(
       req,
-      { prompt, schema: schemaConfig.responseSchema, schemaName: "guidelines" },
+      {
+        prompt: knowledgeContext.prompt,
+        systemPrompt: knowledgeContext.systemPrompt,
+        schema: schemaConfig.responseSchema,
+        schemaName: "guidelines",
+      },
       safeFallback
     );
-    return sendAISuccess(req, res, result);
+    return sendAISuccess(req, res, {
+      ...result,
+      sources: knowledgeContext.sources,
+      contextWarning: knowledgeContext.warning,
+    });
   } catch (error) {
     return sendAIError(req, res, error, "Erro na geração das diretrizes");
   }

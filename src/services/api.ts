@@ -8,6 +8,10 @@ import {
   publishObsidianSnapshot,
 } from "./obsidianRuntimeState";
 import { StorageManager } from "./storage/StorageManager";
+import {
+  knowledgeContextService,
+  type KnowledgeContextSource,
+} from "./knowledge/KnowledgeContextService";
 
 let cachedSessionToken: string | null = null;
 let obsidianHeartbeat: ReturnType<typeof setInterval> | null = null;
@@ -621,9 +625,31 @@ export interface GenerateCampaignPayload {
   channels: string[];
   audience: string;
   tone: string;
-  contextNotes: string;
+  knowledgeNotes?: ObsidianNote[];
+  preferredSourcePaths?: string[];
   customInstructions?: string;
   engineMode?: string;
+}
+
+export interface GenerateGuidelinesPayload {
+  campaignName: string;
+  objective: string;
+  engineMode: string;
+  knowledgeNotes?: ObsidianNote[];
+  preferredSourcePaths?: string[];
+}
+
+function selectMarketingKnowledge(
+  notes: ObsidianNote[] | undefined,
+  query: string,
+  preferredSourcePaths?: string[]
+): { knowledgeSources: KnowledgeContextSource[]; knowledgeWarning?: string } {
+  const selection = knowledgeContextService.select({
+    query,
+    notes: notes || [],
+    preferredSourcePaths,
+  });
+  return { knowledgeSources: selection.sources, knowledgeWarning: selection.warning };
 }
 
 export interface ExtractTasksPayload {
@@ -724,12 +750,18 @@ export const api = {
     return await this.testAIConnection({ provider: "gemini", apiKey: geminiApiKey });
   },
 
-  async generateGuidelines(payload: { campaignName: string; objective: string; engineMode: string }) {
+  async generateGuidelines(payload: GenerateGuidelinesPayload) {
     const headers = await getAIRequestHeaders();
+    const { knowledgeNotes, preferredSourcePaths, ...requestPayload } = payload;
+    const knowledge = selectMarketingKnowledge(
+      knowledgeNotes,
+      `${payload.campaignName} ${payload.objective} diretrizes estratégia campanha`,
+      preferredSourcePaths
+    );
     const res = await fetch("/api/ai/generate-guidelines", {
       method: "POST",
       headers,
-      body: JSON.stringify(payload),
+      body: JSON.stringify({ ...requestPayload, ...knowledge }),
     });
     if (!res.ok) {
       const err = await res.json().catch(() => ({}));
@@ -754,10 +786,23 @@ export const api = {
 
   async generateCampaign(payload: GenerateCampaignPayload) {
     const headers = await getAIRequestHeaders();
+    const { knowledgeNotes, preferredSourcePaths, ...requestPayload } = payload;
+    const knowledge = selectMarketingKnowledge(
+      knowledgeNotes,
+      [
+        payload.campaignName,
+        payload.objective,
+        payload.channels.join(" "),
+        payload.audience,
+        payload.tone,
+        payload.customInstructions || "",
+      ].join(" "),
+      preferredSourcePaths
+    );
     const res = await fetch("/api/ai/generate-campaign", {
       method: "POST",
       headers,
-      body: JSON.stringify(payload),
+      body: JSON.stringify({ ...requestPayload, ...knowledge }),
     });
     if (!res.ok) {
       const err = await res.json().catch(() => ({}));

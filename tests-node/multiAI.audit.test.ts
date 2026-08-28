@@ -377,7 +377,16 @@ test("legacy aliases preserve local/offline behavior and legacy error status", a
   const legacy = await fetch(`${baseUrl}/api/gemini/generate-guidelines`, { method: "POST", headers, body: localBody });
   assert.equal(modern.status, 200);
   assert.equal(legacy.status, 200);
-  assert.deepEqual(await legacy.json(), await modern.json());
+  const modernPayload = await modern.json() as Record<string, any>;
+  const legacyPayload = await legacy.json() as Record<string, any>;
+  assert.deepEqual(legacyPayload, {
+    success: true,
+    data: modernPayload.data,
+    usedModel: "local-grounded-engine",
+    wasFallback: false,
+  });
+  assert.deepEqual(modernPayload.sources, []);
+  assert.match(String(modernPayload.contextWarning), /não fundamentada no Vault/i);
 
   const aiBody = JSON.stringify({ campaignName: "Teste", objective: "Validar", engineMode: "ai" });
   const modernMissingKey = await fetch(`${baseUrl}/api/ai/generate-guidelines`, { method: "POST", headers, body: aiBody });

@@ -238,11 +238,16 @@ export const CampaignsView: React.FC<CampaignsViewProps> = (props) => {
         campaignName: campaignName.trim(),
         objective: objective.trim(),
         engineMode,
+        knowledgeNotes: notes,
+        preferredSourcePaths: selectedNotePaths,
       });
       const guidelines = response?.data?.guidelines;
       if (typeof guidelines === "string" && guidelines.trim()) {
         setCustomInstructions(guidelines.trim());
-        setNotice({ type: "info", text: "Diretrizes sugeridas. Revise antes de gerar; elas não transformam informação ausente em fato." });
+        setNotice({
+          type: response?.contextWarning ? "warning" : "info",
+          text: response?.contextWarning || "Diretrizes sugeridas. Revise antes de gerar; elas não transformam informação ausente em fato.",
+        });
       }
     } catch (error: any) {
       setNotice({ type: "warning", text: error?.message || "Não foi possível sugerir diretrizes." });
@@ -261,6 +266,7 @@ export const CampaignsView: React.FC<CampaignsViewProps> = (props) => {
       let data: any;
       let usedEngine = engineMode === "local" ? "Motor Local Grounded (0 tokens)" : "IA configurada";
       let wasFallback = false;
+      let contextWarning = "";
 
       if (engineMode === "local") {
         data = generateLocalCampaign({
@@ -274,20 +280,6 @@ export const CampaignsView: React.FC<CampaignsViewProps> = (props) => {
         });
         usedEngine = data.usedEngine || usedEngine;
       } else {
-        const contextNotes = matchedNotes
-          .map((note) => {
-            const editorial = String(note.frontmatter?.status || "PENDENTE");
-            const epistemic = noteEpistemicStatus(note);
-            return [
-              `--- FONTE: ${note.title} ---`,
-              `Caminho: ${note.path}`,
-              `Status editorial: ${editorial}`,
-              `Status epistemológico: ${epistemic}`,
-              note.content,
-            ].join("\n");
-          })
-          .join("\n\n");
-
         try {
           const response = await api.generateCampaign({
             campaignName: campaignName.trim(),
@@ -295,7 +287,8 @@ export const CampaignsView: React.FC<CampaignsViewProps> = (props) => {
             channels,
             audience: audience.trim(),
             tone: tone.trim(),
-            contextNotes,
+            knowledgeNotes: notes,
+            preferredSourcePaths: selectedNotePaths,
             customInstructions: customInstructions.trim() || undefined,
             engineMode,
           });
@@ -303,6 +296,7 @@ export const CampaignsView: React.FC<CampaignsViewProps> = (props) => {
           data = response.data;
           usedEngine = response.usedModel || "IA configurada";
           wasFallback = Boolean(response.wasFallback);
+          contextWarning = String(response.contextWarning || "");
         } catch (error) {
           console.warn("Campaign AI unavailable, using grounded local engine:", error);
           data = generateLocalCampaign({
@@ -355,8 +349,8 @@ export const CampaignsView: React.FC<CampaignsViewProps> = (props) => {
       setGeneratedCampaignId(draft.id);
       setStep(5);
       setNotice({
-        type: "success",
-        text: `Rascunho gerado como ${epistemicStatus}. Nada foi salvo no Obsidian, agendado ou importado para Execução automaticamente.`,
+        type: contextWarning ? "warning" : "success",
+        text: contextWarning || `Rascunho gerado como ${epistemicStatus}. Nada foi salvo no Obsidian, agendado ou importado para Execução automaticamente.`,
       });
     } catch (error: any) {
       setNotice({ type: "warning", text: error?.message || "Falha ao gerar o rascunho da campanha." });
