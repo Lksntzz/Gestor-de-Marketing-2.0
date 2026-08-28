@@ -91,7 +91,7 @@ export class AutoUpdateService {
     this.initialCheckDelayMs = options?.initialCheckDelayMs ?? (8 * 1000); // 8 segundos
     this.cleanupHandler = options?.cleanup;
 
-    const currentVer = options?.currentVersion || (electronApp ? electronApp.getVersion() : "2.0.0");
+    const currentVer = options?.currentVersion || (electronApp ? electronApp.getVersion() : "0.0.0");
 
     if (!this.isPackaged) {
       this.state = {
@@ -190,7 +190,6 @@ export class AutoUpdateService {
       });
 
       this.updater.on("error", (err: Error) => {
-        // Sanitiza a mensagem de erro para não vazar stack traces internas nem tokens
         const cleanMsg = this.sanitizeErrorMessage(err?.message || "Erro de conexão ao verificar atualizações.");
         this.updateState({
           status: "error",
@@ -198,22 +197,28 @@ export class AutoUpdateService {
         });
       });
     } catch (err: any) {
-      console.warn("Falha ao configurar electron-updater:", err?.message);
+      console.warn("Falha ao configurar electron-updater:", this.sanitizeErrorMessage(err?.message || "erro desconhecido"));
     }
   }
 
   private sanitizeErrorMessage(msg: string): string {
     if (!msg) return "Não foi possível verificar atualizações.";
-    // Remove potenciais tokens, URLs privadas ou stack trace
-    let safe = msg.replace(/token=[a-zA-Z0-9_\-]+/gi, "token=***");
-    safe = safe.replace(/Bearer\s+[a-zA-Z0-9_\-]+/gi, "Bearer ***");
+
+    let safe = String(msg);
+    safe = safe.replace(/(?:token|access_token|auth|authorization)=[^\s&]+/gi, "$1=***");
+    safe = safe.replace(/Bearer\s+[^\s]+/gi, "Bearer ***");
+    safe = safe.replace(/gh[pousr]_[A-Za-z0-9_\-]+/g, "***");
+    safe = safe.replace(/file:\/\/\/?[^\s]+/gi, "[arquivo local]");
+    safe = safe.replace(/[A-Za-z]:\\(?:[^\s\\]+\\)*[^\s]*/g, "[caminho local]");
+    safe = safe.replace(/\/(?:Users|home)\/[^\s]+/g, "[caminho local]");
+
     if (safe.includes("net::ERR") || safe.includes("ENOTFOUND") || safe.includes("ECONNREFUSED") || safe.includes("ETIMEDOUT")) {
       return "Não foi possível conectar ao servidor de atualizações. Verifique sua conexão à internet.";
     }
     if (safe.includes("404") || safe.includes("latest.yml")) {
       return "Servidor de atualizações indisponível ou nenhuma release publicada.";
     }
-    // Trunca mensagens excessivamente longas
+
     return safe.slice(0, 160);
   }
 
@@ -256,12 +261,10 @@ export class AutoUpdateService {
       clearInterval(this.checkTimer);
     }
 
-    // Delay inicial após inicialização
     this.initialCheckTimeout = setTimeout(() => {
       void this.checkForUpdates();
     }, this.initialCheckDelayMs);
 
-    // Verificação periódica conservadora
     this.checkTimer = setInterval(() => {
       void this.checkForUpdates();
     }, this.checkIntervalMs);
@@ -302,12 +305,10 @@ export class AutoUpdateService {
     }
 
     try {
-      // 1. Executa cleanup prévio de todos os recursos (SQLite, Watcher, Backend Child Process)
       if (this.cleanupHandler) {
         await Promise.resolve(this.cleanupHandler());
       }
 
-      // 2. Invoca quitAndInstall (isSilent = false, isForceRunAfter = true)
       if (typeof this.updater.quitAndInstall === "function") {
         this.updater.quitAndInstall(false, true);
         return { success: true };
