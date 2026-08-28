@@ -122,7 +122,10 @@ export interface AutomationRule {
 export interface ObsidianApiConfig {
   endpoint: string;
   apiKey: string;
+  aiProvider?: "gemini" | "openai";
+  aiModel?: string;
   geminiApiKey?: string;
+  openaiApiKey?: string;
   vaultName: string;
   useHttps: boolean;
   autoSync: boolean;
@@ -335,6 +338,7 @@ declare global {
       setSecret: (name: string, value: string) => Promise<{ success: boolean }>;
       getSecret: (name: string) => Promise<string>;
       deleteSecret: (name: string) => Promise<{ success: boolean }>;
+      setAIConfig: (config: { provider: "gemini" | "openai"; model?: string }) => Promise<{ success: boolean }>;
       processKnowledgeLocal: (payload: any) => Promise<any>;
       generateCampaignLocal: (payload: any) => Promise<any>;
       getSystemStatus: () => Promise<any>;

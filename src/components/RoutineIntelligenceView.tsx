@@ -292,7 +292,7 @@ export const RoutineIntelligenceView: React.FC<RoutineIntelligenceViewProps> = (
             {apiConfig.connectionStatus === "connected" ? "Obsidian conectado" : "Obsidian bloqueado"}
           </div>
           <div className="px-3 py-2 rounded-xl border border-outline-border bg-surface-container-low text-[11px] text-text-secondary">
-            Motor: <strong className="text-text-primary">{engineMode === "local" ? "Local" : "Gemini"}</strong>
+            Motor: <strong className="text-text-primary">{engineMode === "local" ? "Local" : "IA configurada"}</strong>
           </div>
           <button
             type="button"

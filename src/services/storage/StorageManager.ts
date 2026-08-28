@@ -8,7 +8,7 @@ import {
   AutomationRule,
 } from "../../domain/schemas";
 import { TaxonomyFolder, normalizeTaxonomyFolder, sanitizeSafePath } from "../../domain/taxonomy";
-import { generateFastHash, generateUUID, encryptSecret, decryptSecret } from "../../utils/crypto";
+import { generateFastHash, generateUUID } from "../../utils/crypto";
 import { APP_VERSION, localDateKey } from "../../utils/reliability";
 import { ObsidianApiConfig, ObsidianNote } from "../../types";
 import { isObsidianRuntimeConnected } from "../obsidianRuntimeState";
@@ -47,6 +47,7 @@ type SafeParseSchema = {
 
 export class StorageManager implements IStorageService {
   private static instance: StorageManager;
+  private volatileSecrets = { obsidianApiKey: "", geminiApiKey: "", openaiApiKey: "" };
 
   public static getInstance(): StorageManager {
     if (!StorageManager.instance) {
@@ -423,65 +424,35 @@ export class StorageManager implements IStorageService {
   // ==========================================
   public async saveApiConfig(config: ObsidianApiConfig): Promise<void> {
     localStorage.removeItem("obsidian_api_config");
+    const { apiKey, geminiApiKey, openaiApiKey, ...nonSecretConfig } = config;
+    const persistedConfig = {
+      ...nonSecretConfig,
+      aiProvider: config.aiProvider || "gemini",
+      aiModel: config.aiModel || "",
+      connectionStatus: "disconnected" as const,
+      errorMessage: undefined,
+    };
 
-    try {
-      const { apiKey, geminiApiKey, ...nonSecretConfig } = config;
-      const persistedConfig = {
-        ...nonSecretConfig,
-        connectionStatus: "disconnected" as const,
-        errorMessage: undefined,
-      };
+    this.volatileSecrets = {
+      obsidianApiKey: apiKey || "",
+      geminiApiKey: geminiApiKey || "",
+      openaiApiKey: openaiApiKey || "",
+    };
 
-      if (this.isDesktopRuntime() && window.electronAPI?.setSecret) {
-        await Promise.all([
-          window.electronAPI.setSecret("obsidianApiKey", apiKey || ""),
-          window.electronAPI.setSecret("geminiApiKey", geminiApiKey || ""),
-        ]);
-        localStorage.setItem(
-          STORAGE_KEYS.API_CONFIG_SECURE,
-          JSON.stringify({ ...persistedConfig, apiKey: "", geminiApiKey: "" })
-        );
-        return;
-      }
-
-      const [encryptedObsidianKey, encryptedGeminiKey] = await Promise.all([
-        encryptSecret(apiKey || ""),
-        encryptSecret(geminiApiKey || ""),
+    if (this.isDesktopRuntime() && window.electronAPI?.setSecret) {
+      await Promise.all([
+        window.electronAPI.setSecret("obsidianApiKey", this.volatileSecrets.obsidianApiKey),
+        window.electronAPI.setSecret("geminiApiKey", this.volatileSecrets.geminiApiKey),
+        window.electronAPI.setSecret("openaiApiKey", this.volatileSecrets.openaiApiKey),
+        window.electronAPI.setAIConfig?.({
+          provider: persistedConfig.aiProvider,
+          model: persistedConfig.aiModel,
+        }),
       ]);
-      localStorage.setItem(
-        STORAGE_KEYS.API_CONFIG_SECURE,
-        JSON.stringify({
-          ...persistedConfig,
-          apiKey: encryptedObsidianKey,
-          geminiApiKey: encryptedGeminiKey,
-        })
-      );
-    } catch (e) {
-      const { apiKey: _apiKey, geminiApiKey: _geminiApiKey, ...nonSecretConfig } = config;
-      let fallbackObsidianKey = "";
-      let fallbackGeminiKey = "";
-      try {
-        fallbackObsidianKey = _apiKey ? `fallback_b64:${btoa(unescape(encodeURIComponent(_apiKey)))}` : "";
-        fallbackGeminiKey = _geminiApiKey ? `fallback_b64:${btoa(unescape(encodeURIComponent(_geminiApiKey)))}` : "";
-      } catch (encodeErr) {
-        fallbackObsidianKey = _apiKey ? `fallback_plain:${_apiKey}` : "";
-        fallbackGeminiKey = _geminiApiKey ? `fallback_plain:${_geminiApiKey}` : "";
-      }
-
-      localStorage.setItem(
-        STORAGE_KEYS.API_CONFIG_SECURE,
-        JSON.stringify({
-          ...nonSecretConfig,
-          connectionStatus: "disconnected",
-          errorMessage: undefined,
-          apiKey: fallbackObsidianKey,
-          geminiApiKey: fallbackGeminiKey,
-        })
-      );
-      console.warn("Could not persist API credentials via AES-GCM; fell back to obfuscated local storage.", e);
-    } finally {
-      localStorage.removeItem("obsidian_api_config");
     }
+
+    // Only non-secret settings are persisted. Browser sessions keep credentials in memory.
+    localStorage.setItem(STORAGE_KEYS.API_CONFIG_SECURE, JSON.stringify(persistedConfig));
   }
 
   public async loadApiConfig(defaultConfig: ObsidianApiConfig): Promise<ObsidianApiConfig> {
@@ -490,30 +461,38 @@ export class StorageManager implements IStorageService {
       if (rawSecure) {
         const parsed = JSON.parse(rawSecure);
 
+        const sanitizedConfig = { ...parsed };
+        delete sanitizedConfig.apiKey;
+        delete sanitizedConfig.geminiApiKey;
+        delete sanitizedConfig.openaiApiKey;
+        if (JSON.stringify(sanitizedConfig) !== JSON.stringify(parsed)) {
+          localStorage.setItem(STORAGE_KEYS.API_CONFIG_SECURE, JSON.stringify(sanitizedConfig));
+        }
+
         if (this.isDesktopRuntime() && window.electronAPI?.getSecret) {
-          const [obsidianKey, geminiKey] = await Promise.all([
+          const [obsidianKey, geminiKey, openaiKey] = await Promise.all([
             window.electronAPI.getSecret("obsidianApiKey"),
             window.electronAPI.getSecret("geminiApiKey"),
+            window.electronAPI.getSecret("openaiApiKey"),
           ]);
           return {
             ...defaultConfig,
-            ...parsed,
+            ...sanitizedConfig,
             apiKey: obsidianKey || "",
             geminiApiKey: geminiKey || "",
+            openaiApiKey: openaiKey || "",
+            aiProvider: sanitizedConfig.aiProvider || "gemini",
             connectionStatus: "disconnected",
             errorMessage: undefined,
           };
         }
-
-        const [decryptedObsidianKey, decryptedGeminiKey] = await Promise.all([
-          decryptSecret(parsed.apiKey || ""),
-          decryptSecret(parsed.geminiApiKey || ""),
-        ]);
         return {
           ...defaultConfig,
-          ...parsed,
-          apiKey: decryptedObsidianKey,
-          geminiApiKey: decryptedGeminiKey,
+          ...sanitizedConfig,
+          apiKey: this.volatileSecrets.obsidianApiKey,
+          geminiApiKey: this.volatileSecrets.geminiApiKey,
+          openaiApiKey: this.volatileSecrets.openaiApiKey,
+          aiProvider: sanitizedConfig.aiProvider || "gemini",
           connectionStatus: "disconnected",
           errorMessage: undefined,
         };
@@ -529,6 +508,8 @@ export class StorageManager implements IStorageService {
           ...legacyParsed,
           apiKey: legacyParsed.apiKey || "",
           geminiApiKey: legacyParsed.geminiApiKey || "",
+          openaiApiKey: legacyParsed.openaiApiKey || "",
+          aiProvider: legacyParsed.aiProvider || "gemini",
           connectionStatus: "disconnected",
           errorMessage: undefined,
         };
@@ -541,6 +522,8 @@ export class StorageManager implements IStorageService {
       ...defaultConfig,
       apiKey: "",
       geminiApiKey: "",
+      openaiApiKey: "",
+      aiProvider: "gemini",
       connectionStatus: "disconnected",
       errorMessage: undefined,
     };
@@ -599,17 +582,20 @@ export class StorageManager implements IStorageService {
       if (typeof localStorage !== "undefined") {
         localStorage.clear();
       }
+      this.volatileSecrets = { obsidianApiKey: "", geminiApiKey: "", openaiApiKey: "" };
 
       if (this.isDesktopRuntime() && window.electronAPI) {
         if (window.electronAPI.deleteSecret) {
           await Promise.all([
             window.electronAPI.deleteSecret("obsidianApiKey"),
             window.electronAPI.deleteSecret("geminiApiKey"),
+            window.electronAPI.deleteSecret("openaiApiKey"),
           ]);
         } else if (window.electronAPI.setSecret) {
           await Promise.all([
             window.electronAPI.setSecret("obsidianApiKey", ""),
             window.electronAPI.setSecret("geminiApiKey", ""),
+            window.electronAPI.setSecret("openaiApiKey", ""),
           ]);
         }
       }

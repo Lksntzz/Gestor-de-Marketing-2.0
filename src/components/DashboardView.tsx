@@ -170,7 +170,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
 
   const canRunPrimaryAction = priorityAction.kind !== "connect-obsidian" || Boolean(onOpenSetupWizard);
   const vaultConnected = apiConfig.connectionStatus === "connected";
-  const engineLabel = engineMode === "local" ? "Motor Local" : "Gemini";
+  const engineLabel = engineMode === "local" ? "Motor Local" : "IA configurada";
 
   return (
     <div className="w-full h-full flex flex-col gap-4 animate-fadeIn text-text-primary min-h-0">

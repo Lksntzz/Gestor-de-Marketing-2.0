@@ -90,7 +90,7 @@ let hasBoundMainServer = false;
   if (url === "/api/health") {
     return writeJson(res, 200, {
       status: "ok",
-      hasApiKey: !!process.env.GEMINI_API_KEY,
+      hasApiKey: !!(process.env.GEMINI_API_KEY || process.env.OPENAI_API_KEY),
       runtime: "nisti-secure-local",
       instanceId: INSTANCE_ID,
       timestamp: new Date().toISOString(),

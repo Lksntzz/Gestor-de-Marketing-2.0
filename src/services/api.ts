@@ -42,6 +42,9 @@ const DEFAULT_API_CONFIG: ObsidianApiConfig = {
   endpoint: "https://127.0.0.1:27124",
   apiKey: "",
   geminiApiKey: "",
+  openaiApiKey: "",
+  aiProvider: "gemini",
+  aiModel: "",
   vaultName: "MarketingVault",
   useHttps: true,
   autoSync: true,
@@ -69,7 +72,11 @@ async function setDesktopObsidianAuthorization(connected: boolean): Promise<void
   }
 }
 
-async function getSessionHeaders(geminiApiKeyOverride?: string): Promise<Record<string, string>> {
+async function getSessionHeaders(aiOverride?: {
+  provider?: "gemini" | "openai";
+  apiKey?: string;
+  model?: string;
+}): Promise<Record<string, string>> {
   if (!cachedSessionToken) {
     try {
       const res = await fetch("/api/auth/session", { cache: "no-store" });
@@ -90,14 +97,20 @@ async function getSessionHeaders(geminiApiKeyOverride?: string): Promise<Record<
   }
 
   try {
-    const configuredKey = geminiApiKeyOverride?.trim()
-      ? geminiApiKeyOverride.trim()
-      : (await storage.loadApiConfig(DEFAULT_API_CONFIG)).geminiApiKey?.trim();
+    const config = await storage.loadApiConfig(DEFAULT_API_CONFIG);
+    const provider = aiOverride?.provider || config.aiProvider || "gemini";
+    const configuredKey = aiOverride?.apiKey?.trim() || (provider === "openai"
+      ? config.openaiApiKey?.trim()
+      : config.geminiApiKey?.trim());
+    headers["x-ai-provider"] = provider;
+    const model = aiOverride?.model?.trim() || config.aiModel?.trim();
+    if (model) headers["x-ai-model"] = model;
     if (configuredKey) {
-      headers["x-gemini-api-key"] = configuredKey;
+      headers["x-ai-api-key"] = configuredKey;
+      if (provider === "gemini") headers["x-gemini-api-key"] = configuredKey;
     }
   } catch (e) {
-    console.warn("Could not load Gemini credential from secure storage.", e);
+    console.warn("Could not load AI provider credentials from secure storage.", e);
   }
 
   return headers;
@@ -663,55 +676,64 @@ export const api = {
       const health = await res.json();
       return {
         ...health,
-        hasApiKey: Boolean(health?.hasApiKey || config.geminiApiKey?.trim()),
+        hasApiKey: Boolean(health?.hasApiKey || (config.aiProvider === "openai" ? config.openaiApiKey?.trim() : config.geminiApiKey?.trim())),
       };
     } catch {
       return { status: "offline", hasApiKey: false };
     }
   },
 
-  async testGeminiConnection(geminiApiKey: string): Promise<{ success: boolean; message: string; model?: string }> {
-    const cleanKey = geminiApiKey.trim();
+  async testAIConnection(config: {
+    provider: "gemini" | "openai";
+    apiKey: string;
+    model?: string;
+  }): Promise<{ success: boolean; message: string; model?: string; provider?: string }> {
+    const cleanKey = config.apiKey.trim();
     if (!cleanKey) {
-      return { success: false, message: "Informe a chave API do Gemini antes de testar a conexão." };
+      return { success: false, message: `Informe a chave API do provedor ${config.provider} antes de testar a conexão.` };
     }
 
     try {
-      const headers = await getSessionHeaders(cleanKey);
-      const res = await fetch("/api/gemini/analyze-vault", {
+      const headers = await getSessionHeaders({ ...config, apiKey: cleanKey });
+      const res = await fetch("/api/ai/test-connection", {
         method: "POST",
         headers,
-        body: JSON.stringify({ vaultNotesOverview: [], engineMode: "ai" }),
+        body: JSON.stringify({}),
       });
       const data = await res.json().catch(() => ({}));
 
       if (!res.ok) {
-        return { success: false, message: data.error || `Gemini retornou HTTP ${res.status}.` };
+        return { success: false, message: data.error || `O provedor retornou HTTP ${res.status}.` };
       }
 
-      if (data?.success && data?.wasFallback === false) {
+      if (data?.success) {
         return {
           success: true,
-          message: `Conexão com Gemini confirmada${data.usedModel ? ` usando ${data.usedModel}` : ""}.`,
-          model: data.usedModel,
+          message: `Conexão com ${data.provider || config.provider} confirmada${data.model ? ` usando ${data.model}` : ""}.`,
+          model: data.model,
+          provider: data.provider || config.provider,
         };
       }
 
       return {
         success: false,
-        message: "A chave não foi validada pela IA. Verifique a API key, a cota e os modelos habilitados no Google AI Studio.",
+        message: "A configuração não foi validada pelo provedor. Verifique a API key, a cota e o modelo configurado.",
       };
     } catch (err: any) {
       return {
         success: false,
-        message: err.message || "Não foi possível conectar ao Gemini.",
+        message: err.message || `Não foi possível conectar ao provedor ${config.provider}.`,
       };
     }
   },
 
+  async testGeminiConnection(geminiApiKey: string): Promise<{ success: boolean; message: string; model?: string }> {
+    return await this.testAIConnection({ provider: "gemini", apiKey: geminiApiKey });
+  },
+
   async generateGuidelines(payload: { campaignName: string; objective: string; engineMode: string }) {
     const headers = await getSessionHeaders();
-    const res = await fetch("/api/gemini/generate-guidelines", {
+    const res = await fetch("/api/ai/generate-guidelines", {
       method: "POST",
       headers,
       body: JSON.stringify(payload),
@@ -725,7 +747,7 @@ export const api = {
 
   async processKnowledge(type: string, payload: unknown, engineMode: string) {
     const headers = await getSessionHeaders();
-    const res = await fetch("/api/gemini/process-knowledge", {
+    const res = await fetch("/api/ai/process-knowledge", {
       method: "POST",
       headers,
       body: JSON.stringify({ type, payload, engineMode }),
@@ -739,7 +761,7 @@ export const api = {
 
   async generateCampaign(payload: GenerateCampaignPayload) {
     const headers = await getSessionHeaders();
-    const res = await fetch("/api/gemini/generate-campaign", {
+    const res = await fetch("/api/ai/generate-campaign", {
       method: "POST",
       headers,
       body: JSON.stringify(payload),
@@ -753,7 +775,7 @@ export const api = {
 
   async extractTasks(payload: ExtractTasksPayload) {
     const headers = await getSessionHeaders();
-    const res = await fetch("/api/gemini/extract-tasks", {
+    const res = await fetch("/api/ai/extract-tasks", {
       method: "POST",
       headers,
       body: JSON.stringify(payload),
@@ -767,7 +789,7 @@ export const api = {
 
   async analyzeVault(vaultNotesOverview: any) {
     const headers = await getSessionHeaders();
-    const res = await fetch("/api/gemini/analyze-vault", {
+    const res = await fetch("/api/ai/analyze-vault", {
       method: "POST",
       headers,
       body: JSON.stringify({ vaultNotesOverview }),

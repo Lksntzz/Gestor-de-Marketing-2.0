@@ -259,7 +259,7 @@ export const CampaignsView: React.FC<CampaignsViewProps> = (props) => {
     try {
       const matchedNotes = notes.filter((note) => selectedNotePaths.includes(note.path));
       let data: any;
-      let usedEngine = engineMode === "local" ? "Motor Local Grounded (0 tokens)" : "Gemini";
+      let usedEngine = engineMode === "local" ? "Motor Local Grounded (0 tokens)" : "IA configurada";
       let wasFallback = false;
 
       if (engineMode === "local") {
@@ -301,7 +301,7 @@ export const CampaignsView: React.FC<CampaignsViewProps> = (props) => {
           });
           if (!response?.success || !response?.data) throw new Error("A IA não retornou um rascunho válido.");
           data = response.data;
-          usedEngine = response.usedModel || "Gemini";
+          usedEngine = response.usedModel || "IA configurada";
           wasFallback = Boolean(response.wasFallback);
         } catch (error) {
           console.warn("Campaign AI unavailable, using grounded local engine:", error);
@@ -541,7 +541,7 @@ export const CampaignsView: React.FC<CampaignsViewProps> = (props) => {
               onClick={() => onToggleEngineMode(engineMode === "local" ? "gemini" : "local")}
               className="rounded-xl border border-outline-border bg-surface-card px-3 py-2 text-xs font-bold text-text-primary"
             >
-              {engineMode === "local" ? "Motor Local" : "Gemini"}
+              {engineMode === "local" ? "Motor Local" : "IA"}
             </button>
           )}
         </div>

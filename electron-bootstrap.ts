@@ -13,7 +13,7 @@ app.setPath("userData", stableUserDataPath);
 app.setName("Nisti Marketing");
 
 const LOOPBACK_HOST = "127.0.0.1";
-const ALLOWED_SECRET_NAMES = new Set(["obsidianApiKey", "geminiApiKey"]);
+const ALLOWED_SECRET_NAMES = new Set(["obsidianApiKey", "geminiApiKey", "openaiApiKey"]);
 let backendProcess: ChildProcess | null = null;
 let appUrl = "";
 let backendInstanceId = "";

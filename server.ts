@@ -3,8 +3,9 @@ import path from "path";
 import crypto from "crypto";
 import { createServer as createViteServer } from "vite";
 import dotenv from "dotenv";
-import { GoogleGenAI, Type } from "@google/genai";
 import * as pdfParseModule from "pdf-parse";
+import { AIProviderFactory, DEFAULT_AI_MODELS } from "./src/services/ai/AIProviderFactory";
+import { AIProviderError, AIProviderName, GenerationRequest } from "./src/services/ai/AIProvider";
 
 dotenv.config();
 
@@ -50,7 +51,7 @@ app.get("/api/auth/session", (_req, res) => {
   res.json({ success: true, token: SERVER_SESSION_SECRET });
 });
 
-app.use("/api/gemini/", (req, res, next) => {
+app.use(["/api/ai/", "/api/gemini/"], (req, res, next) => {
   const bearer = req.headers["authorization"]?.replace(/^Bearer\s+/i, "");
   const clientToken = String(req.headers["x-app-session-token"] || bearer || "");
   if (clientToken === SERVER_SESSION_SECRET || process.env.NODE_ENV !== "production") {
@@ -143,19 +144,11 @@ async function fetchSafeWebPage(targetUrl: string, maxRedirects = 3): Promise<{ 
   throw new Error("Número máximo de redirecionamentos excedido.");
 }
 
-function createGeminiClient(customApiKey?: string): GoogleGenAI {
-  const apiKey = customApiKey?.trim();
-  if (!apiKey) throw new Error("Chave de API do Gemini não configurada.");
-  return new GoogleGenAI({
-    apiKey,
-    httpOptions: { headers: { "User-Agent": "nisti-marketing-2.0" } },
-  });
-}
-
 app.get("/api/health", (_req, res) => {
   res.json({
     status: "ok",
-    hasApiKey: !!process.env.GEMINI_API_KEY,
+    hasApiKey: !!(process.env.GEMINI_API_KEY || process.env.OPENAI_API_KEY),
+    defaultAIProvider: "gemini",
     timestamp: new Date().toISOString(),
     runtime: "web_server_backend",
   });
@@ -219,23 +212,85 @@ function sourceFrontmatter(params: {
   ].join("\n");
 }
 
-async function executeGeminiWithFallback<T>(
-  buildParams: (model: string) => any,
+function providerConfigFromRequest(req: express.Request) {
+  const requestedProvider = String(req.headers["x-ai-provider"] || "gemini").toLowerCase();
+  if (requestedProvider !== "gemini" && requestedProvider !== "openai") {
+    throw new AIProviderError("MISSING_CONFIG", `Provedor de IA não suportado: ${requestedProvider}.`);
+  }
+  const provider = requestedProvider as AIProviderName;
+  const legacyGeminiKey = provider === "gemini" ? req.headers["x-gemini-api-key"] : undefined;
+  const apiKey = String(req.headers["x-ai-api-key"] || legacyGeminiKey || "").trim();
+  if (!apiKey) {
+    throw new AIProviderError("MISSING_CONFIG", `A chave de API do provedor ${provider} não foi configurada.`, provider);
+  }
+  return {
+    provider,
+    apiKey,
+    model: String(req.headers["x-ai-model"] || "").trim() || undefined,
+  };
+}
+
+function aiErrorStatus(error: unknown): number {
+  if (!(error instanceof AIProviderError)) return 500;
+  if (error.code === "INVALID_API_KEY") return 401;
+  if (error.code === "INVALID_MODEL" || error.code === "MISSING_CONFIG") return 400;
+  if (error.code === "RATE_LIMIT") return 429;
+  if (error.code === "SERVICE_UNAVAILABLE") return 503;
+  if (error.code === "INVALID_RESPONSE") return 502;
+  return 500;
+}
+
+function sendAIError(res: express.Response, error: unknown, fallbackMessage: string) {
+  const message = error instanceof Error ? error.message : fallbackMessage;
+  return res.status(aiErrorStatus(error)).json({
+    success: false,
+    error: message || fallbackMessage,
+    code: error instanceof AIProviderError ? error.code : "UNKNOWN",
+  });
+}
+
+async function executeAIWithFallback<T>(
+  req: express.Request,
+  generationRequest: GenerationRequest,
   safeFallback: () => T,
-  customApiKey?: string
-): Promise<{ data: T; usedModel: string; wasFallback: boolean }> {
-  const ai = createGeminiClient(customApiKey);
-  for (const model of GEMINI_TEXT_MODELS) {
+  operation: "generateJson" | "analyzeDocument" = "generateJson"
+): Promise<{
+  data: T;
+  usedModel: string;
+  usedProvider: AIProviderName;
+  wasFallback: boolean;
+  warning?: string;
+  errorCode?: string;
+}> {
+  const config = providerConfigFromRequest(req);
+  const models = config.model
+    ? [config.model]
+    : config.provider === "gemini"
+      ? GEMINI_TEXT_MODELS
+      : [DEFAULT_AI_MODELS.openai];
+  let lastError: unknown;
+  for (const model of models) {
     try {
-      const response = await ai.models.generateContent(buildParams(model));
-      const text = response.text || "{}";
-      return { data: JSON.parse(text) as T, usedModel: model, wasFallback: false };
+      const provider = AIProviderFactory.create({ ...config, model });
+      const result = await provider[operation]<T>({ ...generationRequest, model });
+      return { data: result.data, usedModel: result.model, usedProvider: result.provider, wasFallback: false };
     } catch (err) {
-      console.warn(`Gemini model ${model} failed:`, err);
+      lastError = err;
+      console.warn(`${config.provider} model ${model} failed:`, err);
+      if (err instanceof AIProviderError && ["INVALID_API_KEY", "MISSING_CONFIG"].includes(err.code)) throw err;
+      if (config.model && err instanceof AIProviderError && err.code === "INVALID_MODEL") throw err;
       await wait(250);
     }
   }
-  return { data: safeFallback(), usedModel: "grounded-safe-fallback", wasFallback: true };
+  if (lastError instanceof AIProviderError && lastError.code === "INVALID_RESPONSE") throw lastError;
+  return {
+    data: safeFallback(),
+    usedModel: "grounded-safe-fallback",
+    usedProvider: config.provider,
+    wasFallback: true,
+    warning: lastError instanceof Error ? lastError.message : "O provedor de IA falhou; foi usado o fallback seguro.",
+    errorCode: lastError instanceof AIProviderError ? lastError.code : "UNKNOWN",
+  };
 }
 
 function groundedCampaignFallback(input: {
@@ -287,7 +342,21 @@ function groundedCampaignFallback(input: {
   };
 }
 
-app.post("/api/gemini/generate-campaign", async (req, res) => {
+app.post(["/api/ai/test-connection", "/api/gemini/test-connection"], async (req, res) => {
+  try {
+    const config = providerConfigFromRequest(req);
+    const provider = AIProviderFactory.create({
+      ...config,
+      model: config.model || DEFAULT_AI_MODELS[config.provider],
+    });
+    const result = await provider.testConnection();
+    return res.json({ success: true, provider: result.provider, model: result.model });
+  } catch (error) {
+    return sendAIError(res, error, "Não foi possível validar a conexão com o provedor de IA.");
+  }
+});
+
+app.post(["/api/ai/generate-campaign", "/api/gemini/generate-campaign"], async (req, res) => {
   try {
     const { campaignName, objective, channels, audience, tone, contextNotes, customInstructions, engineMode } = req.body || {};
     const name = String(campaignName || "").trim();
@@ -333,59 +402,58 @@ Retorne JSON com summary, strategy, channelsContent, tasks, suggestedReminders e
     const schemaConfig = {
       responseMimeType: "application/json",
       responseSchema: {
-        type: Type.OBJECT,
+        type: "object",
         properties: {
-          summary: { type: Type.STRING },
-          strategy: { type: Type.STRING },
+          summary: { type: "string" },
+          strategy: { type: "string" },
           channelsContent: {
-            type: Type.ARRAY,
+            type: "array",
             items: {
-              type: Type.OBJECT,
+              type: "object",
               properties: {
-                channel: { type: Type.STRING },
-                title: { type: Type.STRING },
-                copy: { type: Type.STRING },
-                callToAction: { type: Type.STRING },
-                hashtagsOrKeywords: { type: Type.ARRAY, items: { type: Type.STRING } },
-                suggestedPublishDate: { type: Type.STRING },
+                channel: { type: "string" },
+                title: { type: "string" },
+                copy: { type: "string" },
+                callToAction: { type: "string" },
+                hashtagsOrKeywords: { type: "array", items: { type: "string" } },
+                suggestedPublishDate: { type: "string" },
               },
               required: ["channel", "title", "copy", "callToAction"],
             },
           },
           tasks: {
-            type: Type.ARRAY,
+            type: "array",
             items: {
-              type: Type.OBJECT,
+              type: "object",
               properties: {
-                title: { type: Type.STRING },
-                channel: { type: Type.STRING },
-                priority: { type: Type.STRING },
-                dueDate: { type: Type.STRING },
-                obsidianTaskString: { type: Type.STRING },
+                title: { type: "string" },
+                channel: { type: "string" },
+                priority: { type: "string" },
+                dueDate: { type: "string" },
+                obsidianTaskString: { type: "string" },
               },
               required: ["title", "priority", "obsidianTaskString"],
             },
           },
-          suggestedReminders: { type: Type.ARRAY, items: { type: Type.OBJECT } },
-          obsidianNoteMarkdown: { type: Type.STRING },
+          suggestedReminders: { type: "array", items: { type: "object" } },
+          obsidianNoteMarkdown: { type: "string" },
         },
         required: ["summary", "strategy", "channelsContent", "tasks", "suggestedReminders", "obsidianNoteMarkdown"],
       },
     };
 
-    const customApiKey = req.headers["x-gemini-api-key"] as string | undefined;
-    const result = await executeGeminiWithFallback(
-      (model) => ({ model, contents: prompt, config: schemaConfig }),
-      safeFallback,
-      customApiKey
+    const result = await executeAIWithFallback(
+      req,
+      { prompt, schema: schemaConfig.responseSchema, schemaName: "campaign" },
+      safeFallback
     );
-    return res.json({ success: true, data: result.data, usedModel: result.usedModel, wasFallback: result.wasFallback });
-  } catch (error: any) {
-    return res.status(500).json({ success: false, error: error.message || "Erro na geração da campanha" });
+    return res.json({ success: true, ...result });
+  } catch (error) {
+    return sendAIError(res, error, "Erro na geração da campanha");
   }
 });
 
-app.post("/api/gemini/generate-guidelines", async (req, res) => {
+app.post(["/api/ai/generate-guidelines", "/api/gemini/generate-guidelines"], async (req, res) => {
   try {
     const { campaignName, objective, engineMode } = req.body || {};
     const name = String(campaignName || "").trim();
@@ -407,20 +475,19 @@ Não invente fatos comerciais. Se uma decisão depender de dados ausentes, marqu
     const schemaConfig = {
       responseMimeType: "application/json",
       responseSchema: {
-        type: Type.OBJECT,
-        properties: { guidelines: { type: Type.STRING } },
+        type: "object",
+        properties: { guidelines: { type: "string" } },
         required: ["guidelines"],
       },
     };
-    const customApiKey = req.headers["x-gemini-api-key"] as string | undefined;
-    const result = await executeGeminiWithFallback(
-      (model) => ({ model, contents: prompt, config: schemaConfig }),
-      safeFallback,
-      customApiKey
+    const result = await executeAIWithFallback(
+      req,
+      { prompt, schema: schemaConfig.responseSchema, schemaName: "guidelines" },
+      safeFallback
     );
-    return res.json({ success: true, data: result.data, usedModel: result.usedModel, wasFallback: result.wasFallback });
-  } catch (error: any) {
-    return res.status(500).json({ success: false, error: error.message || "Erro na geração das diretrizes" });
+    return res.json({ success: true, ...result });
+  } catch (error) {
+    return sendAIError(res, error, "Erro na geração das diretrizes");
   }
 });
 
@@ -453,7 +520,7 @@ function extractExplicitTasks(noteContent: string) {
   };
 }
 
-app.post("/api/gemini/extract-tasks", async (req, res) => {
+app.post(["/api/ai/extract-tasks", "/api/gemini/extract-tasks"], async (req, res) => {
   try {
     const { noteContent, noteTitle, engineMode } = req.body || {};
     const content = String(noteContent || "");
@@ -473,41 +540,40 @@ Retorne JSON com extractedTasks, suggestedReminders e summaryInsights. Se não h
     const schemaConfig = {
       responseMimeType: "application/json",
       responseSchema: {
-        type: Type.OBJECT,
+        type: "object",
         properties: {
           extractedTasks: {
-            type: Type.ARRAY,
+            type: "array",
             items: {
-              type: Type.OBJECT,
+              type: "object",
               properties: {
-                title: { type: Type.STRING },
-                channel: { type: Type.STRING },
-                priority: { type: Type.STRING },
-                dueDate: { type: Type.STRING },
-                dueTime: { type: Type.STRING },
-                obsidianTaskString: { type: Type.STRING },
-                reminderDate: { type: Type.STRING },
-                reminderTime: { type: Type.STRING },
-                category: { type: Type.STRING },
+                title: { type: "string" },
+                channel: { type: "string" },
+                priority: { type: "string" },
+                dueDate: { type: "string" },
+                dueTime: { type: "string" },
+                obsidianTaskString: { type: "string" },
+                reminderDate: { type: "string" },
+                reminderTime: { type: "string" },
+                category: { type: "string" },
               },
               required: ["title", "obsidianTaskString"],
             },
           },
-          suggestedReminders: { type: Type.ARRAY, items: { type: Type.OBJECT } },
-          summaryInsights: { type: Type.STRING },
+          suggestedReminders: { type: "array", items: { type: "object" } },
+          summaryInsights: { type: "string" },
         },
         required: ["extractedTasks", "suggestedReminders", "summaryInsights"],
       },
     };
-    const customApiKey = req.headers["x-gemini-api-key"] as string | undefined;
-    const result = await executeGeminiWithFallback(
-      (model) => ({ model, contents: prompt, config: schemaConfig }),
-      safeFallback,
-      customApiKey
+    const result = await executeAIWithFallback(
+      req,
+      { prompt, schema: schemaConfig.responseSchema, schemaName: "tasks" },
+      safeFallback
     );
-    return res.json({ success: true, data: result.data, usedModel: result.usedModel, wasFallback: result.wasFallback });
-  } catch (error: any) {
-    return res.status(500).json({ success: false, error: error.message || "Erro na extração de tarefas" });
+    return res.json({ success: true, ...result });
+  } catch (error) {
+    return sendAIError(res, error, "Erro na extração de tarefas");
   }
 });
 
@@ -651,7 +717,7 @@ function safeImageData(titleInput: string) {
   };
 }
 
-app.post("/api/gemini/process-knowledge", async (req, res) => {
+app.post(["/api/ai/process-knowledge", "/api/gemini/process-knowledge"], async (req, res) => {
   try {
     const { type, payload, engineMode } = req.body || {};
     if (!type || !payload) {
@@ -707,14 +773,13 @@ Texto extraído:
 ${cleanText}
 
 Retorne title, summary, content, category, keywords, wikilinks, evidence, hypotheses, epistemic_status e folder. Evidências devem citar apenas informações presentes no texto. Hipóteses devem ser explicitamente rotuladas. Pastas válidas: 00_Inbox, 01_Estrategia, 02_Produtos, 03_Conteudos, 04_Campanhas, 05_Reunioes, 06_Influenciadores_UGC, 07_Pesquisas, 08_Aprendizados, 99_Templates.`;
-      const schemaConfig = knowledgeSchema();
-      const customApiKey = req.headers["x-gemini-api-key"] as string | undefined;
-      const result = await executeGeminiWithFallback(
-        (model) => ({ model, contents: prompt, config: schemaConfig }),
+      const result = await executeAIWithFallback(
+        req,
+        { prompt, schema: knowledgeSchema().responseSchema, schemaName: "knowledge_pdf" },
         fallback,
-        customApiKey
+        "analyzeDocument"
       );
-      return res.json({ success: true, data: result.data, usedModel: result.usedModel, wasFallback: result.wasFallback });
+      return res.json({ success: true, ...result });
     }
 
     if (type === "site") {
@@ -742,13 +807,13 @@ Conteúdo:
 ${pageContent.slice(0, 10_000)}
 
 Retorne title, summary, content, category, keywords, wikilinks, evidence, hypotheses, epistemic_status e folder. Pastas válidas: 00_Inbox, 01_Estrategia, 02_Produtos, 03_Conteudos, 04_Campanhas, 05_Reunioes, 06_Influenciadores_UGC, 07_Pesquisas, 08_Aprendizados, 99_Templates.`;
-      const customApiKey = req.headers["x-gemini-api-key"] as string | undefined;
-      const result = await executeGeminiWithFallback(
-        (model) => ({ model, contents: prompt, config: knowledgeSchema() }),
+      const result = await executeAIWithFallback(
+        req,
+        { prompt, schema: knowledgeSchema().responseSchema, schemaName: "knowledge_site" },
         fallback,
-        customApiKey
+        "analyzeDocument"
       );
-      return res.json({ success: true, data: result.data, usedModel: result.usedModel, wasFallback: result.wasFallback });
+      return res.json({ success: true, ...result });
     }
 
     if (type === "image") {
@@ -762,23 +827,18 @@ Retorne title, summary, content, category, keywords, wikilinks, evidence, hypoth
       if (!match) return res.json({ success: true, data: fallback(), usedModel: "invalid-image-data", wasFallback: false });
 
       const prompt = `Analise apenas elementos VISÍVEIS nesta imagem. Não identifique marcas, materiais, qualidade, preço, contexto comercial, pessoas ou resultados além do que estiver objetivamente visível. Diferencie observações de hipóteses. Retorne title, summary, content, category, keywords, wikilinks, evidence, hypotheses, epistemic_status e folder.`;
-      const customApiKey = req.headers["x-gemini-api-key"] as string | undefined;
-      const result = await executeGeminiWithFallback(
-        (model) => ({
-          model,
-          contents: [{
-            role: "user",
-            parts: [
-              { text: `${prompt}\nTítulo informado pelo usuário: ${title}` },
-              { inlineData: { mimeType: match[1], data: match[2] } },
-            ],
-          }],
-          config: knowledgeSchema(),
-        }),
+      const result = await executeAIWithFallback(
+        req,
+        {
+          prompt: `${prompt}\nTítulo informado pelo usuário: ${title}`,
+          schema: knowledgeSchema().responseSchema,
+          schemaName: "knowledge_image",
+          attachments: [{ mimeType: match[1], data: match[2], fileName: title }],
+        },
         fallback,
-        customApiKey
+        "analyzeDocument"
       );
-      return res.json({ success: true, data: result.data, usedModel: result.usedModel, wasFallback: result.wasFallback });
+      return res.json({ success: true, ...result });
     }
 
     if (type === "text") {
@@ -795,18 +855,18 @@ Texto:
 ${rawText.slice(0, 12_000)}
 
 Retorne title, summary, content, category, keywords, wikilinks, evidence, hypotheses, epistemic_status e folder.`;
-      const customApiKey = req.headers["x-gemini-api-key"] as string | undefined;
-      const result = await executeGeminiWithFallback(
-        (model) => ({ model, contents: prompt, config: knowledgeSchema() }),
+      const result = await executeAIWithFallback(
+        req,
+        { prompt, schema: knowledgeSchema().responseSchema, schemaName: "knowledge_text" },
         fallback,
-        customApiKey
+        "analyzeDocument"
       );
-      return res.json({ success: true, data: result.data, usedModel: result.usedModel, wasFallback: result.wasFallback });
+      return res.json({ success: true, ...result });
     }
 
     return res.status(400).json({ success: false, error: `Tipo de conhecimento não suportado: ${String(type)}` });
-  } catch (error: any) {
-    return res.status(500).json({ success: false, error: error.message || "Erro ao processar conhecimento" });
+  } catch (error) {
+    return sendAIError(res, error, "Erro ao processar conhecimento");
   }
 });
 
@@ -814,18 +874,18 @@ function knowledgeSchema() {
   return {
     responseMimeType: "application/json",
     responseSchema: {
-      type: Type.OBJECT,
+      type: "object",
       properties: {
-        title: { type: Type.STRING },
-        summary: { type: Type.STRING },
-        content: { type: Type.STRING },
-        category: { type: Type.STRING },
-        keywords: { type: Type.ARRAY, items: { type: Type.STRING } },
-        wikilinks: { type: Type.ARRAY, items: { type: Type.STRING } },
-        evidence: { type: Type.ARRAY, items: { type: Type.STRING } },
-        hypotheses: { type: Type.ARRAY, items: { type: Type.STRING } },
-        epistemic_status: { type: Type.STRING },
-        folder: { type: Type.STRING },
+        title: { type: "string" },
+        summary: { type: "string" },
+        content: { type: "string" },
+        category: { type: "string" },
+        keywords: { type: "array", items: { type: "string" } },
+        wikilinks: { type: "array", items: { type: "string" } },
+        evidence: { type: "array", items: { type: "string" } },
+        hypotheses: { type: "array", items: { type: "string" } },
+        epistemic_status: { type: "string" },
+        folder: { type: "string" },
       },
       required: ["title", "summary", "content", "category", "keywords", "wikilinks", "evidence", "hypotheses", "epistemic_status", "folder"],
     },
@@ -868,7 +928,7 @@ function deterministicVaultAudit(vaultNotesOverview: unknown) {
   };
 }
 
-app.post("/api/gemini/analyze-vault", async (req, res) => {
+app.post(["/api/ai/analyze-vault", "/api/gemini/analyze-vault"], async (req, res) => {
   try {
     const { vaultNotesOverview, engineMode } = req.body || {};
     const safeFallback = () => deterministicVaultAudit(vaultNotesOverview);
@@ -881,26 +941,26 @@ ${JSON.stringify(vaultNotesOverview || [], null, 2)}`;
     const schemaConfig = {
       responseMimeType: "application/json",
       responseSchema: {
-        type: Type.OBJECT,
+        type: "object",
         properties: {
-          readinessScore: { type: Type.NUMBER },
-          scoreAnalysis: { type: Type.STRING },
-          knowledgeGaps: { type: Type.ARRAY, items: { type: Type.OBJECT } },
-          suggestedCampaigns: { type: Type.ARRAY, items: { type: Type.OBJECT } },
-          automatedWorkflowRecommendations: { type: Type.ARRAY, items: { type: Type.STRING } },
+          readinessScore: { type: "number" },
+          scoreAnalysis: { type: "string" },
+          knowledgeGaps: { type: "array", items: { type: "object" } },
+          suggestedCampaigns: { type: "array", items: { type: "object" } },
+          automatedWorkflowRecommendations: { type: "array", items: { type: "string" } },
         },
         required: ["readinessScore", "scoreAnalysis", "knowledgeGaps", "suggestedCampaigns", "automatedWorkflowRecommendations"],
       },
     };
-    const customApiKey = req.headers["x-gemini-api-key"] as string | undefined;
-    const result = await executeGeminiWithFallback(
-      (model) => ({ model, contents: prompt, config: schemaConfig }),
+    const result = await executeAIWithFallback(
+      req,
+      { prompt, schema: schemaConfig.responseSchema, schemaName: "vault_audit" },
       safeFallback,
-      customApiKey
+      "analyzeDocument"
     );
-    return res.json({ success: true, data: result.data, usedModel: result.usedModel, wasFallback: result.wasFallback });
-  } catch (error: any) {
-    return res.status(500).json({ success: false, error: error.message || "Erro na análise do Vault" });
+    return res.json({ success: true, ...result });
+  } catch (error) {
+    return sendAIError(res, error, "Erro na análise do Vault");
   }
 });
 

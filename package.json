@@ -2,7 +2,7 @@
   "name": "nisti-marketing",
   "private": true,
   "version": "2.0.0",
-  "description": "Nisti Marketing - sistema local-first de gestão de marketing integrado ao Obsidian e IA Gemini",
+  "description": "Nisti Marketing - sistema local-first de gestão de marketing integrado ao Obsidian e IA multi-provedor",
   "author": "Nisti Print Solutions",
   "main": "dist/electron-main.cjs",
   "type": "module",

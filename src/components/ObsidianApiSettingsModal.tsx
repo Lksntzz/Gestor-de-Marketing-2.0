@@ -76,11 +76,13 @@ export const ObsidianApiSettingsModal: React.FC<ObsidianApiSettingsModalProps> =
 
   if (!isOpen) return null;
 
-  const handleTestGemini = async () => {
+  const handleTestAI = async () => {
     setIsTestingAi(true);
     setAiTestResult(null);
     try {
-      const result = await api.testGeminiConnection(formData.geminiApiKey || "");
+      const provider = formData.aiProvider || "gemini";
+      const apiKey = provider === "openai" ? formData.openaiApiKey || "" : formData.geminiApiKey || "";
+      const result = await api.testAIConnection({ provider, apiKey, model: formData.aiModel });
       setAiTestResult(result);
       if (result.success) {
         onSaveConfig({
@@ -91,7 +93,7 @@ export const ObsidianApiSettingsModal: React.FC<ObsidianApiSettingsModalProps> =
     } catch (err: any) {
       setAiTestResult({
         success: false,
-        message: err.message || "Erro desconhecido ao testar o Gemini.",
+        message: err.message || "Erro desconhecido ao testar o provedor de IA.",
       });
     } finally {
       setIsTestingAi(false);
@@ -162,11 +164,7 @@ export const ObsidianApiSettingsModal: React.FC<ObsidianApiSettingsModalProps> =
   };
 
   const handleSave = () => {
-    const hasCredentials = !!(formData.endpoint || "").trim() && !!(formData.apiKey || "").trim();
-    if (hasCredentials) {
-      api.markSessionAsConnectedManually();
-    }
-    const runtimeConnected = api.isObsidianSessionVerified() || hasCredentials;
+    const runtimeConnected = api.isObsidianSessionVerified();
     onSaveConfig({
       ...formData,
       connectionStatus: runtimeConnected ? "connected" : "disconnected",
@@ -251,11 +249,42 @@ export const ObsidianApiSettingsModal: React.FC<ObsidianApiSettingsModalProps> =
                   <span>Configuração da IA</span>
                 </h3>
                 <p className="text-xs text-text-secondary leading-normal">
-                  Cole sua chave do Gemini, teste a conexão e o sistema passa a usar essa credencial automaticamente nas funções de IA.
+                  Escolha o provedor e o modelo. O Gemini permanece selecionado por padrão para preservar o comportamento atual.
                 </p>
               </div>
 
               <div className="p-4 bg-pink-500/5 border border-pink-500/30 rounded-xl space-y-3.5">
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                  <div className="space-y-1.5">
+                    <label className="block text-xs font-bold text-text-primary uppercase tracking-wider">Provedor ativo</label>
+                    <select
+                      value={formData.aiProvider || "gemini"}
+                      onChange={(e) => {
+                        const provider = e.target.value as "gemini" | "openai";
+                        setFormData({ ...formData, aiProvider: provider, aiModel: "" });
+                        setAiTestResult(null);
+                      }}
+                      className="w-full px-3 py-2.5 bg-[#0f131c] border border-pink-500/30 rounded-lg text-xs focus:outline-none focus:ring-1 focus:ring-pink-500"
+                    >
+                      <option value="gemini">Google Gemini</option>
+                      <option value="openai">OpenAI</option>
+                    </select>
+                  </div>
+                  <div className="space-y-1.5">
+                    <label className="block text-xs font-bold text-text-primary uppercase tracking-wider">Modelo</label>
+                    <input
+                      type="text"
+                      value={formData.aiModel || ""}
+                      onChange={(e) => {
+                        setFormData({ ...formData, aiModel: e.target.value });
+                        setAiTestResult(null);
+                      }}
+                      className="w-full px-3 py-2.5 bg-[#0f131c] border border-pink-500/30 rounded-lg text-xs font-mono focus:outline-none focus:ring-1 focus:ring-pink-500"
+                      placeholder={(formData.aiProvider || "gemini") === "openai" ? "gpt-5-mini (padrão)" : "gemini-flash-latest (padrão)"}
+                    />
+                  </div>
+                </div>
+
                 <div className="space-y-1.5">
                   <label className="block text-xs font-bold text-text-primary uppercase tracking-wider flex items-center gap-1.5">
                     <Key className="w-3.5 h-3.5 text-pink-500" />
@@ -273,14 +302,31 @@ export const ObsidianApiSettingsModal: React.FC<ObsidianApiSettingsModalProps> =
                   />
                 </div>
 
+                <div className="space-y-1.5">
+                  <label className="block text-xs font-bold text-text-primary uppercase tracking-wider flex items-center gap-1.5">
+                    <Key className="w-3.5 h-3.5 text-pink-500" />
+                    <span>Chave de API da OpenAI</span>
+                  </label>
+                  <input
+                    type="password"
+                    value={formData.openaiApiKey || ""}
+                    onChange={(e) => {
+                      setFormData({ ...formData, openaiApiKey: e.target.value });
+                      setAiTestResult(null);
+                    }}
+                    className="w-full px-3 py-2.5 bg-[#0f131c] border border-pink-500/30 rounded-lg text-xs font-mono focus:outline-none focus:ring-1 focus:ring-pink-500 focus:border-pink-500 transition-shadow"
+                    placeholder="Cole sua API Key da OpenAI (sk-...)"
+                  />
+                </div>
+
                 <button
                   type="button"
-                  onClick={handleTestGemini}
-                  disabled={isTestingAi || !(formData.geminiApiKey || "").trim()}
+                  onClick={handleTestAI}
+                  disabled={isTestingAi || !((formData.aiProvider || "gemini") === "openai" ? formData.openaiApiKey : formData.geminiApiKey)?.trim()}
                   className="w-full py-2.5 bg-pink-600 hover:bg-pink-700 disabled:opacity-50 disabled:cursor-not-allowed text-white text-xs font-semibold rounded-lg transition-colors flex items-center justify-center gap-2 cursor-pointer"
                 >
                   <RefreshCw className={`w-3.5 h-3.5 ${isTestingAi ? "animate-spin" : ""}`} />
-                  <span>{isTestingAi ? "Validando chave com Gemini..." : "Testar e Ativar Gemini"}</span>
+                  <span>{isTestingAi ? "Validando provedor..." : `Testar e Ativar ${(formData.aiProvider || "gemini") === "openai" ? "OpenAI" : "Gemini"}`}</span>
                 </button>
 
                 {aiTestResult && (
@@ -303,7 +349,7 @@ export const ObsidianApiSettingsModal: React.FC<ObsidianApiSettingsModalProps> =
                 <div className="text-[11px] text-pink-200 leading-relaxed bg-pink-500/10 p-3 rounded-lg border border-pink-500/20">
                   <p className="font-bold mb-1">🔐 Armazenamento da chave</p>
                   <p>
-                    No aplicativo desktop, a chave é protegida pelo armazenamento seguro do sistema operacional. No modo web local, ela é criptografada antes de ser persistida.
+                    No aplicativo desktop, as chaves são protegidas pelo armazenamento seguro do sistema operacional. No modo web, elas permanecem apenas em memória durante a sessão e não são gravadas no localStorage.
                   </p>
                   <p className="mt-2">
                     Para obter uma chave, acesse o <a href="https://aistudio.google.com/" target="_blank" rel="noreferrer" className="text-pink-500 hover:text-text-primary underline font-semibold">Google AI Studio</a> e use a opção <strong>Get API Key</strong>.
@@ -321,7 +367,7 @@ export const ObsidianApiSettingsModal: React.FC<ObsidianApiSettingsModalProps> =
                   <span>Conexão com o Obsidian</span>
                 </h3>
                 <p className="text-xs text-text-secondary leading-normal">
-                  Configure os parâmetros do Obsidian. No modo Web (navegador), as restrições de segurança de rede do navegador impedem o acesso direto ao seu disco físico, mas o sistema simula o salvamento local para que você use todos os recursos normalmente!
+                  Configure os parâmetros do Obsidian. O status conectado só é liberado depois que a API e o Vault físico são validados.
                 </p>
               </div>
 

@@ -2,6 +2,8 @@ import { app, BrowserWindow, ipcMain, dialog, Menu, safeStorage } from "electron
 import * as path from "path";
 import * as fs from "fs/promises";
 import { existsSync } from "fs";
+import { AIProviderFactory, DEFAULT_AI_MODELS } from "./src/services/ai/AIProviderFactory";
+import type { AIProviderName } from "./src/services/ai/AIProvider";
 
 let mainWindow: BrowserWindow | null = null;
 let selectedVaultPath: string | null = null;
@@ -25,7 +27,6 @@ const PERSISTABLE_SOURCE_EXTENSIONS = new Set([".pdf", ".png", ".jpg", ".jpeg", 
 const MAX_AI_ASSET_BYTES = 10 * 1024 * 1024;
 const MAX_PERSISTED_ASSET_BYTES = 20 * 1024 * 1024;
 const MAX_TEXT_ASSET_CHARS = 120_000;
-const GEMINI_MODELS = ["gemini-flash-latest", "gemini-3.1-flash-lite", "gemini-3.7-flash"];
 
 const configDir = app.getPath("userData");
 const configFilePath = path.join(configDir, "nisti_config.json");
@@ -85,6 +86,7 @@ async function saveConfig(updates: any) {
     const safeUpdates = { ...updates };
     delete safeUpdates.apiKey;
     delete safeUpdates.geminiApiKey;
+    delete safeUpdates.openaiApiKey;
     delete safeUpdates.token;
     delete safeUpdates.authorization;
     await fs.writeFile(configFilePath, JSON.stringify({ ...currentConfig, ...safeUpdates }, null, 2), "utf8");
@@ -111,17 +113,35 @@ async function saveAssetIndex(index: AssetIndex): Promise<void> {
   }
 }
 
-async function getSecureGeminiKey(): Promise<string> {
+async function getSecureSecret(name: "geminiApiKey" | "openaiApiKey"): Promise<string> {
   if (!safeStorage.isEncryptionAvailable() || !existsSync(secretsFilePath)) return "";
   try {
     const store = JSON.parse(await fs.readFile(secretsFilePath, "utf8"));
-    const encrypted = store?.geminiApiKey;
+    const encrypted = store?.[name];
     if (!encrypted) return "";
     return safeStorage.decryptString(Buffer.from(encrypted, "base64")).trim();
   } catch {
     return "";
   }
 }
+
+async function getAIConfig(): Promise<{ provider: AIProviderName; model: string; apiKey: string }> {
+  let persisted: { aiProvider?: AIProviderName; aiModel?: string } = {};
+  try {
+    if (existsSync(configFilePath)) persisted = JSON.parse(await fs.readFile(configFilePath, "utf8"));
+  } catch {
+    persisted = {};
+  }
+  const provider = persisted.aiProvider === "openai" ? "openai" : "gemini";
+  const apiKey = await getSecureSecret(provider === "openai" ? "openaiApiKey" : "geminiApiKey");
+  return { provider, model: persisted.aiModel?.trim() || DEFAULT_AI_MODELS[provider], apiKey };
+}
+
+ipcMain.handle("ai:config:set", async (_, config: { provider?: string; model?: string }) => {
+  const provider = config?.provider === "openai" ? "openai" : "gemini";
+  await saveConfig({ aiProvider: provider, aiModel: String(config?.model || "").trim() });
+  return { success: true };
+});
 
 function requireObsidianConnection(): void {
   if (!obsidianConnectionAuthorized) {
@@ -281,10 +301,6 @@ async function listVaultFolders(): Promise<string[]> {
   return Array.from(new Set(folders)).sort((a, b) => a.localeCompare(b, "pt-BR"));
 }
 
-function stripJsonFence(value: string): string {
-  return value.trim().replace(/^```(?:json)?\s*/i, "").replace(/\s*```$/i, "").trim();
-}
-
 function normalizeAnalysis(input: any, fallbackSummary: string, model?: string): AssetAnalysis {
   const keyFacts = Array.isArray(input?.keyFacts)
     ? input.keyFacts.map(String).map((v: string) => v.trim()).filter(Boolean).slice(0, 6)
@@ -312,11 +328,11 @@ function mimeForExtension(ext: string): string {
   return "text/plain";
 }
 
-async function callGeminiForAsset(fullPath: string, relativePath: string, ext: string): Promise<AssetAnalysis> {
-  const apiKey = await getSecureGeminiKey();
+async function callAIForAsset(fullPath: string, relativePath: string, ext: string): Promise<AssetAnalysis> {
+  const aiConfig = await getAIConfig();
   const stats = await fs.stat(fullPath);
   const fallbackSummary = `Arquivo ${path.basename(relativePath)} detectado no Vault. Análise inteligente pendente.`;
-  if (!apiKey) return normalizeAnalysis({}, `${fallbackSummary} Configure a chave Gemini para interpretar o conteúdo automaticamente.`);
+  if (!aiConfig.apiKey) return normalizeAnalysis({}, `${fallbackSummary} Configure a chave do provedor ${aiConfig.provider} para interpretar o conteúdo automaticamente.`);
   if (stats.size > MAX_AI_ASSET_BYTES) return normalizeAnalysis({}, `${fallbackSummary} O arquivo excede o limite automático de 10 MB.`);
 
   const prompt = [
@@ -328,47 +344,39 @@ async function callGeminiForAsset(fullPath: string, relativePath: string, ext: s
     "O resumo deve ser enxuto para aparecer no painel; o arquivo original permanece como fonte completa no Obsidian."
   ].join("\n");
 
-  let mediaPart: any = null;
+  let attachment: { mimeType: string; data: string; fileName: string } | undefined;
   let textPart = "";
   if (ext === ".txt") {
     textPart = (await fs.readFile(fullPath, "utf8")).slice(0, MAX_TEXT_ASSET_CHARS);
   } else {
     const buffer = await fs.readFile(fullPath);
-    mediaPart = { inline_data: { mime_type: mimeForExtension(ext), data: buffer.toString("base64") } };
+    attachment = { mimeType: mimeForExtension(ext), data: buffer.toString("base64"), fileName: path.basename(relativePath) };
   }
 
-  let lastError: unknown = null;
-  for (const model of GEMINI_MODELS) {
-    try {
-      const parts: any[] = [{ text: textPart ? `${prompt}\n\nCONTEÚDO DE TEXTO:\n${textPart}` : prompt }];
-      if (mediaPart) parts.push(mediaPart);
-      const response = await fetch(
-        `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(model)}:generateContent?key=${encodeURIComponent(apiKey)}`,
-        {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            contents: [{ role: "user", parts }],
-            generationConfig: { responseMimeType: "application/json", temperature: 0.1 },
-          }),
-          signal: AbortSignal.timeout(30_000),
-        }
-      );
-      if (!response.ok) {
-        lastError = new Error(`Gemini HTTP ${response.status}`);
-        continue;
-      }
-      const payload = await response.json();
-      const raw = payload?.candidates?.[0]?.content?.parts?.map((part: any) => part?.text || "").join("") || "{}";
-      const parsed = JSON.parse(stripJsonFence(raw));
-      return normalizeAnalysis(parsed, fallbackSummary, model);
-    } catch (err) {
-      lastError = err;
-    }
+  try {
+    const provider = AIProviderFactory.create(aiConfig);
+    const result = await provider.analyzeDocument<any>({
+      prompt: textPart ? `${prompt}\n\nCONTEÚDO DE TEXTO:\n${textPart}` : prompt,
+      schemaName: "vault_asset_analysis",
+      schema: {
+        type: "object",
+        properties: {
+          summary: { type: "string" },
+          keyFacts: { type: "array", items: { type: "string" } },
+          visibleText: { type: "string" },
+          category: { type: "string" },
+          keywords: { type: "array", items: { type: "string" } },
+          epistemicStatus: { type: "string" },
+        },
+        required: ["summary", "keyFacts", "epistemicStatus"],
+      },
+      attachments: attachment ? [attachment] : [],
+    });
+    return normalizeAnalysis(result.data, fallbackSummary, result.model);
+  } catch (error) {
+    console.warn("Automatic Vault asset analysis failed:", error);
+    return normalizeAnalysis({}, fallbackSummary);
   }
-
-  console.warn("Automatic Vault asset analysis failed:", lastError);
-  return normalizeAnalysis({}, fallbackSummary);
 }
 
 function buildAssetKnowledgeNote(relativePath: string, relativeDir: string, ext: string, stats: { size: number; mtimeMs: number }, analysis: AssetAnalysis) {
@@ -476,7 +484,7 @@ async function scanVaultKnowledge(): Promise<any[]> {
 
     let analysis = index[cacheKey]?.analysis;
     if (!analysis || index[cacheKey].mtime !== asset.mtimeMs || index[cacheKey].size !== asset.size) {
-      analysis = await callGeminiForAsset(asset.fullPath, asset.relativePath, asset.ext);
+      analysis = await callAIForAsset(asset.fullPath, asset.relativePath, asset.ext);
       index[cacheKey] = { mtime: asset.mtimeMs, size: asset.size, analysis };
       indexChanged = true;
     }

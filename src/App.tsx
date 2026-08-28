@@ -181,6 +181,10 @@ export default function App() {
   const [apiConfig, setApiConfig] = useState<ObsidianApiConfig>({
     endpoint: "https://127.0.0.1:27124",
     apiKey: "",
+    geminiApiKey: "",
+    openaiApiKey: "",
+    aiProvider: "gemini",
+    aiModel: "",
     vaultName: "MarketingVault",
     useHttps: true,
     autoSync: true,
@@ -1084,6 +1088,8 @@ export default function App() {
   const handleExportVault = () => {
     const sanitizedApiConfig = { ...apiConfig } as Record<string, unknown>;
     delete sanitizedApiConfig.apiKey;
+    delete sanitizedApiConfig.geminiApiKey;
+    delete sanitizedApiConfig.openaiApiKey;
 
     const dataStr = JSON.stringify(
       {
@@ -1277,10 +1283,10 @@ export default function App() {
             setEngineMode(mode);
             showToast(
               "info",
-              mode === "local" ? "Motor Local Ativado" : "Modo IA Gemini Ativado",
+              mode === "local" ? "Motor Local Ativado" : "Modo IA Ativado",
               mode === "local"
                 ? "Operando 100% offline com lógica determinística e 0 consumo de tokens."
-                : "Operando em modo híbrido com a API do Gemini."
+                : "Operando em modo híbrido com o provedor de IA configurado."
             );
           }}
         />

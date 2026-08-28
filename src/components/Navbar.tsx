@@ -213,7 +213,7 @@ export const Navbar: React.FC<NavbarProps> = ({
                     ? "bg-surface-container-low text-text-primary border-outline-border hover:bg-surface-variant"
                     : "bg-pink-950/40 text-pink-200 border-pink-900/50 hover:bg-pink-900/30"
                 }`}
-                title="Alternar entre Motor Local (0 tokens) e Gemini AI"
+                title="Alternar entre Motor Local (0 tokens) e IA configurada"
               >
                 <Cpu className="w-3.5 h-3.5 text-text-secondary" />
                 <span>{engineMode === "local" ? "Motor Local" : "IA"}</span>

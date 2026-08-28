@@ -49,4 +49,35 @@ describe("StorageManager app-state gateway", () => {
 
     expect(storage.loadAppState("wrong-shape", { id: "fallback" }, schema)).toEqual({ id: "fallback" });
   });
+
+  test("persists provider and model without writing API keys to localStorage", async () => {
+    const storage = StorageManager.getInstance();
+    const config = {
+      endpoint: "https://127.0.0.1:27124",
+      apiKey: "obsidian-secret",
+      geminiApiKey: "gemini-secret",
+      openaiApiKey: "openai-secret",
+      aiProvider: "openai" as const,
+      aiModel: "gpt-test",
+      vaultName: "MarketingVault",
+      useHttps: true,
+      autoSync: true,
+      syncIntervalSeconds: 60,
+      connectionStatus: "disconnected" as const,
+      allowSelfSignedCerts: true,
+    };
+
+    await storage.saveApiConfig(config);
+    const persisted = localStorage.getItem("nisti_pkm_api_config_secure_v2") || "";
+    expect(persisted).toContain('"aiProvider":"openai"');
+    expect(persisted).toContain('"aiModel":"gpt-test"');
+    expect(persisted).not.toContain("obsidian-secret");
+    expect(persisted).not.toContain("gemini-secret");
+    expect(persisted).not.toContain("openai-secret");
+
+    const loaded = await storage.loadApiConfig(config);
+    expect(loaded.aiProvider).toBe("openai");
+    expect(loaded.aiModel).toBe("gpt-test");
+    expect(loaded.openaiApiKey).toBe("openai-secret");
+  });
 });

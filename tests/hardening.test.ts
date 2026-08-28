@@ -35,23 +35,30 @@ describe("v2.0.0 hardening invariants", () => {
     expect(buildScript).toContain('await import("pdf-parse")');
   });
 
-  test("desktop secret store protects both Obsidian and Gemini credentials", async () => {
+  test("desktop secret store protects Obsidian, Gemini and OpenAI credentials", async () => {
     const bootstrap = await read("electron-bootstrap.ts");
     expect(bootstrap).toContain('"obsidianApiKey"');
     expect(bootstrap).toContain('"geminiApiKey"');
+    expect(bootstrap).toContain('"openaiApiKey"');
     expect(bootstrap).toContain('cwd: path.resolve(__dirname, "..")');
 
     const storage = await read("src/services/storage/StorageManager.ts");
     expect(storage).toContain('setSecret("obsidianApiKey"');
     expect(storage).toContain('setSecret("geminiApiKey"');
+    expect(storage).toContain('setSecret("openaiApiKey"');
     expect(storage).toContain('getSecret("obsidianApiKey"');
     expect(storage).toContain('getSecret("geminiApiKey"');
+    expect(storage).toContain('getSecret("openaiApiKey"');
+    expect(storage).not.toContain("encryptSecret(");
+    expect(storage).not.toContain("fallback_plain:");
   });
 
-  test("Gemini client reads credentials through secure config rather than legacy plaintext storage", async () => {
+  test("AI client reads provider credentials through secure config rather than legacy plaintext storage", async () => {
     const source = await read("src/services/api.ts");
     expect(source).toContain("storage.loadApiConfig");
-    expect(source).toContain("testGeminiConnection");
+    expect(source).toContain("testAIConnection");
+    expect(source).toContain('headers["x-ai-api-key"]');
+    expect(source).toContain('headers["x-ai-provider"]');
     expect(source).toContain('headers["x-gemini-api-key"]');
     expect(source).not.toContain('localStorage.getItem("obsidian_api_config")');
   });
@@ -119,7 +126,7 @@ describe("v2.0.0 hardening invariants", () => {
     const noteModal = await read("src/components/NoteModal.tsx");
 
     expect(apiSource).toContain("async processKnowledge");
-    expect(apiSource).toContain('fetch("/api/gemini/process-knowledge"');
+    expect(apiSource).toContain('fetch("/api/ai/process-knowledge"');
     expect(knowledge).toContain("api.processKnowledge");
     expect(knowledge).not.toContain('fetch("/api/gemini/process-knowledge"');
     expect(knowledge).toContain("api.pushNoteToObsidian");

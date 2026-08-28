@@ -226,7 +226,11 @@ const ImportedApiConfigSchema = z.object({
   lastSyncTime: z.string().optional(),
   errorMessage: z.string().optional(),
   allowSelfSignedCerts: z.boolean().optional(),
+  aiProvider: z.enum(["gemini", "openai"]).optional(),
+  aiModel: z.string().optional(),
   apiKey: z.unknown().optional(),
+  geminiApiKey: z.unknown().optional(),
+  openaiApiKey: z.unknown().optional(),
 }).strip();
 
 export const WorkspaceImportSchema = z.object({
@@ -243,6 +247,10 @@ export function parseWorkspaceImport(input: unknown): WorkspaceImport {
   const parsed = WorkspaceImportSchema.parse(input);
   if (parsed.apiConfig && "apiKey" in parsed.apiConfig) {
     delete (parsed.apiConfig as Record<string, unknown>).apiKey;
+  }
+  if (parsed.apiConfig) {
+    delete (parsed.apiConfig as Record<string, unknown>).geminiApiKey;
+    delete (parsed.apiConfig as Record<string, unknown>).openaiApiKey;
   }
   return parsed;
 }
