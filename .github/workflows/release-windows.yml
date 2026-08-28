@@ -142,23 +142,42 @@ jobs:
         shell: pwsh
         run: |
           $setup = Get-Item (Join-Path "dist-electron" $env:EXPECTED_SETUP_ASSET)
-          $installDir = Join-Path $env:RUNNER_TEMP "nisti-install-smoke"
-          Remove-Item -Path $installDir -Recurse -Force -ErrorAction SilentlyContinue
+          $accessViolationExitCode = -1073741819 # 0xC0000005 on GitHub-hosted Windows runners
+          $maxAttempts = 3
+          $installed = $false
 
-          Write-Host "Executando instalação silenciosa em $installDir"
-          $process = Start-Process -FilePath $setup.FullName -ArgumentList @("/S", "/D=$installDir") -Wait -PassThru
-          if ($process.ExitCode -ne 0) {
-            throw "Instalador NSIS falhou no smoke test com exit code $($process.ExitCode)."
+          for ($attempt = 1; $attempt -le $maxAttempts; $attempt++) {
+            $installDir = Join-Path $env:RUNNER_TEMP "nisti-install-smoke-$attempt"
+            Remove-Item -Path $installDir -Recurse -Force -ErrorAction SilentlyContinue
+
+            Write-Host "Smoke NSIS tentativa $attempt/$maxAttempts em $installDir"
+            $process = Start-Process -FilePath $setup.FullName -ArgumentList @("/S", "/D=$installDir") -Wait -PassThru
+
+            if ($process.ExitCode -eq 0) {
+              $appExe = Join-Path $installDir "Nisti Marketing.exe"
+              if (-not (Test-Path $appExe)) {
+                $found = @(Get-ChildItem -Path $installDir -Recurse -Filter *.exe -ErrorAction SilentlyContinue | Select-Object -ExpandProperty FullName)
+                throw "Instalação silenciosa terminou sem gerar 'Nisti Marketing.exe'. EXEs encontrados: $($found -join '; ')"
+              }
+
+              Write-Host "Smoke test do instalador OK: $appExe"
+              $installed = $true
+              Remove-Item -Path $installDir -Recurse -Force -ErrorAction SilentlyContinue
+              break
+            }
+
+            if ($process.ExitCode -ne $accessViolationExitCode) {
+              throw "Instalador NSIS falhou no smoke test com exit code não transitório $($process.ExitCode)."
+            }
+
+            Write-Warning "Runner retornou access violation 0xC0000005 na tentativa $attempt/$maxAttempts. Limpando e repetindo o mesmo instalador."
+            Remove-Item -Path $installDir -Recurse -Force -ErrorAction SilentlyContinue
+            if ($attempt -lt $maxAttempts) { Start-Sleep -Seconds 3 }
           }
 
-          $appExe = Join-Path $installDir "Nisti Marketing.exe"
-          if (-not (Test-Path $appExe)) {
-            $found = @(Get-ChildItem -Path $installDir -Recurse -Filter *.exe -ErrorAction SilentlyContinue | Select-Object -ExpandProperty FullName)
-            throw "Instalação silenciosa terminou sem gerar 'Nisti Marketing.exe'. EXEs encontrados: $($found -join '; ')"
+          if (-not $installed) {
+            throw "Instalador NSIS sofreu access violation 0xC0000005 nas $maxAttempts tentativas; release bloqueada."
           }
-
-          Write-Host "Smoke test do instalador OK: $appExe"
-          Remove-Item -Path $installDir -Recurse -Force -ErrorAction SilentlyContinue
 
       # Não usamos actions/upload-artifact aqui: os mesmos binários seriam
       # armazenados duas vezes e consumiriam a cota de Actions Storage.
