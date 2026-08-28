@@ -458,7 +458,7 @@ export const ObsidianApiSettingsModal: React.FC<ObsidianApiSettingsModalProps> =
                   <button
                     type="button"
                     onClick={handleTestObsidian}
-                    disabled={isTesting || !(formData.endpoint || "").trim() || !(formData.apiKey || "").trim()}
+                    disabled={isTesting || (!window.electronAPI && (!(formData.endpoint || "").trim() || !(formData.apiKey || "").trim()))}
                     className="w-full py-2.5 bg-[#0f131c] hover:bg-[#334155] disabled:opacity-50 disabled:cursor-not-allowed text-text-primary text-xs font-semibold rounded-lg border border-outline-border transition-colors flex items-center justify-center gap-2 cursor-pointer"
                   >
                     <RefreshCw className={`w-3.5 h-3.5 ${isTesting ? "animate-spin text-pink-500" : ""}`} />

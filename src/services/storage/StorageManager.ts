@@ -439,16 +439,19 @@ export class StorageManager implements IStorageService {
       openaiApiKey: openaiApiKey || "",
     };
 
-    if (this.isDesktopRuntime() && window.electronAPI?.setSecret) {
-      await Promise.all([
-        window.electronAPI.setSecret("obsidianApiKey", this.volatileSecrets.obsidianApiKey),
-        window.electronAPI.setSecret("geminiApiKey", this.volatileSecrets.geminiApiKey),
-        window.electronAPI.setSecret("openaiApiKey", this.volatileSecrets.openaiApiKey),
-        window.electronAPI.setAIConfig?.({
-          provider: persistedConfig.aiProvider,
-          model: persistedConfig.aiModel,
-        }),
-      ]);
+localStorage.setItem(STORAGE_KEYS.API_CONFIG_SECURE, JSON.stringify(persistedConfig));
+
+      if (this.isDesktopRuntime() && window.electronAPI?.setSecret) {
+        await Promise.all([
+          window.electronAPI.setSecret("obsidianApiKey", persistedConfig.apiKey || ""),
+          window.electronAPI.setSecret("geminiApiKey", persistedConfig.geminiApiKey || ""),
+          window.electronAPI.setSecret("openaiApiKey", persistedConfig.openaiApiKey || ""),
+          window.electronAPI.setAIConfig?.({
+            provider: persistedConfig.aiProvider,
+            model: persistedConfig.aiModel,
+          }),
+        ]);
+      }
     }
 
     // Only non-secret settings are persisted. Browser sessions keep credentials in memory.
@@ -456,16 +459,17 @@ export class StorageManager implements IStorageService {
   }
 
   public async loadApiConfig(defaultConfig: ObsidianApiConfig): Promise<ObsidianApiConfig> {
+    let parsedConfig: Partial<ObsidianApiConfig> = {};
     try {
       const rawSecure = localStorage.getItem(STORAGE_KEYS.API_CONFIG_SECURE);
       if (rawSecure) {
-        const parsed = JSON.parse(rawSecure);
+parsedConfig = JSON.parse(rawSecure);
 
-        const sanitizedConfig = { ...parsed };
+        const sanitizedConfig = { ...parsedConfig };
         delete sanitizedConfig.apiKey;
         delete sanitizedConfig.geminiApiKey;
         delete sanitizedConfig.openaiApiKey;
-        if (JSON.stringify(sanitizedConfig) !== JSON.stringify(parsed)) {
+        if (JSON.stringify(sanitizedConfig) !== JSON.stringify(parsedConfig)) {
           localStorage.setItem(STORAGE_KEYS.API_CONFIG_SECURE, JSON.stringify(sanitizedConfig));
         }
 
@@ -497,25 +501,24 @@ export class StorageManager implements IStorageService {
           errorMessage: undefined,
         };
       }
+    } catch (e) {
+      console.warn("Failed to parse local API config", e);
+    }
 
-      const legacyRaw = localStorage.getItem("obsidian_api_config");
-      if (legacyRaw) {
-        const legacyParsed = JSON.parse(legacyRaw) as ObsidianApiConfig;
-        localStorage.removeItem("obsidian_api_config");
-        await this.saveApiConfig(legacyParsed);
-        return {
-          ...defaultConfig,
-          ...legacyParsed,
-          apiKey: legacyParsed.apiKey || "",
-          geminiApiKey: legacyParsed.geminiApiKey || "",
-          openaiApiKey: legacyParsed.openaiApiKey || "",
-          aiProvider: legacyParsed.aiProvider || "gemini",
-          connectionStatus: "disconnected",
-          errorMessage: undefined,
-        };
+    let obsidianKey = "";
+    let geminiKey = "";
+
+    try {
+      if (this.isDesktopRuntime() && window.electronAPI?.getSecret) {
+        const [obsRes, gemRes] = await Promise.all([
+          window.electronAPI.getSecret("obsidianApiKey"),
+          window.electronAPI.getSecret("geminiApiKey"),
+        ]);
+        obsidianKey = obsRes || "";
+        geminiKey = gemRes || "";
       }
     } catch (e) {
-      console.warn("Could not load API config securely, using defaults without persisted secrets:", e);
+      console.warn("Could not load secrets from desktop secure storage", e);
     }
 
     return {

@@ -113,16 +113,49 @@ async function saveAssetIndex(index: AssetIndex): Promise<void> {
   }
 }
 
-async function getSecureSecret(name: "geminiApiKey" | "openaiApiKey"): Promise<string> {
-  if (!safeStorage.isEncryptionAvailable() || !existsSync(secretsFilePath)) return "";
+async function getSecureSecret(key: string): Promise<string | null> {
+  if (!safeStorage.isEncryptionAvailable() || !existsSync(secretsFilePath)) return null;
   try {
     const store = JSON.parse(await fs.readFile(secretsFilePath, "utf8"));
-    const encrypted = store?.[name];
-    if (!encrypted) return "";
+    const encrypted = store?.[key];
+    if (!encrypted) return null;
     return safeStorage.decryptString(Buffer.from(encrypted, "base64")).trim();
   } catch {
-    return "";
+    return null;
   }
+}
+
+async function setSecureSecret(key: string, value: string): Promise<void> {
+  if (!safeStorage.isEncryptionAvailable()) {
+    throw new Error("Criptografia não disponível no sistema operativo.");
+  }
+  let store: any = {};
+  if (existsSync(secretsFilePath)) {
+    try {
+      store = JSON.parse(await fs.readFile(secretsFilePath, "utf8"));
+    } catch {
+      store = {};
+    }
+  }
+  store[key] = safeStorage.encryptString(value).toString("base64");
+  await fs.writeFile(secretsFilePath, JSON.stringify(store, null, 2), { encoding: "utf8", mode: 0o600 });
+}
+
+async function deleteSecureSecret(key: string): Promise<void> {
+  if (!existsSync(secretsFilePath)) return;
+  try {
+    const store = JSON.parse(await fs.readFile(secretsFilePath, "utf8"));
+    if (store[key]) {
+      delete store[key];
+      await fs.writeFile(secretsFilePath, JSON.stringify(store, null, 2), { encoding: "utf8", mode: 0o600 });
+    }
+  } catch {
+    // Ignore parse errors on delete
+  }
+}
+
+async function getSecureGeminiKey(): Promise<string> {
+  return (await getSecureSecret("geminiApiKey")) || "";
 }
 
 async function getAIConfig(): Promise<{ provider: AIProviderName; model: string; apiKey: string }> {
@@ -133,7 +166,7 @@ async function getAIConfig(): Promise<{ provider: AIProviderName; model: string;
     persisted = {};
   }
   const provider = persisted.aiProvider === "openai" ? "openai" : "gemini";
-  const apiKey = await getSecureSecret(provider === "openai" ? "openaiApiKey" : "geminiApiKey");
+  const apiKey = (await getSecureSecret(provider === "openai" ? "openaiApiKey" : "geminiApiKey")) || "";
   return { provider, model: persisted.aiModel?.trim() || DEFAULT_AI_MODELS[provider], apiKey };
 }
 
@@ -702,3 +735,30 @@ ipcMain.handle("system:status", () => ({
   runtime: "electron",
   isDesktop: true,
 }));
+
+ipcMain.handle("secret:set", async (_, name: string, value: string) => {
+  try {
+    await setSecureSecret(name, value);
+    return { success: true };
+  } catch (err: any) {
+    return { success: false, error: err.message };
+  }
+});
+
+ipcMain.handle("secret:get", async (_, name: string) => {
+  try {
+    const value = await getSecureSecret(name);
+    return value || "";
+  } catch (err: any) {
+    return "";
+  }
+});
+
+ipcMain.handle("secret:delete", async (_, name: string) => {
+  try {
+    await deleteSecureSecret(name);
+    return { success: true };
+  } catch (err: any) {
+    return { success: false, error: err.message };
+  }
+});

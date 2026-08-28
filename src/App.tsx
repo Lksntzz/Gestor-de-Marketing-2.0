@@ -214,7 +214,7 @@ export default function App() {
       .loadApiConfig(apiConfig)
       .then(async (loaded) => {
         if (loaded) {
-          if (loaded.endpoint?.trim() && loaded.apiKey?.trim()) {
+          if (window.electronAPI || (loaded.endpoint?.trim() && loaded.apiKey?.trim())) {
             try {
               const res = await api.probeObsidianConnection(loaded);
               if (res.success) {

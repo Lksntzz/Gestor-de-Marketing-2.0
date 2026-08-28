@@ -201,7 +201,7 @@ async function inspectDesktopVault(selectVault: boolean): Promise<ObsidianConnec
   if (!vaultPath) {
     return {
       success: false,
-      message: "A REST API respondeu, mas falta selecionar a pasta física do Vault usada pelo Obsidian.",
+      message: "Falta selecionar a pasta física do Vault do Obsidian.",
     };
   }
 
@@ -428,6 +428,37 @@ async function verifyObsidianConnection(
   config: { endpoint: string; apiKey: string },
   selectVault: boolean
 ): Promise<ObsidianConnectionResult> {
+  if (window.electronAPI) {
+    stopObsidianHeartbeat(); // Heartbeat not needed for direct filesystem
+    await setDesktopObsidianAuthorization(true);
+    
+    try {
+      const desktop = await inspectDesktopVault(selectVault);
+      if (!desktop.success) {
+        await setDesktopObsidianAuthorization(false);
+        markObsidianRuntimeDisconnected(desktop.message);
+        return desktop;
+      }
+      
+      markObsidianRuntimeConnected();
+      const snapshot = await publishCurrentDesktopVaultSnapshot(desktop.localFolders);
+      
+      return {
+        ...desktop,
+        success: true,
+        localNotesFound: snapshot.notes || desktop.localNotesFound,
+        localFoldersFound: snapshot.folders || desktop.localFoldersFound,
+        message: `${desktop.message} Base sincronizada automaticamente.`.trim(),
+      };
+    } catch (err: any) {
+      await setDesktopObsidianAuthorization(false);
+      const message = err.message || "Não foi possível confirmar o acesso ao Vault.";
+      markObsidianRuntimeDisconnected(message);
+      return { success: false, message };
+    }
+  }
+
+  // Web flow (uses Local REST API)
   if (!config.endpoint.trim() || !config.apiKey.trim()) {
     stopObsidianHeartbeat();
     await setDesktopObsidianAuthorization(false);
@@ -438,101 +469,59 @@ async function verifyObsidianConnection(
     };
   }
 
-  if (!window.electronAPI) {
-    try {
-      const { res, data } = await requestObsidianConnectionTest(config);
-      if (res.ok && data?.success) {
-        useDirectClientSideFetch = true;
-        await setDesktopObsidianAuthorization(true);
-        markObsidianRuntimeConnected();
+  try {
+    const { res, data } = await requestObsidianConnectionTest(config);
+    if (res.ok && data?.success) {
+      useDirectClientSideFetch = true;
+      await setDesktopObsidianAuthorization(true);
+      markObsidianRuntimeConnected();
 
-        const detectedVault = data.vault || "MarketingVault";
-
-        // Let's crawl folders to populate local folders list
-        let folders: string[] = ["00_Inbox"];
-        try {
-          const listRes = await obsidianProxyRequest(config as any, "GET", "/vault/");
-          if (listRes.response.ok && listRes.data?.success) {
-            const filesList = listRes.data?.data?.files || listRes.data?.files || [];
-            if (Array.isArray(filesList)) {
-              const detectedFolders = filesList
-                .map((item: any) => {
-                  const relativePath = typeof item === "string" ? item : (item?.path || "");
-                  return relativePath.replace(/^\//, "");
-                })
-                .filter((p: string) => p.endsWith("/"))
-                .map((p: string) => p.replace(/\/$/, ""));
-              if (detectedFolders.length > 0) {
-                folders = detectedFolders;
-              }
+      const detectedVault = data.vault || "MarketingVault";
+      let folders: string[] = ["00_Inbox"];
+      try {
+        const listRes = await obsidianProxyRequest(config as any, "GET", "/vault/");
+        if (listRes.response.ok && listRes.data?.success) {
+          const filesList = listRes.data?.data?.files || listRes.data?.files || [];
+          if (Array.isArray(filesList)) {
+            const detectedFolders = filesList
+              .map((item: any) => {
+                const relativePath = typeof item === "string" ? item : (item?.path || "");
+                return relativePath.replace(/^\//, "");
+              })
+              .filter((p: string) => p.endsWith("/"))
+              .map((p: string) => p.replace(/\/$/, ""));
+            if (detectedFolders.length > 0) {
+              folders = detectedFolders;
             }
           }
-        } catch (e) {
-          console.warn("Could not list folders during web verification:", e);
         }
-
-        return {
-          success: true,
-          detectedVaultName: detectedVault,
-          localFoldersFound: folders.length,
-          localFolders: folders,
-          message: `Conectado com sucesso ao Obsidian físico local (${detectedVault}) diretamente pelo seu navegador!`,
-        };
-      } else {
-        const errorMsg = data?.message || "Conexão rejeitada.";
-        const targetEndpoint = normalizeObsidianEndpoint(config.endpoint);
-        return {
-          success: false,
-          message: errorMsg.includes("Avançado")
-            ? errorMsg
-            : `Não foi possível conectar ao Obsidian local (${targetEndpoint}).\n\n👉 Para liberar o acesso no navegador, abra o link: ${targetEndpoint}/\nClique em "Avançado" -> "Prosseguir para 127.0.0.1 (não seguro)". Depois, retorne e clique em Testar Conexão novamente.\n\nDetalhes: ${errorMsg}`,
-        };
+      } catch (e) {
+        console.warn("Could not list folders during web verification:", e);
       }
-    } catch (err: any) {
+
+      return {
+        success: true,
+        detectedVaultName: detectedVault,
+        localFoldersFound: folders.length,
+        localFolders: folders,
+        message: `Conectado com sucesso ao Obsidian físico local (${detectedVault}) diretamente pelo seu navegador!`,
+      };
+    } else {
+      const errorMsg = data?.message || "Conexão rejeitada.";
       const targetEndpoint = normalizeObsidianEndpoint(config.endpoint);
       return {
         success: false,
-        message: `Não foi possível conectar ao Obsidian local (${targetEndpoint}).\n\n👉 Abra este link no navegador para autorizar o certificado: ${targetEndpoint}/\nSelecione "Avançado" -> "Prosseguir para 127.0.0.1".\n\nDetalhes do erro: ${err.message || err}`,
+        message: errorMsg.includes("Avançado")
+          ? errorMsg
+          : `Não foi possível conectar ao Obsidian local (${targetEndpoint}).\n\n👉 Para liberar o acesso no navegador, abra o link: ${targetEndpoint}/\nClique em "Avançado" -> "Prosseguir para 127.0.0.1 (não seguro)". Depois, retorne e clique em Testar Conexão novamente.\n\nDetalhes: ${errorMsg}`,
       };
     }
-  }
-
-  try {
-    const { res, data } = await requestObsidianConnectionTest(config);
-    if (!res.ok || !data?.success) {
-      stopObsidianHeartbeat();
-      await setDesktopObsidianAuthorization(false);
-      const message = data?.message || data?.error || `Obsidian retornou HTTP ${res.status}.`;
-      markObsidianRuntimeDisconnected(message);
-      return { success: false, message };
-    }
-
-    await setDesktopObsidianAuthorization(true);
-    const desktop = await inspectDesktopVault(selectVault);
-    if (!desktop.success) {
-      stopObsidianHeartbeat();
-      await setDesktopObsidianAuthorization(false);
-      markObsidianRuntimeDisconnected(desktop.message);
-      return desktop;
-    }
-
-    markObsidianRuntimeConnected();
-    const snapshot = await publishCurrentDesktopVaultSnapshot(desktop.localFolders);
-    startObsidianHeartbeat(config);
-
-    return {
-      ...desktop,
-      success: true,
-      localNotesFound: snapshot.notes || desktop.localNotesFound,
-      localFoldersFound: snapshot.folders || desktop.localFoldersFound,
-      message: `${data.message || "REST API do Obsidian conectada."} ${desktop.message} Base sincronizada automaticamente.`.trim(),
-    };
   } catch (err: any) {
-    stopObsidianHeartbeat();
-    await setDesktopObsidianAuthorization(false);
-    const message = err.message || "Não foi possível confirmar a conexão com o Obsidian.";
-    markObsidianRuntimeDisconnected(message);
-    return { success: false, message };
+    const targetEndpoint = normalizeObsidianEndpoint(config.endpoint);
+    return {
+      success: false,
+      message: `Não foi possível conectar ao Obsidian local (${targetEndpoint}).\n\n👉 Abra este link no navegador para autorizar o certificado: ${targetEndpoint}/\nSelecione "Avançado" -> "Prosseguir para 127.0.0.1".\n\nDetalhes do erro: ${err.message || err}`,
+    };
   }
 }
 
