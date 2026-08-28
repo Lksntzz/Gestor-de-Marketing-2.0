@@ -1,14 +1,14 @@
 {
   "name": "nisti-marketing",
   "private": true,
-  "version": "2.1.6",
+  "version": "2.1.7",
   "description": "Nisti Marketing - sistema local-first de gestão de marketing integrado ao Obsidian e IA multi-provedor",
   "author": "Nisti Print Solutions",
   "main": "dist/electron-main.cjs",
   "type": "module",
   "scripts": {
     "dev": "tsx secure-server.ts",
-    "build": "vite build && node scripts/build-backend.mjs && esbuild src/preload.ts --bundle --platform=node --format=cjs --outfile=dist/preload.cjs && esbuild electron-bootstrap.ts --bundle --platform=node --format=cjs --packages=external --outfile=dist/electron-main.cjs",
+    "build": "vite build && node scripts/build-backend.mjs && esbuild src/preload.ts --bundle --platform=node --format=cjs --external:electron --outfile=dist/preload.cjs && esbuild electron-bootstrap.ts --bundle --platform=node --format=cjs --packages=external --outfile=dist/electron-main.cjs",
     "start": "node dist/server.cjs",
     "electron:start": "electron dist/electron-main.cjs",
     "electron:dev": "bun run build && electron dist/electron-main.cjs",
@@ -22,7 +22,8 @@
     "test": "bun test tests/*.test.ts",
     "test:node": "node --import tsx --test tests-node/*.test.ts",
     "smoke:backend": "node scripts/runtime-smoke.mjs",
-    "verify": "npm run lint && npm run test && npm run test:node && npm run build"
+    "verify:preload": "node scripts/verify-preload-build.mjs",
+    "verify": "npm run lint && npm run test && npm run test:node && npm run build && npm run verify:preload"
   },
   "build": {
     "appId": "com.nistiprint.pkm",
