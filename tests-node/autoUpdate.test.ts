@@ -87,18 +87,15 @@ describe("AutoUpdateService - Unit & State Machine Tests", () => {
       currentVersion: "2.0.0",
     });
 
-    // 1. Checking for update
     updater.emit("checking-for-update");
     assert.equal(service.getState().status, "checking");
 
-    // 2. Update available
     updater.emit("update-available", { version: "2.0.1", releaseDate: "2026-08-28" });
     let state = service.getState();
     assert.equal(state.status, "available");
     assert.equal(state.availableVersion, "2.0.1");
     assert.equal(state.releaseDate, "2026-08-28");
 
-    // 3. Download progress
     updater.emit("download-progress", {
       percent: 45.67,
       transferred: 45000000,
@@ -111,7 +108,6 @@ describe("AutoUpdateService - Unit & State Machine Tests", () => {
     assert.equal(state.transferred, 45000000);
     assert.equal(state.total, 100000000);
 
-    // 4. Update downloaded
     updater.emit("update-downloaded", { version: "2.0.1", releaseDate: "2026-08-28" });
     state = service.getState();
     assert.equal(state.status, "downloaded");
@@ -167,7 +163,6 @@ describe("AutoUpdateService - Unit & State Machine Tests", () => {
     await service.checkForUpdates();
     assert.equal(updater.checkCalled, true);
 
-    // Test failure scenario
     updater.shouldFailCheck = true;
     const errState = await service.checkForUpdates();
     assert.equal(errState.status, "error");
@@ -176,7 +171,7 @@ describe("AutoUpdateService - Unit & State Machine Tests", () => {
     service.destroy();
   });
 
-  test("installUpdate executes cleanup handler before quitAndInstall", async () => {
+  test("installUpdate executes cleanup before silent quitAndInstall", async () => {
     const updater = new MockAppUpdater();
     let cleanupCalled = false;
 
@@ -190,22 +185,19 @@ describe("AutoUpdateService - Unit & State Machine Tests", () => {
       },
     });
 
-    // Attempt before download must fail
     const prematureResult = await service.installUpdate();
     assert.equal(prematureResult.success, false);
     assert.equal(cleanupCalled, false);
     assert.equal(updater.quitAndInstallCalled, false);
 
-    // Transition to downloaded
     updater.emit("update-downloaded", { version: "2.0.1" });
     assert.equal(service.getState().status, "downloaded");
 
-    // Successful install
     const successResult = await service.installUpdate();
     assert.equal(successResult.success, true);
     assert.equal(cleanupCalled, true);
     assert.equal(updater.quitAndInstallCalled, true);
-    assert.deepEqual(updater.quitAndInstallArgs, [false, true]);
+    assert.deepEqual(updater.quitAndInstallArgs, [true, true]);
 
     service.destroy();
   });
