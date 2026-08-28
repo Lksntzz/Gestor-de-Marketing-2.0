@@ -323,6 +323,13 @@ describe("IPC and provider boundaries", () => {
 });
 
 let serverProcess: ChildProcess | undefined;
+let serverDiagnostics = "";
+let serverSpawnError = "";
+
+function appendServerDiagnostic(chunk: Buffer | string): void {
+  if (serverDiagnostics.length >= 4000) return;
+  serverDiagnostics += String(chunk).slice(0, 4000 - serverDiagnostics.length);
+}
 
 after(() => {
   serverProcess?.kill();
@@ -340,24 +347,35 @@ async function freePort(): Promise<number> {
   });
 }
 
-async function waitForHealth(baseUrl: string): Promise<void> {
-  const deadline = Date.now() + 15_000;
+async function waitForHealth(baseUrl: string, child: ChildProcess): Promise<void> {
+  const timeoutMs = process.platform === "win32" ? 45_000 : 15_000;
+  const deadline = Date.now() + timeoutMs;
   while (Date.now() < deadline) {
+    if (serverSpawnError) {
+      throw new Error(`Local integration server failed to spawn: ${serverSpawnError}`);
+    }
+    if (child.exitCode !== null) {
+      const detail = serverDiagnostics.trim() || `exit code ${child.exitCode}`;
+      throw new Error(`Local integration server exited before health-check: ${detail}`);
+    }
     try {
       const response = await fetch(`${baseUrl}/api/health`);
       if (response.ok) return;
     } catch {
       // Retry while the local test server starts.
     }
-    await new Promise((resolve) => setTimeout(resolve, 100));
+    await new Promise((resolve) => setTimeout(resolve, 150));
   }
-  throw new Error("Local integration server did not start.");
+  const detail = serverDiagnostics.trim();
+  throw new Error(`Local integration server did not start within ${timeoutMs}ms.${detail ? ` Diagnostics: ${detail}` : ""}`);
 }
 
 test("legacy aliases preserve local/offline behavior and legacy error status", async () => {
   const port = await freePort();
   const baseUrl = `http://127.0.0.1:${port}`;
-  serverProcess = spawn(process.execPath, ["--import", "tsx", "secure-server.ts"], {
+  serverDiagnostics = "";
+  serverSpawnError = "";
+  serverProcess = spawn(process.execPath, ["--import", "tsx", path.join(ROOT, "secure-server.ts")], {
     cwd: ROOT,
     env: {
       ...process.env,
@@ -365,10 +383,16 @@ test("legacy aliases preserve local/offline behavior and legacy error status", a
       NISTI_APP_PORT: String(port),
       NISTI_INSTANCE_ID: "multi-ai-audit-test",
     },
-    stdio: "ignore",
+    stdio: ["ignore", "pipe", "pipe"],
     windowsHide: true,
   });
-  await waitForHealth(baseUrl);
+  serverProcess.stdout?.on("data", appendServerDiagnostic);
+  serverProcess.stderr?.on("data", appendServerDiagnostic);
+  serverProcess.once("error", (error) => {
+    serverSpawnError = error.message;
+  });
+
+  await waitForHealth(baseUrl, serverProcess);
   const session = await fetch(`${baseUrl}/api/auth/session`).then((response) => response.json()) as { token: string };
   const headers = { "Content-Type": "application/json", "x-app-session-token": session.token };
   const localBody = JSON.stringify({ campaignName: "Teste", objective: "Validar", engineMode: "local" });
