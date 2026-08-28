@@ -8,7 +8,7 @@ import {
   AutomationRule,
 } from "../../domain/schemas";
 import { TaxonomyFolder, normalizeTaxonomyFolder, sanitizeSafePath } from "../../domain/taxonomy";
-import { generateFastHash, generateUUID, encryptSecret, decryptSecret } from "../../utils/crypto";
+import { generateFastHash, generateUUID } from "../../utils/crypto";
 import { APP_VERSION, localDateKey } from "../../utils/reliability";
 import { ObsidianApiConfig, ObsidianNote } from "../../types";
 import { isObsidianRuntimeConnected } from "../obsidianRuntimeState";
@@ -432,115 +432,51 @@ export class StorageManager implements IStorageService {
         errorMessage: undefined,
       };
 
+      localStorage.setItem(STORAGE_KEYS.API_CONFIG_SECURE, JSON.stringify(persistedConfig));
+
       if (this.isDesktopRuntime() && window.electronAPI?.setSecret) {
         await Promise.all([
           window.electronAPI.setSecret("obsidianApiKey", apiKey || ""),
           window.electronAPI.setSecret("geminiApiKey", geminiApiKey || ""),
         ]);
-        localStorage.setItem(
-          STORAGE_KEYS.API_CONFIG_SECURE,
-          JSON.stringify({ ...persistedConfig, apiKey: "", geminiApiKey: "" })
-        );
-        return;
       }
-
-      const [encryptedObsidianKey, encryptedGeminiKey] = await Promise.all([
-        encryptSecret(apiKey || ""),
-        encryptSecret(geminiApiKey || ""),
-      ]);
-      localStorage.setItem(
-        STORAGE_KEYS.API_CONFIG_SECURE,
-        JSON.stringify({
-          ...persistedConfig,
-          apiKey: encryptedObsidianKey,
-          geminiApiKey: encryptedGeminiKey,
-        })
-      );
     } catch (e) {
-      const { apiKey: _apiKey, geminiApiKey: _geminiApiKey, ...nonSecretConfig } = config;
-      let fallbackObsidianKey = "";
-      let fallbackGeminiKey = "";
-      try {
-        fallbackObsidianKey = _apiKey ? `fallback_b64:${btoa(unescape(encodeURIComponent(_apiKey)))}` : "";
-        fallbackGeminiKey = _geminiApiKey ? `fallback_b64:${btoa(unescape(encodeURIComponent(_geminiApiKey)))}` : "";
-      } catch (encodeErr) {
-        fallbackObsidianKey = _apiKey ? `fallback_plain:${_apiKey}` : "";
-        fallbackGeminiKey = _geminiApiKey ? `fallback_plain:${_geminiApiKey}` : "";
-      }
-
-      localStorage.setItem(
-        STORAGE_KEYS.API_CONFIG_SECURE,
-        JSON.stringify({
-          ...nonSecretConfig,
-          connectionStatus: "disconnected",
-          errorMessage: undefined,
-          apiKey: fallbackObsidianKey,
-          geminiApiKey: fallbackGeminiKey,
-        })
-      );
-      console.warn("Could not persist API credentials via AES-GCM; fell back to obfuscated local storage.", e);
-    } finally {
-      localStorage.removeItem("obsidian_api_config");
+      console.warn("Could not persist API config securely.", e);
     }
   }
 
   public async loadApiConfig(defaultConfig: ObsidianApiConfig): Promise<ObsidianApiConfig> {
+    let parsedConfig: Partial<ObsidianApiConfig> = {};
     try {
       const rawSecure = localStorage.getItem(STORAGE_KEYS.API_CONFIG_SECURE);
       if (rawSecure) {
-        const parsed = JSON.parse(rawSecure);
-
-        if (this.isDesktopRuntime() && window.electronAPI?.getSecret) {
-          const [obsidianKey, geminiKey] = await Promise.all([
-            window.electronAPI.getSecret("obsidianApiKey"),
-            window.electronAPI.getSecret("geminiApiKey"),
-          ]);
-          return {
-            ...defaultConfig,
-            ...parsed,
-            apiKey: obsidianKey || "",
-            geminiApiKey: geminiKey || "",
-            connectionStatus: "disconnected",
-            errorMessage: undefined,
-          };
-        }
-
-        const [decryptedObsidianKey, decryptedGeminiKey] = await Promise.all([
-          decryptSecret(parsed.apiKey || ""),
-          decryptSecret(parsed.geminiApiKey || ""),
-        ]);
-        return {
-          ...defaultConfig,
-          ...parsed,
-          apiKey: decryptedObsidianKey,
-          geminiApiKey: decryptedGeminiKey,
-          connectionStatus: "disconnected",
-          errorMessage: undefined,
-        };
-      }
-
-      const legacyRaw = localStorage.getItem("obsidian_api_config");
-      if (legacyRaw) {
-        const legacyParsed = JSON.parse(legacyRaw) as ObsidianApiConfig;
-        localStorage.removeItem("obsidian_api_config");
-        await this.saveApiConfig(legacyParsed);
-        return {
-          ...defaultConfig,
-          ...legacyParsed,
-          apiKey: legacyParsed.apiKey || "",
-          geminiApiKey: legacyParsed.geminiApiKey || "",
-          connectionStatus: "disconnected",
-          errorMessage: undefined,
-        };
+        parsedConfig = JSON.parse(rawSecure);
       }
     } catch (e) {
-      console.warn("Could not load API config securely, using defaults without persisted secrets:", e);
+      console.warn("Failed to parse local API config", e);
+    }
+
+    let obsidianKey = "";
+    let geminiKey = "";
+
+    try {
+      if (this.isDesktopRuntime() && window.electronAPI?.getSecret) {
+        const [obsRes, gemRes] = await Promise.all([
+          window.electronAPI.getSecret("obsidianApiKey"),
+          window.electronAPI.getSecret("geminiApiKey"),
+        ]);
+        obsidianKey = obsRes || "";
+        geminiKey = gemRes || "";
+      }
+    } catch (e) {
+      console.warn("Could not load secrets from desktop secure storage", e);
     }
 
     return {
       ...defaultConfig,
-      apiKey: "",
-      geminiApiKey: "",
+      ...parsedConfig,
+      apiKey: obsidianKey,
+      geminiApiKey: geminiKey,
       connectionStatus: "disconnected",
       errorMessage: undefined,
     };
