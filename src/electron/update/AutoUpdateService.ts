@@ -285,7 +285,9 @@ export class AutoUpdateService {
       }
 
       if (typeof this.updater.quitAndInstall === "function") {
-        this.updater.quitAndInstall(false, true);
+        // electron-updater 6.x / electron-builder 26: first arg = silent install,
+        // second arg = force-run the app again after NSIS completes.
+        this.updater.quitAndInstall(true, true);
         return { success: true };
       }
 
