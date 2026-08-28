@@ -7,6 +7,7 @@ import { CampaignsView } from "./components/CampaignsView";
 import { TasksAutomationView } from "./components/TasksAutomationView";
 import { RoutineIntelligenceView } from "./components/RoutineIntelligenceView";
 import { AddKnowledgeView } from "./components/AddKnowledgeView";
+import { ContentView } from "./components/ContentView";
 import { ObsidianApiSettingsModal } from "./components/ObsidianApiSettingsModal";
 import { ObsidianConnectionBlocker } from "./components/ObsidianConnectionBlocker";
 import { TaskModal } from "./components/TaskModal";
@@ -108,7 +109,7 @@ function createDailyNote(today: string, content: string): ObsidianNote {
 
 export default function App() {
   const [activeTab, setActiveTab] = useState<
-    "dashboard" | "vault" | "campaigns" | "tasks" | "automations" | "routine" | "knowledge"
+    "dashboard" | "vault" | "campaigns" | "tasks" | "automations" | "routine" | "knowledge" | "content"
   >("dashboard");
 
   const [engineMode, setEngineMode] = usePersistentTextState<EngineMode>(
@@ -1476,6 +1477,28 @@ export default function App() {
               apiConfig={apiConfig}
               onNavigateTab={setActiveTab}
               onSelectNote={setSelectedNote}
+              engineMode={engineMode}
+            />
+          )}
+
+          {activeTab === "content" && (
+            <ContentView
+              ideas={ideas}
+              scripts={scripts}
+              notes={notes}
+              onAddIdea={(idea) => setIdeas(prev => [idea, ...prev])}
+              onAddScript={(script) => setScripts(prev => [script, ...prev])}
+              onSaveToVault={async (content, folder, title) => {
+                if (typeof window !== "undefined" && window.electronAPI && window.electronAPI.commitKnowledge) {
+                  const res = await window.electronAPI.commitKnowledge({ folder, title, content });
+                  if (res && res.success) {
+                    showToast("success", "Salvo no Obsidian", `O arquivo foi salvo no Vault.`);
+                    await handleSyncNow();
+                  } else {
+                    showToast("warning", "Erro ao salvar", res?.error || "Falha desconhecida");
+                  }
+                }
+              }}
               engineMode={engineMode}
             />
           )}

@@ -60,6 +60,12 @@ export const Sidebar: React.FC<SidebarProps> = ({
       description: "Assistente de Campanhas e Cópias",
     },
     {
+      id: "content" as const,
+      label: "Ideias e Roteiros",
+      icon: Sparkles, // can use Lightbulb if imported, or something else. Wait, Lightbulb is not imported, I'll use FileText or just let me import Lightbulb
+      description: "Geração inteligente de conteúdo",
+    },
+    {
       id: "automations" as const,
       label: "Automações",
       icon: Zap,

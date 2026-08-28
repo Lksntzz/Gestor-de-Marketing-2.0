@@ -1085,6 +1085,205 @@ function parseLoopbackEndpoint(endpoint: string): URL {
   return parsedUrl;
 }
 
+app.post(["/api/ai/generate-ideas", "/api/gemini/generate-ideas"], async (req, res) => {
+  try {
+    const { objective, format, channel, count, theme, customInstructions, engineMode, knowledgeSources } = req.body || {};
+    
+    if (!objective || !format || !channel) {
+      return res.status(400).json({ success: false, error: "Objetivo, formato e canal são obrigatórios." });
+    }
+
+    const safeFallback = () => ({
+      ideas: [{
+        title: "Ideia Gerada Localmente (Fallback)",
+        format, channel, objective,
+        hook: "Gancho inicial", concept: "Conceito básico", angle: "Ângulo",
+        keyMessage: "Mensagem principal", cta: "Call to action",
+        suggestedVisual: "Sugestão visual", rationale: "Fundamentação",
+        sourceReferences: []
+      }]
+    });
+
+    const businessPrompt = `Você é um diretor de criação de conteúdo. Gere ${count || 3} ideias de conteúdo usando SOMENTE os dados do briefing e os fatos presentes no contexto do Vault.
+
+REGRAS EPISTÊMICAS OBRIGATÓRIAS:
+- Não invente produto, preço, prazo, benefício, promoção ou métrica que não esteja visível no arquivo.
+- Use fatos CONFIRMADOS como base. Identifique HIPÓTESES claramente.
+- Nunca transforme PENDENTE em fato.
+- Varie o ângulo criativo entre as ideias e evite duplicatas.
+- O formato desejado é ${format}, para o canal ${channel}.
+- O tema é ${theme || 'Livre'}.
+- Explique brevemente por que a ideia faz sentido para a empresa no 'rationale'.
+
+BRIEFING:
+Objetivo: ${objective}
+Instruções adicionais: ${customInstructions || "Nenhuma"}`;
+
+    const knowledgeContext = buildKnowledgeContextPrompt(businessPrompt, knowledgeSources);
+
+    if (engineMode === "local") {
+      const requestedProvider = String(req.headers["x-ai-provider"] || "gemini") === "openai" ? "openai" : "gemini";
+      return sendAISuccess(req, res, {
+        data: safeFallback(),
+        usedModel: "local-grounded-engine",
+        usedProvider: requestedProvider,
+        wasFallback: false,
+        sources: knowledgeContext.sources,
+        contextWarning: knowledgeContext.warning,
+      });
+    }
+
+    const schemaConfig = {
+      responseSchema: {
+        type: "object",
+        properties: {
+          ideas: {
+            type: "array",
+            items: {
+              type: "object",
+              properties: {
+                title: { type: "string" },
+                format: { type: "string" },
+                channel: { type: "string" },
+                objective: { type: "string" },
+                hook: { type: "string" },
+                concept: { type: "string" },
+                angle: { type: "string" },
+                keyMessage: { type: "string" },
+                cta: { type: "string" },
+                suggestedVisual: { type: "string" },
+                rationale: { type: "string" },
+                sourceReferences: { type: "array", items: { type: "string" } }
+              },
+              required: ["title", "format", "channel", "objective", "hook", "concept", "angle", "keyMessage", "cta", "suggestedVisual", "rationale", "sourceReferences"]
+            }
+          }
+        },
+        required: ["ideas"]
+      }
+    };
+
+    const result = await executeAIWithFallback(
+      req,
+      {
+        prompt: knowledgeContext.prompt,
+        systemPrompt: knowledgeContext.systemPrompt,
+        schema: schemaConfig.responseSchema,
+        schemaName: "ideas_generation",
+      },
+      safeFallback
+    );
+
+    return sendAISuccess(req, res, {
+      ...result,
+      sources: knowledgeContext.sources,
+      contextWarning: knowledgeContext.warning,
+    });
+  } catch (error) {
+    return sendAIError(req, res, error, "Erro na geração de ideias");
+  }
+});
+
+app.post(["/api/ai/generate-script", "/api/gemini/generate-script"], async (req, res) => {
+  try {
+    const { idea, format, duration, platform, objective, tone, customInstructions, engineMode, knowledgeSources } = req.body || {};
+    
+    if (!idea || !format || !platform) {
+      return res.status(400).json({ success: false, error: "Ideia/título, formato e plataforma são obrigatórios." });
+    }
+
+    const safeFallback = () => ({
+      title: idea, objective, duration: duration || "Curta", hook: "Gancho",
+      scenes: [{ order: 1, duration: "10s", visual: "Cena", narration: "Fala", onScreenText: "Texto" }],
+      cta: "Ação", captionSuggestion: "Legenda", productionNotes: "Notas", sourceReferences: []
+    });
+
+    let extraFormatInstructions = "";
+    if (format.toLowerCase().includes("video") || format.toLowerCase().includes("reel") || format.toLowerCase().includes("tiktok") || format.toLowerCase().includes("short")) {
+      extraFormatInstructions = "- O roteiro é para um VÍDEO CURTO. Prenda a atenção nos primeiros 3 segundos. Crie uma progressão lógica de cenas, com instruções visuais práticas e CTA final. Evite durações excessivas.";
+    } else if (format.toLowerCase().includes("carrossel") || format.toLowerCase().includes("carousel")) {
+      extraFormatInstructions = "- O roteiro é para um CARROSSEL. Estruture em: capa, slides intermediários, conclusão e CTA. Não use estrutura narrativa de vídeo para imagens estáticas.";
+    }
+
+    const businessPrompt = `Você é um roteirista especializado na plataforma ${platform}. Transforme a ideia informada em um roteiro prático. Use SOMENTE os dados do briefing e o contexto do Vault.
+
+REGRAS:
+- Respeite fatos CONFIRMADOS. Não invente detalhes operacionais. Identifique HIPÓTESES se inferir algo.
+${extraFormatInstructions}
+- O tom desejado é ${tone || 'Direto'}.
+
+BRIEFING:
+Ideia Central: ${idea}
+Duração/Tamanho Aproximado: ${duration || 'Não especificado'}
+Objetivo: ${objective || 'Não especificado'}
+Instruções adicionais: ${customInstructions || "Nenhuma"}`;
+
+    const knowledgeContext = buildKnowledgeContextPrompt(businessPrompt, knowledgeSources);
+
+    if (engineMode === "local") {
+      const requestedProvider = String(req.headers["x-ai-provider"] || "gemini") === "openai" ? "openai" : "gemini";
+      return sendAISuccess(req, res, {
+        data: safeFallback(),
+        usedModel: "local-grounded-engine",
+        usedProvider: requestedProvider,
+        wasFallback: false,
+        sources: knowledgeContext.sources,
+        contextWarning: knowledgeContext.warning,
+      });
+    }
+
+    const schemaConfig = {
+      responseSchema: {
+        type: "object",
+        properties: {
+          title: { type: "string" },
+          objective: { type: "string" },
+          duration: { type: "string" },
+          hook: { type: "string" },
+          scenes: {
+            type: "array",
+            items: {
+              type: "object",
+              properties: {
+                order: { type: "number" },
+                duration: { type: "string" },
+                visual: { type: "string" },
+                narration: { type: "string" },
+                onScreenText: { type: "string" }
+              },
+              required: ["order", "duration", "visual", "narration", "onScreenText"]
+            }
+          },
+          cta: { type: "string" },
+          captionSuggestion: { type: "string" },
+          productionNotes: { type: "string" },
+          sourceReferences: { type: "array", items: { type: "string" } }
+        },
+        required: ["title", "objective", "duration", "hook", "scenes", "cta", "captionSuggestion", "productionNotes", "sourceReferences"]
+      }
+    };
+
+    const result = await executeAIWithFallback(
+      req,
+      {
+        prompt: knowledgeContext.prompt,
+        systemPrompt: knowledgeContext.systemPrompt,
+        schema: schemaConfig.responseSchema,
+        schemaName: "script_generation",
+      },
+      safeFallback
+    );
+
+    return sendAISuccess(req, res, {
+      ...result,
+      sources: knowledgeContext.sources,
+      contextWarning: knowledgeContext.warning,
+    });
+  } catch (error) {
+    return sendAIError(req, res, error, "Erro na geração de roteiro");
+  }
+});
+
 app.post("/api/obsidian/test-connection", async (req, res) => {
   const { endpoint = "http://127.0.0.1:27124", apiKey } = req.body || {};
   try {
