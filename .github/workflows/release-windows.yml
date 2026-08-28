@@ -4,12 +4,10 @@ on:
   push:
     tags:
       - "v*"
-    branches:
-      - "release-v*"
   workflow_dispatch:
     inputs:
       version:
-        description: "Versão do release (ex: v2.1.3). Deve corresponder ao package.json"
+        description: "Versão do release (ex: v2.1.11). Deve corresponder ao package.json"
         required: false
         default: ""
 
@@ -49,12 +47,6 @@ jobs:
           if ("${{ github.event_name }}" -eq "workflow_dispatch") {
             $requested = "${{ inputs.version }}".Trim()
             $releaseTag = if ([string]::IsNullOrWhiteSpace($requested)) { "v$pkgVersion" } else { $requested }
-          } elseif ("${{ github.ref_type }}" -eq "branch") {
-            $releaseBranch = "${{ github.ref_name }}"
-            if ($releaseBranch -notmatch '^release-v\d+\.\d+\.\d+$') {
-              throw "Branch de release inválida: $releaseBranch"
-            }
-            $releaseTag = $releaseBranch -replace '^release-', ''
           } else {
             $releaseTag = "${{ github.ref_name }}"
           }
