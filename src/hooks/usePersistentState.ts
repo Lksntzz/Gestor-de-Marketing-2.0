@@ -52,11 +52,11 @@ export function usePersistentState<T>(
           console.warn(`Ignored invalid synchronized state for key: ${key}`);
           return;
         }
-        setValue(parsed.data as T);
+        setValue((prev) => JSON.stringify(prev) === JSON.stringify(parsed.data) ? prev : parsed.data as T);
         return;
       }
 
-      setValue(detail.value as T);
+      setValue((prev) => JSON.stringify(prev) === JSON.stringify(detail.value) ? prev : detail.value as T);
     };
 
     window.addEventListener(PERSISTENT_STATE_EVENT, handleExternalUpdate);
@@ -90,11 +90,11 @@ export function usePersistentTextState<T extends string>(
       if (schema) {
         const parsed = schema.safeParse(detail.value);
         if (!parsed.success) return;
-        setValue(parsed.data as T);
+        setValue((prev) => JSON.stringify(prev) === JSON.stringify(parsed.data) ? prev : parsed.data as T);
         return;
       }
 
-      setValue(detail.value as T);
+      setValue((prev) => JSON.stringify(prev) === JSON.stringify(detail.value) ? prev : detail.value as T);
     };
 
     window.addEventListener(PERSISTENT_STATE_EVENT, handleExternalUpdate);

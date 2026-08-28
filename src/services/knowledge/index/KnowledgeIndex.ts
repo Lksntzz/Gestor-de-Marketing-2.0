@@ -60,6 +60,33 @@ export class KnowledgeIndex {
         INSERT OR IGNORE INTO schema_migrations (version) VALUES (1);
       `);
     }
+
+    if (version < 2) {
+      this.db.exec(`
+        CREATE TABLE IF NOT EXISTS editorial_items (
+          id TEXT PRIMARY KEY,
+          title TEXT NOT NULL,
+          content_type TEXT,
+          platform TEXT,
+          objective TEXT,
+          scheduled_date TEXT,
+          scheduled_time TEXT,
+          status TEXT,
+          priority TEXT,
+          idea_id TEXT,
+          script_id TEXT,
+          campaign_id TEXT,
+          obsidian_path TEXT,
+          notes TEXT,
+          created_at INTEGER,
+          updated_at INTEGER
+        );
+        CREATE INDEX IF NOT EXISTS idx_editorial_date ON editorial_items(scheduled_date);
+        CREATE INDEX IF NOT EXISTS idx_editorial_status ON editorial_items(status);
+        CREATE INDEX IF NOT EXISTS idx_editorial_platform ON editorial_items(platform);
+        INSERT OR IGNORE INTO schema_migrations (version) VALUES (2);
+      `);
+    }
   }
 
   getDocumentsByVault(vaultId: string): KnowledgeDocument[] {
@@ -104,6 +131,43 @@ export class KnowledgeIndex {
 
   updateDocumentMtime(vaultId: string, relativePath: string, modifiedAt: number) {
     this.db.prepare('UPDATE knowledge_documents SET modified_at = ? WHERE vault_id = ? AND relative_path = ?').run(modifiedAt, vaultId, relativePath);
+  }
+
+  getEditorialItems(): any[] {
+    return this.db.prepare('SELECT * FROM editorial_items ORDER BY scheduled_date ASC').all() as any[];
+  }
+
+  upsertEditorialItem(item: any) {
+    const stmt = this.db.prepare(`
+      INSERT INTO editorial_items (
+        id, title, content_type, platform, objective, scheduled_date, scheduled_time, status, priority, idea_id, script_id, campaign_id, obsidian_path, notes, created_at, updated_at
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      ON CONFLICT(id) DO UPDATE SET
+        title = excluded.title,
+        content_type = excluded.content_type,
+        platform = excluded.platform,
+        objective = excluded.objective,
+        scheduled_date = excluded.scheduled_date,
+        scheduled_time = excluded.scheduled_time,
+        status = excluded.status,
+        priority = excluded.priority,
+        idea_id = excluded.idea_id,
+        script_id = excluded.script_id,
+        campaign_id = excluded.campaign_id,
+        obsidian_path = excluded.obsidian_path,
+        notes = excluded.notes,
+        updated_at = excluded.updated_at
+    `);
+    stmt.run(
+      item.id, item.title, item.content_type || item.contentType, item.platform, item.objective,
+      item.scheduled_date || item.scheduledDate, item.scheduled_time || item.scheduledTime, item.status, item.priority,
+      item.idea_id || item.ideaId, item.script_id || item.scriptId, item.campaign_id || item.campaignId,
+      item.obsidian_path || item.obsidianPath, item.notes, item.created_at || item.createdAt, item.updated_at || item.updatedAt
+    );
+  }
+
+  deleteEditorialItem(id: string) {
+    this.db.prepare('DELETE FROM editorial_items WHERE id = ?').run(id);
   }
 
   close() {

@@ -1,5 +1,5 @@
 import React, { useState } from "react";
-import { Lightbulb, Film, Plus, Loader2, Save, FileText, Check, AlertTriangle, Sparkles } from "lucide-react";
+import { Lightbulb, Film, Plus, Loader2, Save, FileText, Check, AlertTriangle, Sparkles, Calendar } from "lucide-react";
 import type { IdeaItem, CreativeScript, ObsidianNote } from "../types";
 import { api } from "../services/api";
 
@@ -232,9 +232,28 @@ export const ContentView: React.FC<ContentViewProps> = ({ ideas, scripts, notes,
                 <div key={i} className="bg-[#111322] border border-white/10 p-5 rounded-xl">
                   <div className="flex justify-between items-start mb-4">
                     <h3 className="text-white font-bold text-lg">{idea.title}</h3>
-                    <button disabled={isSaving || savedIds.has(`idea-${i}`)} onClick={() => handleSaveIdea(idea, i)} className="text-xs bg-emerald-500/20 text-emerald-400 px-3 py-1.5 rounded-lg flex items-center gap-1 hover:bg-emerald-500/30 transition-colors disabled:opacity-50 disabled:cursor-not-allowed">
-                      <Save className="w-3 h-3" /> {savedIds.has(`idea-${i}`) ? 'Salvo' : 'Salvar no Obsidian'}
-                    </button>
+                    <div className="flex gap-2">
+                      <button onClick={async () => {
+                        await window.electronAPI?.editorialUpsert({
+                          id: "ed-" + Date.now(),
+                          title: idea.title,
+                          contentType: idea.format,
+                          platform: idea.channel,
+                          objective: idea.objective,
+                          scheduledDate: new Date().toISOString().split("T")[0],
+                          status: "DRAFT",
+                          priority: "medium",
+                          createdAt: Date.now(),
+                          updatedAt: Date.now()
+                        });
+                        alert("Adicionado ao calendário!");
+                      }} className="text-xs bg-indigo-500/20 text-indigo-400 px-3 py-1.5 rounded-lg flex items-center gap-1 hover:bg-indigo-500/30 transition-colors">
+                        <Calendar className="w-3 h-3" /> Calendário
+                      </button>
+                      <button disabled={isSaving || savedIds.has(`idea-${i}`)} onClick={() => handleSaveIdea(idea, i)} className="text-xs bg-emerald-500/20 text-emerald-400 px-3 py-1.5 rounded-lg flex items-center gap-1 hover:bg-emerald-500/30 transition-colors disabled:opacity-50 disabled:cursor-not-allowed">
+                        <Save className="w-3 h-3" /> {savedIds.has(`idea-${i}`) ? 'Salvo' : 'Salvar'}
+                      </button>
+                    </div>
                   </div>
                   <div className="grid grid-cols-2 gap-4 text-xs">
                     <div><span className="text-stone-500 block mb-1">Formato</span><span className="text-stone-300">{idea.format} no {idea.channel}</span></div>
@@ -257,9 +276,28 @@ export const ContentView: React.FC<ContentViewProps> = ({ ideas, scripts, notes,
                       <h3 className="text-white font-bold text-xl">{generatedScript.title}</h3>
                       <p className="text-xs text-stone-400 mt-1">{generatedScript.duration} • {generatedScript.objective}</p>
                     </div>
-                    <button disabled={isSaving || savedIds.has(`script-0`)} onClick={() => handleSaveScript(generatedScript)} className="text-xs bg-emerald-500/20 text-emerald-400 px-3 py-1.5 rounded-lg flex items-center gap-1 hover:bg-emerald-500/30 transition-colors disabled:opacity-50 disabled:cursor-not-allowed">
-                      <Save className="w-3 h-3" /> {savedIds.has(`script-0`) ? 'Salvo' : 'Salvar no Obsidian'}
-                    </button>
+                    <div className="flex gap-2">
+                      <button onClick={async () => {
+                        await window.electronAPI?.editorialUpsert({
+                          id: "ed-" + Date.now(),
+                          title: generatedScript.title,
+                          contentType: "Video",
+                          platform: "Instagram",
+                          objective: generatedScript.objective,
+                          scheduledDate: new Date().toISOString().split("T")[0],
+                          status: "IN_PRODUCTION",
+                          priority: "medium",
+                          createdAt: Date.now(),
+                          updatedAt: Date.now()
+                        });
+                        alert("Adicionado ao calendário!");
+                      }} className="text-xs bg-indigo-500/20 text-indigo-400 px-3 py-1.5 rounded-lg flex items-center gap-1 hover:bg-indigo-500/30 transition-colors">
+                        <Calendar className="w-3 h-3" /> Calendário
+                      </button>
+                      <button disabled={isSaving || savedIds.has(`script-0`)} onClick={() => handleSaveScript(generatedScript)} className="text-xs bg-emerald-500/20 text-emerald-400 px-3 py-1.5 rounded-lg flex items-center gap-1 hover:bg-emerald-500/30 transition-colors disabled:opacity-50 disabled:cursor-not-allowed">
+                        <Save className="w-3 h-3" /> {savedIds.has(`script-0`) ? 'Salvo' : 'Salvar'}
+                      </button>
+                    </div>
                   </div>
                   
                   <div className="mb-6">

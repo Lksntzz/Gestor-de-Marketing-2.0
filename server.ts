@@ -1184,6 +1184,84 @@ Instruções adicionais: ${customInstructions || "Nenhuma"}`;
   }
 });
 
+app.post(["/api/ai/plan-week", "/api/gemini/plan-week"], async (req, res) => {
+  try {
+    const { weekStart, count, platforms, objectives, formats, customInstructions, engineMode, knowledgeSources, existingItems } = req.body || {};
+    
+    if (!weekStart) {
+      return res.status(400).json({ success: false, error: "Semana é obrigatória." });
+    }
+
+    const businessPrompt = `Você é um estrategista de conteúdo. Crie um planejamento semanal para ${count || 3} conteúdos, começando na semana de ${weekStart}. Use SOMENTE os dados do Vault.
+
+REGRAS OBRIGATÓRIAS:
+- Evite conflitos com os seguintes conteúdos já agendados: ${JSON.stringify(existingItems || [])}
+- Varie os formatos: ${formats?.join(', ') || 'diversos'}
+- Varie as plataformas: ${platforms?.join(', ') || 'diversas'}
+- Objetivos: ${objectives?.join(', ') || 'diversos'}
+- Não invente promoções, preços ou prazos. Respeite os fatos CONFIRMADOS. Identifique HIPÓTESES se aplicável.
+${customInstructions ? `- Instruções Adicionais: ${customInstructions}` : ''}
+
+RETORNO EM JSON ESTRITO (ARRAY): [{ "title": "Ideia/Título", "platform": "Instagram", "format": "Reel", "objective": "Venda", "date": "YYYY-MM-DD", "time": "18:00" }]
+`;
+
+    const safeFallback = () => [
+      { title: "Conteúdo Agendado (Fallback)", platform: "Instagram", format: "Post", objective: "Engajamento", date: weekStart, time: "18:00" },
+    ];
+
+    const knowledgeContext = buildKnowledgeContextPrompt(businessPrompt, knowledgeSources);
+
+    if (engineMode === "local") {
+      const requestedProvider = String(req.headers["x-ai-provider"] || "gemini") === "openai" ? "openai" : "gemini";
+      return sendAISuccess(req, res, {
+        data: safeFallback(),
+        usedModel: "local-grounded-engine",
+        usedProvider: requestedProvider,
+        wasFallback: false,
+        sources: knowledgeContext.sources,
+        contextWarning: knowledgeContext.warning,
+      });
+    }
+
+    const schemaConfig = {
+      responseSchema: {
+        type: "array",
+        items: {
+          type: "object",
+          properties: {
+            title: { type: "string" },
+            platform: { type: "string" },
+            format: { type: "string" },
+            objective: { type: "string" },
+            date: { type: "string" },
+            time: { type: "string" },
+          },
+          required: ["title", "platform", "format", "objective", "date", "time"],
+        },
+      },
+    };
+
+    const result = await executeAIWithFallback(
+      req,
+      {
+        prompt: knowledgeContext.prompt,
+        systemPrompt: knowledgeContext.systemPrompt,
+        schema: schemaConfig.responseSchema,
+        schemaName: "weekly_plan",
+      },
+      safeFallback
+    );
+
+    return sendAISuccess(req, res, {
+      ...result,
+      sources: knowledgeContext.sources,
+      contextWarning: knowledgeContext.warning,
+    });
+  } catch (error: any) {
+    return sendAIError(req, res, error, "Erro ao planejar semana");
+  }
+});
+
 app.post(["/api/ai/generate-script", "/api/gemini/generate-script"], async (req, res) => {
   try {
     const { idea, format, duration, platform, objective, tone, customInstructions, engineMode, knowledgeSources } = req.body || {};

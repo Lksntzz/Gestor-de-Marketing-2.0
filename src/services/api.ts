@@ -808,6 +808,20 @@ export const api = {
     return res.json();
   },
 
+  async planWeek(payload: any) {
+    const { knowledgeSources } = await selectMarketingKnowledge(
+      [],
+      `Planejamento semanal: ${payload.count} conteúdos, plataformas: ${payload.platforms?.join(',')}`,
+      []
+    );
+    const res = await fetch("http://localhost:3000/api/ai/plan-week", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ ...payload, knowledgeSources }),
+    });
+    return res.json();
+  },
+
   async generateScript(payload: any) {
     const { knowledgeSources } = await selectMarketingKnowledge(
       payload.knowledgeNotes,

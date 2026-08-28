@@ -6,6 +6,7 @@ import { VaultView } from "./components/VaultView";
 import { CampaignsView } from "./components/CampaignsView";
 import { TasksAutomationView } from "./components/TasksAutomationView";
 import { RoutineIntelligenceView } from "./components/RoutineIntelligenceView";
+import { EditorialCalendarView } from "./components/EditorialCalendarView";
 import { AddKnowledgeView } from "./components/AddKnowledgeView";
 import { ContentView } from "./components/ContentView";
 import { ObsidianApiSettingsModal } from "./components/ObsidianApiSettingsModal";
@@ -72,7 +73,7 @@ import {
   upsertManagedSection,
 } from "./utils/reliability";
 import confetti from "canvas-confetti";
-import { Bell, CheckCircle2, Sparkles } from "lucide-react";
+import { Bell, CheckCircle2, Sparkles, FolderOpen, FileText, Lightbulb, Calendar, CheckSquare, BarChart3 } from "lucide-react";
 
 const storage = StorageManager.getInstance();
 
@@ -107,9 +108,53 @@ function createDailyNote(today: string, content: string): ObsidianNote {
   };
 }
 
-export default function App() {
+const SubTabs = ({ activeTab, setActiveTab, group }: { activeTab: string, setActiveTab: (tab: any) => void, group: string }) => {
+  const tabs: Record<string, any[]> = {
+    knowledge: [
+      { id: "vault", label: "Explorador Obsidian", icon: FolderOpen },
+      { id: "knowledge", label: "Adicionar Conhecimento", icon: FileText }
+    ],
+    creation: [
+      { id: "content", label: "Ideias e Roteiros", icon: Lightbulb },
+      { id: "campaigns", label: "Campanhas e Resultados", icon: Sparkles }
+    ],
+    planning: [
+      { id: "editorial", label: "Calendário Editorial", icon: Calendar },
+      { id: "tasks", label: "Quadro de Tarefas", icon: CheckSquare },
+      { id: "routine", label: "Inteligência de Rotinas", icon: BarChart3 }
+    ]
+  };
+
+  const currentTabs = tabs[group];
+  if (!currentTabs) return null;
+
+  return (
+    <div className="bg-[#0B0D1B] border-b border-white/5 px-8 flex gap-6 pt-3 shrink-0">
+      {currentTabs.map(tab => {
+        const isActive = activeTab === tab.id;
+        const Icon = tab.icon;
+        return (
+          <button
+            key={tab.id}
+            onClick={() => setActiveTab(tab.id)}
+            className={`pb-3 text-sm font-bold flex items-center gap-2 border-b-2 transition-colors ${
+              isActive 
+                ? "border-pink-500 text-pink-500" 
+                : "border-transparent text-stone-400 hover:text-white"
+            }`}
+          >
+            <Icon className="w-4 h-4" />
+            {tab.label}
+          </button>
+        );
+      })}
+    </div>
+  );
+};
+
+export default function App() { 
   const [activeTab, setActiveTab] = useState<
-    "dashboard" | "vault" | "campaigns" | "tasks" | "automations" | "routine" | "knowledge" | "content"
+    "dashboard" | "vault" | "campaigns" | "tasks" | "automations" | "routine" | "knowledge" | "content" | "editorial"
   >("dashboard");
 
   const [engineMode, setEngineMode] = usePersistentTextState<EngineMode>(
@@ -1204,6 +1249,12 @@ export default function App() {
     }
   };
 
+  const macroGroup = 
+    ['vault', 'knowledge'].includes(activeTab) ? 'knowledge' :
+    ['content', 'campaigns'].includes(activeTab) ? 'creation' :
+    ['editorial', 'tasks', 'routine'].includes(activeTab) ? 'planning' :
+    '';
+
   return (
     <div className="h-screen w-screen overflow-hidden bg-background text-text-primary flex flex-col lg:flex-row font-sans selection:bg-purple-500/30 selection:text-purple-200">
       {toastMessage && (
@@ -1288,6 +1339,8 @@ export default function App() {
             );
           }}
         />
+
+        {macroGroup && <SubTabs activeTab={activeTab} setActiveTab={setActiveTab} group={macroGroup} />}
 
         <main className="flex-1 w-full px-4 sm:px-6 lg:px-8 py-4 flex flex-col min-h-0 overflow-hidden">
 
@@ -1410,6 +1463,17 @@ export default function App() {
               apiConfig={apiConfig}
               isSyncingDaily={isSyncingDaily}
               initialSection="automations"
+            />
+          )}
+
+          {activeTab === "editorial" && (
+            <EditorialCalendarView 
+              tasks={tasks}
+              onTasksChange={setTasks}
+              campaigns={campaigns}
+              ideas={ideas}
+              scripts={scripts}
+              obsidianApiConfig={apiConfig}
             />
           )}
 

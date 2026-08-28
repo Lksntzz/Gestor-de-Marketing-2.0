@@ -30,5 +30,18 @@ contextBridge.exposeInMainWorld("electronAPI", {
   deleteSecret: (name: string) => ipcRenderer.invoke("secret:delete", name),
   setAIConfig: (config: { provider: "gemini" | "openai"; model?: string }) => ipcRenderer.invoke("ai:config:set", config),
 
-  getSystemStatus: () => ipcRenderer.invoke("system:status")
+  getSystemStatus: () => ipcRenderer.invoke("system:status"),
+  getUpdateStatus: () => ipcRenderer.invoke("update:get-status"),
+  checkForUpdates: () => ipcRenderer.invoke("update:check"),
+  installUpdate: () => ipcRenderer.invoke("update:install"),
+  onUpdateStatus: (callback: (state: any) => void) => {
+    const listener = (_event: any, state: any) => callback(state);
+    ipcRenderer.on("update:status", listener);
+    return () => {
+      ipcRenderer.removeListener("update:status", listener);
+    };
+  },
+  editorialList: () => ipcRenderer.invoke("editorial:list"),
+  editorialUpsert: (item: any) => ipcRenderer.invoke("editorial:upsert", item),
+  editorialDelete: (id: string) => ipcRenderer.invoke("editorial:delete", id)
 });

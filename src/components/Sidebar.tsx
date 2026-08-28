@@ -12,8 +12,8 @@ import {
 } from "lucide-react";
 
 interface SidebarProps {
-  activeTab: "dashboard" | "vault" | "campaigns" | "tasks" | "automations" | "routine" | "knowledge";
-  setActiveTab: (tab: "dashboard" | "vault" | "campaigns" | "tasks" | "automations" | "routine" | "knowledge") => void;
+  activeTab: string;
+  setActiveTab: (tab: any) => void;
   onOpenSettings: () => void;
 }
 
@@ -27,49 +27,36 @@ export const Sidebar: React.FC<SidebarProps> = ({
       id: "dashboard" as const,
       label: "Início",
       icon: Compass,
-      description: "Visão Geral e o que fazer agora",
+      description: "Visão Geral",
+      match: ["dashboard"]
     },
     {
       id: "vault" as const,
-      label: "Cofre Obsidian",
+      label: "Cofre de Conhecimento",
       icon: FolderOpen,
-      description: "Cofre Markdown e notas PKM",
-    },
-    {
-      id: "knowledge" as const,
-      label: "Adicionar Conhecimento",
-      icon: FileText,
-      description: "Captura rápida com processamento IA automático",
-    },
-    {
-      id: "routine" as const,
-      label: "Planejamento",
-      icon: Calendar,
-      description: "Rotinas, melhores horários e métricas",
-    },
-    {
-      id: "tasks" as const,
-      label: "Execução",
-      icon: CheckSquare,
-      description: "Centro de Tarefas e Kanban",
-    },
-    {
-      id: "campaigns" as const,
-      label: "Resultados",
-      icon: Sparkles,
-      description: "Assistente de Campanhas e Cópias",
+      description: "Arquivos e Input",
+      match: ["vault", "knowledge"]
     },
     {
       id: "content" as const,
-      label: "Ideias e Roteiros",
-      icon: Sparkles, // can use Lightbulb if imported, or something else. Wait, Lightbulb is not imported, I'll use FileText or just let me import Lightbulb
-      description: "Geração inteligente de conteúdo",
+      label: "Estúdio de Criação",
+      icon: Sparkles,
+      description: "Ideias e Campanhas",
+      match: ["content", "campaigns"]
+    },
+    {
+      id: "editorial" as const,
+      label: "Planejamento e Execução",
+      icon: Calendar,
+      description: "Calendário, Tarefas e Rotinas",
+      match: ["editorial", "tasks", "routine"]
     },
     {
       id: "automations" as const,
       label: "Automações",
       icon: Zap,
-      description: "Modelos e sincronização do cofre",
+      description: "Modelos e Regras",
+      match: ["automations"]
     },
   ];
 
@@ -101,7 +88,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
       <nav className="flex-1 w-full px-2 py-6 flex flex-col items-center gap-3 overflow-y-auto scrollbar-hide">
         {navItems.map((item) => {
           const Icon = item.icon;
-          const isActive = activeTab === item.id;
+          const isActive = item.match.includes(activeTab as any);
           return (
             <button
               key={item.id}

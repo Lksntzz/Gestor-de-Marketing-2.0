@@ -7,9 +7,9 @@ on:
   workflow_dispatch:
     inputs:
       version:
-        description: "Versão do release (ex: v2.1.4). Deixe vazio para usar package.json"
-        required: false
-        default: ""
+        description: "Versão do release (ex: v2.0.0)"
+        required: true
+        default: "v2.0.0"
 
 permissions:
   contents: write
@@ -35,33 +35,6 @@ jobs:
 
       - name: Install Dependencies
         run: bun install --frozen-lockfile
-
-      - name: Resolve and Validate Release Version
-        shell: pwsh
-        run: |
-          $packageVersion = (Get-Content package.json -Raw | ConvertFrom-Json).version
-          if ([string]::IsNullOrWhiteSpace($packageVersion)) {
-            throw "package.json não possui version válida."
-          }
-
-          if ("${{ github.event_name }}" -eq "workflow_dispatch") {
-            $requested = "${{ inputs.version }}".Trim()
-            if ([string]::IsNullOrWhiteSpace($requested)) {
-              $releaseTag = "v$packageVersion"
-            } else {
-              $releaseTag = $requested
-            }
-          } else {
-            $releaseTag = "${{ github.ref_name }}"
-          }
-
-          if ($releaseTag -ne "v$packageVersion") {
-            throw "Versão inconsistente: tag/input '$releaseTag' não corresponde a package.json '$packageVersion'."
-          }
-
-          "RELEASE_TAG=$releaseTag" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
-          "APP_VERSION=$packageVersion" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
-          Write-Host "Release validado: $releaseTag"
 
       - name: Verify TypeScript, Tests and Production Build
         run: bun run verify
@@ -103,28 +76,20 @@ jobs:
             Write-Host ("{0} | Publisher {1} | SHA256 {2}" -f $exe.Name, $signature.SignerCertificate.Subject, $hash)
           }
 
-      - name: List Release Assets
-        shell: pwsh
-        run: |
-          Get-ChildItem -Path dist-electron -File | Where-Object {
-            $_.Extension -in ".exe", ".yml", ".blockmap"
-          } | ForEach-Object {
-            Write-Host ("Release asset: {0} | {1} bytes" -f $_.Name, $_.Length)
-          }
+      - name: Upload Signed Artifacts to GitHub Actions
+        uses: actions/upload-artifact@v4
+        with:
+          name: Nisti-Marketing-${{ github.event_name == 'workflow_dispatch' && inputs.version || github.ref_name }}-Windows-Signed
+          path: dist-electron/*.exe
+          if-no-files-found: error
+          retention-days: 30
 
-      # Deliberately do not use actions/upload-artifact here.
-      # The same installers are published once as GitHub Release assets below,
-      # avoiding duplicate GitHub Actions storage consumption.
-      - name: Create GitHub Release and Attach Installers/Updater Metadata
+      - name: Create GitHub Release and Attach Signed Installers
         uses: softprops/action-gh-release@v2
         with:
-          name: Nisti Marketing ${{ env.RELEASE_TAG }}
-          tag_name: ${{ env.RELEASE_TAG }}
-          files: |
-            dist-electron/*.exe
-            dist-electron/*.yml
-            dist-electron/*.blockmap
-          fail_on_unmatched_files: false
+          name: Nisti Marketing ${{ github.event_name == 'workflow_dispatch' && inputs.version || github.ref_name }}
+          tag_name: ${{ github.event_name == 'workflow_dispatch' && inputs.version || github.ref_name }}
+          files: dist-electron/*.exe
           draft: false
           prerelease: false
           generate_release_notes: true

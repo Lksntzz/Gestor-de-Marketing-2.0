@@ -1,0 +1,110 @@
+name: Release Windows & Auto-Update
+
+on:
+  push:
+    tags:
+      - "v[0-9]+.[0-9]+.[0-9]+"
+      - "v[0-9]+.[0-9]+.[0-9]+-*"
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "Versão do release (ex: v2.0.0)"
+        required: true
+        default: "v2.0.0"
+
+permissions:
+  contents: write
+
+jobs:
+  build-and-publish:
+    runs-on: windows-latest
+    timeout-minutes: 40
+
+    steps:
+      - name: Checkout Source Code
+        uses: actions/checkout@v4
+
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: latest
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Install Dependencies
+        run: bun install --frozen-lockfile
+
+      - name: Validate SemVer Tag Matches package.json Version
+        shell: pwsh
+        run: |
+          $pkgJson = Get-Content package.json -Raw | ConvertFrom-Json
+          $pkgVersion = $pkgJson.version
+          $releaseTag = if ("${{ github.event_name }}" -eq "workflow_dispatch") { "${{ inputs.version }}" } else { "${{ github.ref_name }}" }
+          $expectedTag = "v$pkgVersion"
+          if ($releaseTag -ne $expectedTag) {
+            Write-Error "FALHA DE VERSÃO: Tag informada ($releaseTag) diverge de package.json ($expectedTag)."
+            exit 1
+          }
+          Write-Host "Tag $releaseTag verificada com sucesso para versão $pkgVersion."
+
+      - name: Verify TypeScript, Tests and Production Build
+        run: bun run verify
+
+      - name: Smoke Test Self-Contained Production Backend
+        run: node scripts/runtime-smoke.mjs
+
+      - name: Build Windows NSIS and Auto-Update Artifacts
+        shell: pwsh
+        env:
+          WIN_CSC_LINK: ${{ secrets.WIN_CSC_LINK }}
+          WIN_CSC_KEY_PASSWORD: ${{ secrets.WIN_CSC_KEY_PASSWORD }}
+          GH_TOKEN: ${{ secrets.NISTI_RELEASE_TOKEN }}
+        run: |
+          if (-not [string]::IsNullOrWhiteSpace($env:WIN_CSC_LINK) -and -not [string]::IsNullOrWhiteSpace($env:WIN_CSC_KEY_PASSWORD)) {
+            Write-Host "Credenciais de assinatura Authenticode detectadas. Compilando com assinatura..."
+            bunx electron-builder@26.0.12 --win --x64 --publish never --config.win.forceCodeSigning=true
+          } else {
+            Write-Host "Credenciais de assinatura não configuradas. Compilando instaladores sem assinatura..."
+            bunx electron-builder@26.0.12 --win --x64 --publish never
+          }
+
+      - name: Verify Generated Windows Artifacts
+        shell: pwsh
+        run: |
+          $nsis = Get-ChildItem -Path dist-electron -Filter *Setup*.exe
+          $latestYml = Get-ChildItem -Path dist-electron -Filter latest.yml
+          if ($nsis.Count -eq 0) { throw "Instalador NSIS Setup não foi gerado em dist-electron." }
+          if ($latestYml.Count -eq 0) { throw "Arquivo de metadados latest.yml não foi gerado em dist-electron." }
+          Write-Host "Artefatos validados: $($nsis.Name), $($latestYml.Name)"
+
+      - name: Upload Artifacts to GitHub Actions Workflow
+        uses: actions/upload-artifact@v4
+        with:
+          name: Nisti-Marketing-${{ github.event_name == 'workflow_dispatch' && inputs.version || github.ref_name }}-Windows
+          path: |
+            dist-electron/*.exe
+            dist-electron/latest.yml
+            dist-electron/*.blockmap
+          if-no-files-found: error
+          retention-days: 30
+
+      - name: Publish Release to Public Distribution Repository
+        uses: softprops/action-gh-release@v2
+        if: ${{ env.HAS_RELEASE_TOKEN == 'true' }}
+        env:
+          HAS_RELEASE_TOKEN: ${{ secrets.NISTI_RELEASE_TOKEN != '' }}
+        with:
+          repository: Lksntzz/Nisti-Marketing-Releases
+          token: ${{ secrets.NISTI_RELEASE_TOKEN }}
+          name: Nisti Marketing ${{ github.event_name == 'workflow_dispatch' && inputs.version || github.ref_name }}
+          tag_name: ${{ github.event_name == 'workflow_dispatch' && inputs.version || github.ref_name }}
+          files: |
+            dist-electron/*.exe
+            dist-electron/latest.yml
+            dist-electron/*.blockmap
+          draft: false
+          prerelease: false
+          generate_release_notes: true

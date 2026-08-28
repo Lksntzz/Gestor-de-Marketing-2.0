@@ -21,8 +21,8 @@ import {
 import { ObsidianApiConfig, EngineMode, MarketingTask } from "../types";
 
 interface NavbarProps {
-  activeTab: "dashboard" | "vault" | "campaigns" | "tasks" | "automations" | "routine" | "knowledge";
-  setActiveTab: (tab: "dashboard" | "vault" | "campaigns" | "tasks" | "automations" | "routine" | "knowledge") => void;
+  activeTab: string;
+  setActiveTab: (tab: any) => void;
   apiConfig: ObsidianApiConfig;
   onOpenSettings: () => void;
   onSyncNow: () => void;
@@ -109,42 +109,35 @@ export const Navbar: React.FC<NavbarProps> = ({
       label: "Início",
       icon: Compass,
       description: "Visão Geral",
+      match: ["dashboard"]
     },
     {
       id: "vault" as const,
-      label: "Cofre Obsidian",
+      label: "Cofre de Conhecimento",
       icon: FolderOpen,
-      description: "Cofre PKM",
+      description: "Arquivos e Input",
+      match: ["vault", "knowledge"]
     },
     {
-      id: "knowledge" as const,
-      label: "Adicionar Conhecimento",
-      icon: FileText,
-      description: "Capturar e Processar",
-    },
-    {
-      id: "routine" as const,
-      label: "Planejamento",
-      icon: Calendar,
-      description: "Rotinas e Horários",
-    },
-    {
-      id: "tasks" as const,
-      label: "Execução",
-      icon: CheckSquare,
-      description: "Tarefas e Kanban",
-    },
-    {
-      id: "campaigns" as const,
-      label: "Resultados",
+      id: "content" as const,
+      label: "Estúdio de Criação",
       icon: Sparkles,
-      description: "Campanhas e Cópias",
+      description: "Ideias e Campanhas",
+      match: ["content", "campaigns"]
+    },
+    {
+      id: "editorial" as const,
+      label: "Planejamento e Execução",
+      icon: Calendar,
+      description: "Calendário, Tarefas e Rotinas",
+      match: ["editorial", "tasks", "routine"]
     },
     {
       id: "automations" as const,
       label: "Automações",
       icon: Zap,
-      description: "Sincronizações",
+      description: "Modelos e Regras",
+      match: ["automations"]
     },
   ];
 
@@ -426,7 +419,7 @@ export const Navbar: React.FC<NavbarProps> = ({
           <div className="grid grid-cols-2 gap-2">
             {navItems.map((item) => {
               const Icon = item.icon;
-              const isActive = activeTab === item.id;
+              const isActive = item.match.includes(activeTab as any);
               return (
                 <button
                   key={item.id}

@@ -16,8 +16,10 @@ import {
   Loader2,
   LogOut,
   UserCheck,
+  Sparkles,
+  ArrowUpCircle,
 } from "lucide-react";
-import { ObsidianApiConfig } from "../types";
+import { ObsidianApiConfig, UpdateState } from "../types";
 import { api } from "../services/api";
 import { googleDriveService } from "../services/googleDriveService";
 
@@ -59,6 +61,10 @@ export const ObsidianApiSettingsModal: React.FC<ObsidianApiSettingsModalProps> =
 
   const [confirmClear, setConfirmClear] = useState(false);
 
+  const [updateState, setUpdateState] = useState<UpdateState | null>(null);
+  const [isCheckingUpdate, setIsCheckingUpdate] = useState(false);
+  const [isInstallingUpdate, setIsInstallingUpdate] = useState(false);
+
   useEffect(() => {
     if (isOpen) {
       const runtimeConnected = api.isObsidianSessionVerified();
@@ -71,8 +77,50 @@ export const ObsidianApiSettingsModal: React.FC<ObsidianApiSettingsModalProps> =
       setAiTestResult(null);
       setTestResult(null);
       setConfirmClear(false);
+
+      if (window.electronAPI?.getUpdateStatus) {
+        window.electronAPI.getUpdateStatus().then((st) => {
+          if (st) setUpdateState(st);
+        }).catch(() => {});
+
+        const unsubscribe = window.electronAPI.onUpdateStatus?.((st) => {
+          if (st) {
+            setUpdateState(st);
+            if (st.status !== "checking") {
+              setIsCheckingUpdate(false);
+            }
+          }
+        });
+
+        return () => {
+          if (typeof unsubscribe === "function") unsubscribe();
+        };
+      }
     }
   }, [isOpen, config]);
+
+  const handleCheckForUpdates = async () => {
+    if (!window.electronAPI?.checkForUpdates) return;
+    setIsCheckingUpdate(true);
+    try {
+      const st = await window.electronAPI.checkForUpdates();
+      if (st) setUpdateState(st);
+    } catch {
+      // Falha silenciosa ou tratada pelo estado de erro
+    } finally {
+      setIsCheckingUpdate(false);
+    }
+  };
+
+  const handleInstallUpdate = async () => {
+    if (!window.electronAPI?.installUpdate) return;
+    setIsInstallingUpdate(true);
+    try {
+      await window.electronAPI.installUpdate();
+    } catch {
+      setIsInstallingUpdate(false);
+    }
+  };
 
   if (!isOpen) return null;
 
@@ -564,8 +612,121 @@ export const ObsidianApiSettingsModal: React.FC<ObsidianApiSettingsModalProps> =
                   <span>Gerenciamento de Sistema</span>
                 </h3>
                 <p className="text-xs text-text-secondary leading-normal">
-                  Exporte cópias de segurança do seu banco de dados local ou limpe e redefina as configurações do sistema de volta aos padrões originais de fábrica.
+                  Gerencie atualizações do aplicativo, cópias de segurança do banco de dados local ou restaure configurações.
                 </p>
+              </div>
+
+              {/* Seção de Atualização Automática (Auto-Update) */}
+              <div className="p-4 bg-[#0f131c] border border-outline-border rounded-xl space-y-3">
+                <div className="flex items-center justify-between gap-2">
+                  <div className="space-y-0.5">
+                    <h4 className="text-xs font-bold text-text-primary uppercase tracking-wider flex items-center gap-1.5">
+                      <ArrowUpCircle className="w-3.5 h-3.5 text-pink-500" />
+                      <span>Atualizações do Nisti Marketing</span>
+                    </h4>
+                    <p className="text-[11px] text-text-secondary">
+                      Versão instalada: <span className="font-semibold text-text-primary">v{updateState?.currentVersion || "2.0.0"}</span>
+                    </p>
+                  </div>
+
+                  {(!updateState || updateState.status === "idle" || updateState.status === "up-to-date" || updateState.status === "error") && (
+                    <button
+                      type="button"
+                      onClick={handleCheckForUpdates}
+                      disabled={isCheckingUpdate}
+                      className="flex items-center gap-1.5 px-3 py-1.5 bg-surface-card hover:bg-[#1c2028] text-text-primary border border-outline-border text-xs font-medium rounded-lg transition-colors cursor-pointer disabled:opacity-50"
+                    >
+                      <RefreshCw className={`w-3.5 h-3.5 ${isCheckingUpdate ? "animate-spin text-pink-500" : "text-text-secondary"}`} />
+                      <span>{isCheckingUpdate ? "Verificando..." : "Verificar agora"}</span>
+                    </button>
+                  )}
+                </div>
+
+                {/* Painel dinâmico de status */}
+                {updateState?.status === "checking" && (
+                  <div className="p-3 bg-blue-500/10 border border-blue-500/20 rounded-lg flex items-center gap-2.5 text-xs text-blue-400">
+                    <Loader2 className="w-4 h-4 animate-spin text-blue-400 shrink-0" />
+                    <span>Verificando atualizações no GitHub Releases...</span>
+                  </div>
+                )}
+
+                {updateState?.status === "up-to-date" && (
+                  <div className="p-3 bg-emerald-500/10 border border-emerald-500/20 rounded-lg flex items-center gap-2.5 text-xs text-emerald-400">
+                    <CheckCircle2 className="w-4 h-4 text-emerald-500 shrink-0" />
+                    <span>O Nisti Marketing está atualizado na versão mais recente.</span>
+                  </div>
+                )}
+
+                {updateState?.status === "available" && (
+                  <div className="p-3 bg-pink-500/10 border border-pink-500/20 rounded-lg flex items-center justify-between gap-3 text-xs text-pink-400">
+                    <div className="flex items-center gap-2">
+                      <Sparkles className="w-4 h-4 text-pink-500 shrink-0" />
+                      <span>Nova versão <strong>v{updateState.availableVersion}</strong> disponível. Baixando em segundo plano...</span>
+                    </div>
+                  </div>
+                )}
+
+                {updateState?.status === "downloading" && (
+                  <div className="p-3 bg-pink-500/10 border border-pink-500/20 rounded-lg space-y-2 text-xs">
+                    <div className="flex items-center justify-between text-pink-400">
+                      <span className="flex items-center gap-1.5">
+                        <Loader2 className="w-3.5 h-3.5 animate-spin text-pink-500" />
+                        <span>Baixando atualização v{updateState.availableVersion || ""}...</span>
+                      </span>
+                      <span className="font-bold">{updateState.percent ?? 0}%</span>
+                    </div>
+                    <div className="w-full bg-[#1c2028] rounded-full h-1.5 overflow-hidden">
+                      <div
+                        className="bg-pink-500 h-1.5 rounded-full transition-all duration-300"
+                        style={{ width: `${Math.min(100, Math.max(0, updateState.percent || 0))}%` }}
+                      />
+                    </div>
+                  </div>
+                )}
+
+                {updateState?.status === "downloaded" && (
+                  <div className="p-3.5 bg-emerald-500/15 border border-emerald-500/30 rounded-lg flex items-center justify-between gap-3 text-xs">
+                    <div className="space-y-0.5 text-emerald-400">
+                      <span className="font-bold flex items-center gap-1.5">
+                        <CheckCircle2 className="w-4 h-4 text-emerald-400 shrink-0" />
+                        <span>Atualização pronta para instalação! (v{updateState.availableVersion})</span>
+                      </span>
+                      <p className="text-[11px] text-text-secondary">
+                        Seus dados e notas do Vault serão mantidos intactos.
+                      </p>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={handleInstallUpdate}
+                      disabled={isInstallingUpdate}
+                      className="px-3.5 py-1.5 bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-xs rounded-lg transition-colors shadow-sm flex items-center gap-1.5 shrink-0 cursor-pointer disabled:opacity-50"
+                    >
+                      {isInstallingUpdate ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <ArrowUpCircle className="w-3.5 h-3.5" />}
+                      <span>Reiniciar e atualizar</span>
+                    </button>
+                  </div>
+                )}
+
+                {updateState?.status === "error" && (
+                  <div className="p-3 bg-red-500/10 border border-red-500/20 rounded-lg flex items-start gap-2 text-xs text-red-400">
+                    <AlertCircle className="w-4 h-4 text-red-500 shrink-0 mt-0.5" />
+                    <div className="space-y-1">
+                      <span>{updateState.errorMessage || "Não foi possível verificar atualizações."}</span>
+                    </div>
+                  </div>
+                )}
+
+                {updateState?.status === "disabled" && updateState.disabledReason === "portable" && (
+                  <div className="p-2.5 bg-[#141822] border border-outline-border rounded-lg text-[11px] text-text-secondary">
+                    Modo Portable em execução. Atualizações automáticas disponíveis no instalador oficial Windows (NSIS).
+                  </div>
+                )}
+
+                {updateState?.status === "disabled" && updateState.disabledReason === "development" && (
+                  <div className="p-2.5 bg-[#141822] border border-outline-border rounded-lg text-[11px] text-text-secondary">
+                    Modo de desenvolvimento (auto-update desabilitado).
+                  </div>
+                )}
               </div>
 
               <div className="p-4 bg-[#0f131c] border border-outline-border rounded-xl space-y-3">

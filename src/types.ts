@@ -312,6 +312,50 @@ type KnowledgeCommitResult = Promise<{
   assetSize?: number;
 }>;
 
+export type UpdateStatus =
+  | "idle"
+  | "checking"
+  | "available"
+  | "downloading"
+  | "downloaded"
+  | "up-to-date"
+  | "error"
+  | "disabled";
+
+export interface UpdateState {
+  status: UpdateStatus;
+  currentVersion: string;
+  availableVersion?: string;
+  releaseDate?: string;
+  percent?: number;
+  transferred?: number;
+  total?: number;
+  bytesPerSecond?: number;
+  errorMessage?: string;
+  disabledReason?: "development" | "portable";
+}
+
+export type EditorialStatus = "DRAFT" | "IN_PRODUCTION" | "REVIEW" | "APPROVED" | "SCHEDULED" | "PUBLISHED" | "ARCHIVED";
+
+export interface EditorialItem {
+  id: string;
+  title: string;
+  contentType: string;
+  platform: string;
+  objective: string;
+  scheduledDate: string;
+  scheduledTime?: string;
+  status: EditorialStatus;
+  priority: TaskPriority;
+  ideaId?: string;
+  scriptId?: string;
+  campaignId?: string;
+  obsidianPath?: string;
+  notes?: string;
+  createdAt: number;
+  updatedAt: number;
+}
+
 declare global {
   interface Window {
     electronAPI?: {
@@ -341,6 +385,13 @@ declare global {
       deleteSecret: (name: string) => Promise<{ success: boolean }>;
       setAIConfig: (config: { provider: "gemini" | "openai"; model?: string }) => Promise<{ success: boolean }>;
       getSystemStatus: () => Promise<any>;
+      getUpdateStatus: () => Promise<UpdateState>;
+      checkForUpdates: () => Promise<UpdateState>;
+      installUpdate: () => Promise<{ success: boolean; error?: string }>;
+      onUpdateStatus: (callback: (state: UpdateState) => void) => () => void;
+      editorialList: () => Promise<EditorialItem[]>;
+      editorialUpsert: (item: EditorialItem) => Promise<{ success: boolean }>;
+      editorialDelete: (id: string) => Promise<{ success: boolean }>;
     };
   }
 }

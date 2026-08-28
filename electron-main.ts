@@ -9,6 +9,7 @@ import { KnowledgeIndex } from "./src/services/knowledge/index/KnowledgeIndex";
 import { VaultIndexer } from "./src/services/knowledge/index/VaultIndexer";
 import { VaultWatcher } from "./src/services/knowledge/index/VaultWatcher";
 import { knowledgeContextService } from "./src/services/knowledge/KnowledgeContextService";
+import { AutoUpdateService } from "./src/electron/update/AutoUpdateService";
 
 let mainWindow: BrowserWindow | null = null;
 let selectedVaultPath: string | null = null;
@@ -564,12 +565,26 @@ function createWindow() {
     mainWindow.loadFile(indexPath).catch((err) => console.error("Erro ao carregar index.html:", err));
   }
   mainWindow.webContents.on("did-fail-load", (_event, errorCode, errorDescription) => console.error("Falha ao carregar conteúdo:", errorCode, errorDescription));
+  mainWindow.webContents.on("did-finish-load", () => {
+    AutoUpdateService.getInstance().startBackgroundChecks();
+  });
   mainWindow.on("closed", () => { mainWindow = null; });
 }
 
 app.whenReady().then(async () => {
   Menu.setApplicationMenu(null);
   await loadConfig();
+
+  const updateService = AutoUpdateService.getInstance();
+  updateService.setCleanupHandler(async () => {
+    if (vaultWatcher) {
+      try { vaultWatcher.stop(); } catch {}
+    }
+    if (knowledgeIndex) {
+      try { knowledgeIndex.close(); } catch {}
+    }
+  });
+
   createWindow();
   app.on("activate", () => {
     if (BrowserWindow.getAllWindows().length === 0) createWindow();
@@ -581,6 +596,7 @@ app.on("window-all-closed", () => {
 });
 
 app.on("before-quit", () => {
+  AutoUpdateService.getInstance().destroy();
   if (vaultWatcher) {
     vaultWatcher.stop();
   }
@@ -767,6 +783,40 @@ ipcMain.handle("notes:delete", async (_, payload: { folder: string; title: strin
   }
 });
 
+ipcMain.handle("editorial:list", async () => {
+  const index = requireKnowledgeIndex();
+  return index.getEditorialItems().map(row => ({
+    id: row.id,
+    title: row.title,
+    contentType: row.content_type,
+    platform: row.platform,
+    objective: row.objective,
+    scheduledDate: row.scheduled_date,
+    scheduledTime: row.scheduled_time,
+    status: row.status,
+    priority: row.priority,
+    ideaId: row.idea_id,
+    scriptId: row.script_id,
+    campaignId: row.campaign_id,
+    obsidianPath: row.obsidian_path,
+    notes: row.notes,
+    createdAt: row.created_at,
+    updatedAt: row.updated_at
+  }));
+});
+
+ipcMain.handle("editorial:upsert", async (_, item: any) => {
+  const index = requireKnowledgeIndex();
+  index.upsertEditorialItem(item);
+  return { success: true };
+});
+
+ipcMain.handle("editorial:delete", async (_, id: string) => {
+  const index = requireKnowledgeIndex();
+  index.deleteEditorialItem(id);
+  return { success: true };
+});
+
 ipcMain.handle("system:status", () => ({
   os: process.platform,
   appName: "Nisti Marketing",
@@ -775,3 +825,15 @@ ipcMain.handle("system:status", () => ({
   runtime: "electron",
   isDesktop: true,
 }));
+
+ipcMain.handle("update:get-status", async () => {
+  return AutoUpdateService.getInstance().getState();
+});
+
+ipcMain.handle("update:check", async () => {
+  return AutoUpdateService.getInstance().checkForUpdates();
+});
+
+ipcMain.handle("update:install", async () => {
+  return AutoUpdateService.getInstance().installUpdate();
+});
