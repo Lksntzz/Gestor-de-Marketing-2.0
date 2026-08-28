@@ -273,7 +273,7 @@ export class StorageManager implements IStorageService {
         });
         return { success: true };
       } catch (err: any) {
-        console.error("Desktop note write failed closed:", err);
+        console.warn("Desktop note write failed closed:", err.message || err);
         return { success: false, error: err?.message || "Falha ao gravar no Vault do Obsidian." };
       }
     }
@@ -662,7 +662,7 @@ export class StorageManager implements IStorageService {
         }
       }
     } catch (e) {
-      console.error("Error during factory reset:", e);
+      console.warn("Error during factory reset:", e);
     }
   }
 }

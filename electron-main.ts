@@ -2,12 +2,37 @@ import { app, BrowserWindow, ipcMain, dialog, Menu, safeStorage } from "electron
 import * as path from "path";
 import * as fs from "fs/promises";
 import { existsSync } from "fs";
+import crypto from "crypto";
 import { DEFAULT_AI_MODELS, executeWithModelFallback } from "./src/services/ai/AIProviderFactory";
 import type { AIProviderName } from "./src/services/ai/AIProvider";
+import { KnowledgeIndex } from "./src/services/knowledge/index/KnowledgeIndex";
+import { VaultIndexer } from "./src/services/knowledge/index/VaultIndexer";
+import { VaultWatcher } from "./src/services/knowledge/index/VaultWatcher";
+import { knowledgeContextService } from "./src/services/knowledge/KnowledgeContextService";
 
 let mainWindow: BrowserWindow | null = null;
 let selectedVaultPath: string | null = null;
 let obsidianConnectionAuthorized = false;
+
+let knowledgeIndex: KnowledgeIndex | null = null;
+let vaultWatcher: VaultWatcher | null = null;
+
+function requireKnowledgeIndex(): KnowledgeIndex {
+  if (!knowledgeIndex) {
+    const dbPath = path.join(app.getPath("userData"), "knowledge_index.sqlite");
+    knowledgeIndex = new KnowledgeIndex(dbPath);
+  }
+  return knowledgeIndex;
+}
+
+function startVaultWatcher(vaultPath: string) {
+  if (vaultWatcher) vaultWatcher.stop();
+  const index = requireKnowledgeIndex();
+  const vaultId = crypto.createHash("sha256").update(vaultPath).digest("hex");
+  const indexer = new VaultIndexer(index, vaultPath, vaultId, callAIForAsset);
+  vaultWatcher = new VaultWatcher(indexer, vaultPath);
+  vaultWatcher.start();
+}
 
 const STANDARD_FOLDERS = [
   "00_Inbox",
@@ -71,6 +96,7 @@ async function loadConfig() {
       const config = JSON.parse(data);
       if (config.vaultPath && existsSync(config.vaultPath)) {
         selectedVaultPath = path.resolve(config.vaultPath);
+        startVaultWatcher(selectedVaultPath);
       }
     }
   } catch (err) {
@@ -554,6 +580,15 @@ app.on("window-all-closed", () => {
   if (process.platform !== "darwin") app.quit();
 });
 
+app.on("before-quit", () => {
+  if (vaultWatcher) {
+    vaultWatcher.stop();
+  }
+  if (knowledgeIndex) {
+    knowledgeIndex.close();
+  }
+});
+
 ipcMain.handle("vault:select", async () => {
   if (!mainWindow) return null;
   const result = await dialog.showOpenDialog(mainWindow, {
@@ -563,6 +598,7 @@ ipcMain.handle("vault:select", async () => {
   if (result.canceled || result.filePaths.length === 0) return null;
   const vaultPath = path.resolve(result.filePaths[0]);
   selectedVaultPath = vaultPath;
+  startVaultWatcher(vaultPath);
   for (const folder of STANDARD_FOLDERS) {
     const fullFolderPath = path.join(vaultPath, folder);
     if (!existsSync(fullFolderPath)) await fs.mkdir(fullFolderPath, { recursive: true });
@@ -577,6 +613,33 @@ ipcMain.handle("vault:connection-state", (_event, connected: boolean) => {
   return { success: true, connected: obsidianConnectionAuthorized };
 });
 ipcMain.handle("vault:list-folders", async () => await listVaultFolders());
+ipcMain.handle("knowledge:query", async (_, query: string, preferredPaths?: string[]) => {
+  if (!selectedVaultPath) return { sources: [] };
+  const vaultId = crypto.createHash("sha256").update(selectedVaultPath).digest("hex");
+  const index = requireKnowledgeIndex();
+  const docs = index.getDocumentsByVault(vaultId);
+  
+  const notes = docs.map(doc => ({
+    id: doc.id,
+    path: doc.relative_path,
+    title: doc.title,
+    folder: path.dirname(doc.relative_path).replace(/\\/g, "/"),
+    content: doc.content,
+    frontmatter: JSON.parse(doc.metadata_json || "{}"),
+    tags: [],
+    wikilinks: [],
+    lastModified: new Date(doc.modified_at).toISOString(),
+    sizeBytes: doc.size,
+  }));
+
+  const selection = knowledgeContextService.select({
+    query,
+    notes,
+    preferredSourcePaths: preferredPaths,
+  });
+
+  return { sources: selection.sources, warning: selection.warning };
+});
 ipcMain.handle("notes:read-all", async () => await scanVaultKnowledge());
 
 ipcMain.handle("knowledge:commit", async (_, payload: KnowledgeCommitPayload) => {

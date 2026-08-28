@@ -367,7 +367,7 @@ export default function App() {
         setAuditInsight(analyzeLocalVault(notes));
       }
     } catch (err: any) {
-      console.error("Audit error, using local engine fallback:", err);
+      console.warn("Audit error, using local engine fallback:", err);
       setAuditInsight(analyzeLocalVault(notes));
     } finally {
       setIsAuditingVault(false);
@@ -503,7 +503,7 @@ export default function App() {
         `Nota e ${d.tasks?.length || 0} tarefas integradas à sua base do Obsidian.`
       );
     } catch (err: any) {
-      console.error("Error creating campaign:", err);
+      console.warn("Error creating campaign:", err);
       showToast("warning", "Aviso ao Gerar Campanha", err.message || "Erro na geração.");
     } finally {
       setIsGeneratingCampaign(false);

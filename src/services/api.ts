@@ -338,8 +338,8 @@ export async function syncWebObsidianNotes(config: ObsidianApiConfig): Promise<O
                   syncedWithApi: true,
                 } as ObsidianNote);
               }
-            } catch (fileErr) {
-              console.error(`Erro ao sincronizar arquivo individual: ${itemRelativePath}`, fileErr);
+            } catch (fileErr: any) {
+              console.warn(`[Obsidian Crawl] Falha ao sincronizar arquivo individual: ${itemRelativePath}`, fileErr.message || fileErr);
             }
           }
         }
@@ -350,8 +350,8 @@ export async function syncWebObsidianNotes(config: ObsidianApiConfig): Promise<O
           throw new Error(`Falha ao listar o diretório raiz do Obsidian: ${errorDetail}`);
         }
       }
-    } catch (e) {
-      console.error(`Falha ao ler diretório do Obsidian: ${apiPath}`, e);
+    } catch (e: any) {
+      console.warn(`[Obsidian Crawl] Falha ao ler diretório do Obsidian: ${apiPath}`, e.message || e);
       if (vaultRelativeDirPath === "") {
         throw e;
       }
@@ -639,11 +639,20 @@ export interface GenerateGuidelinesPayload {
   preferredSourcePaths?: string[];
 }
 
-function selectMarketingKnowledge(
+async function selectMarketingKnowledge(
   notes: ObsidianNote[] | undefined,
   query: string,
   preferredSourcePaths?: string[]
-): { knowledgeSources: KnowledgeContextSource[]; knowledgeWarning?: string } {
+): Promise<{ knowledgeSources: KnowledgeContextSource[]; knowledgeWarning?: string }> {
+  if (typeof window !== "undefined" && window.electronAPI && window.electronAPI.queryKnowledge) {
+    try {
+      const res = await window.electronAPI.queryKnowledge(query, preferredSourcePaths);
+      return { knowledgeSources: res.sources, knowledgeWarning: res.warning };
+    } catch (e) {
+      console.warn("Failed to query knowledge index via IPC, falling back to in-memory:", e);
+    }
+  }
+
   const selection = knowledgeContextService.select({
     query,
     notes: notes || [],
@@ -753,7 +762,7 @@ export const api = {
   async generateGuidelines(payload: GenerateGuidelinesPayload) {
     const headers = await getAIRequestHeaders();
     const { knowledgeNotes, preferredSourcePaths, ...requestPayload } = payload;
-    const knowledge = selectMarketingKnowledge(
+    const knowledge = await selectMarketingKnowledge(
       knowledgeNotes,
       `${payload.campaignName} ${payload.objective} diretrizes estratégia campanha`,
       preferredSourcePaths
@@ -787,7 +796,7 @@ export const api = {
   async generateCampaign(payload: GenerateCampaignPayload) {
     const headers = await getAIRequestHeaders();
     const { knowledgeNotes, preferredSourcePaths, ...requestPayload } = payload;
-    const knowledge = selectMarketingKnowledge(
+    const knowledge = await selectMarketingKnowledge(
       knowledgeNotes,
       [
         payload.campaignName,

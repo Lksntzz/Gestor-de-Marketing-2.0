@@ -9,6 +9,7 @@ contextBridge.exposeInMainWorld("electronAPI", {
   listVaultFolders: () => ipcRenderer.invoke("vault:list-folders"),
 
   readNotes: () => ipcRenderer.invoke("notes:read-all"),
+  queryKnowledge: (query: string, preferredPaths?: string[]) => ipcRenderer.invoke("knowledge:query", query, preferredPaths),
   commitKnowledge: (payload: any) => ipcRenderer.invoke("knowledge:commit", payload),
   writeNote: (...args: any[]) => {
     // Compatibility for pre-v0.1.5 callers that still pass vaultPath first.

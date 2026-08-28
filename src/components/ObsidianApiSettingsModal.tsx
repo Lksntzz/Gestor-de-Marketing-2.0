@@ -158,7 +158,7 @@ export const ObsidianApiSettingsModal: React.FC<ObsidianApiSettingsModalProps> =
     try {
       googleDriveService.disconnect();
     } catch (err) {
-      console.error(err);
+      console.warn(err);
     }
     setIsDriveConnected(false);
   };

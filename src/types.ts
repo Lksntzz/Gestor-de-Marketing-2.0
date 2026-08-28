@@ -321,6 +321,7 @@ declare global {
       setObsidianConnectionState: (connected: boolean) => Promise<{ success: boolean; connected: boolean }>;
       listVaultFolders: () => Promise<string[]>;
       readNotes: () => Promise<any[]>;
+      queryKnowledge: (query: string, preferredPaths?: string[]) => Promise<any>;
       commitKnowledge: (payload: {
         folder: string;
         title: string;
