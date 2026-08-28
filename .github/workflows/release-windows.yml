@@ -12,7 +12,7 @@ on:
         default: ""
 
 permissions:
-  contents: read
+  contents: write
 
 jobs:
   build-and-publish:
@@ -68,15 +68,6 @@ jobs:
       - name: Smoke Test Self-Contained Production Backend
         run: node scripts/runtime-smoke.mjs
 
-      - name: Require Public Release Token
-        shell: pwsh
-        env:
-          NISTI_RELEASE_TOKEN: ${{ secrets.NISTI_RELEASE_TOKEN }}
-        run: |
-          if ([string]::IsNullOrWhiteSpace($env:NISTI_RELEASE_TOKEN)) {
-            throw "NISTI_RELEASE_TOKEN não configurado. A publicação no repositório público foi bloqueada."
-          }
-
       - name: Build Windows NSIS and Auto-Update Artifacts
         shell: pwsh
         env:
@@ -111,12 +102,11 @@ jobs:
 
       # Não usamos actions/upload-artifact aqui: os mesmos binários seriam
       # armazenados duas vezes e consumiriam a cota de Actions Storage.
-      # Os artefatos oficiais ficam somente em GitHub Releases.
-      - name: Publish Release to Public Distribution Repository
+      # Os artefatos oficiais ficam somente em GitHub Releases deste repositório público.
+      - name: Publish Release to This Public Repository
         uses: softprops/action-gh-release@v2
         with:
-          repository: Lksntzz/Nisti-Marketing-Releases
-          token: ${{ secrets.NISTI_RELEASE_TOKEN }}
+          token: ${{ secrets.GITHUB_TOKEN }}
           name: Nisti Marketing ${{ env.RELEASE_TAG }}
           tag_name: ${{ env.RELEASE_TAG }}
           files: |
