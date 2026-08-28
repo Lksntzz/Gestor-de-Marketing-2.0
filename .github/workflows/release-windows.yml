@@ -108,6 +108,30 @@ jobs:
             Write-Host ("{0} | {1} bytes | SHA256 {2}" -f $file.Name, $file.Length, $hash)
           }
 
+      - name: Smoke Test NSIS Installer Extraction
+        shell: pwsh
+        run: |
+          $setup = Get-ChildItem -Path dist-electron -Filter *Setup*.exe | Select-Object -First 1
+          if (-not $setup) { throw "Instalador NSIS não encontrado para smoke test." }
+
+          $installDir = Join-Path $env:RUNNER_TEMP "nisti-install-smoke"
+          Remove-Item -Path $installDir -Recurse -Force -ErrorAction SilentlyContinue
+
+          Write-Host "Executando instalação silenciosa em $installDir"
+          $process = Start-Process -FilePath $setup.FullName -ArgumentList @("/S", "/D=$installDir") -Wait -PassThru
+          if ($process.ExitCode -ne 0) {
+            throw "Instalador NSIS falhou no smoke test com exit code $($process.ExitCode)."
+          }
+
+          $appExe = Join-Path $installDir "Nisti Marketing.exe"
+          if (-not (Test-Path $appExe)) {
+            $found = @(Get-ChildItem -Path $installDir -Recurse -Filter *.exe -ErrorAction SilentlyContinue | Select-Object -ExpandProperty FullName)
+            throw "Instalação silenciosa terminou sem gerar 'Nisti Marketing.exe'. EXEs encontrados: $($found -join '; ')"
+          }
+
+          Write-Host "Smoke test do instalador OK: $appExe"
+          Remove-Item -Path $installDir -Recurse -Force -ErrorAction SilentlyContinue
+
       # Não usamos actions/upload-artifact aqui: os mesmos binários seriam
       # armazenados duas vezes e consumiriam a cota de Actions Storage.
       # Os artefatos oficiais ficam somente em GitHub Releases deste repositório público.
