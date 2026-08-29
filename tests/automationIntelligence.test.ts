@@ -149,16 +149,22 @@ describe("automações fundamentadas v2 etapa 7", () => {
     expect(validation.runnable).toBe(false);
   });
 
-  test("UI da etapa 7 não chama os executores legados do App nem fabrica histórico", async () => {
-    const source = await readFile(
+  test("UI legada permanece isolada e não chama executores antigos do App", async () => {
+    const shell = await readFile(
       new URL("../src/components/TasksAutomationView.tsx", import.meta.url),
       "utf8"
     );
+    const legacy = await readFile(
+      new URL("../src/components/LegacyAutomationsView.tsx", import.meta.url),
+      "utf8"
+    );
 
-    expect(source).not.toContain("onRunRuleNow(");
-    expect(source).not.toContain("onToggleRule(");
-    expect(source).not.toContain("12 + idx");
-    expect(source).not.toContain("Automático no disparo");
-    expect(source).toContain("Nenhuma execução é simulada");
+    expect(shell).toContain("ExecutionTasksView");
+    expect(shell).toContain("LegacyAutomationsView");
+    expect(shell).not.toContain("onRunRuleNow(");
+    expect(shell).not.toContain("onToggleRule(");
+    expect(legacy).not.toContain("12 + idx");
+    expect(legacy).not.toContain("Automático no disparo");
+    expect(legacy).toContain("não executam em segundo plano");
   });
 });
