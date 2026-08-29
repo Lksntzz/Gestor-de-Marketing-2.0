@@ -37,28 +37,16 @@ function result(id: string, reach: number, ctr: number, linkedCampaignId?: strin
     channel: "Instagram",
     format: "reels_video",
     publishedAt: "2026-08-27T12:00:00",
-    dayOfWeek: "Quinta",
-    timeSlot: "12:00",
-    targetNiche: "empresas_corporativo",
-    emotionalDriver: "confianca_autoridade",
-    hookUsed: "Hook registrado",
     metrics: {
       impressions: reach + 100,
       reach,
-      likes: 10,
-      comments: 2,
-      shares: 1,
       saves: 3,
       clicksOrLeads: 4,
       ctrPercent: ctr,
       conversionRatePercent: 1,
     },
-    performanceScore: 50,
-    learnings: "Registro informado",
-    whatWorked: [],
-    whatToAvoid: [],
     ...(linkedCampaignId ? { linkedCampaignId } : {}),
-  } as PostHistoryItem;
+  };
 }
 
 describe("resultados fundamentados v2 etapa 6", () => {
@@ -70,10 +58,45 @@ describe("resultados fundamentados v2 etapa 6", () => {
     expect(snapshot.averageCtr).toBe(3);
   });
 
+  test("métrica não medida permanece ausente e zero medido permanece zero", () => {
+    const sparse: PostHistoryItem = {
+      id: "sparse",
+      title: "Sem analytics",
+      channel: "Instagram",
+      format: "Reel",
+      publishedAt: "2026-08-27T12:00:00",
+    };
+    expect(buildResultsSnapshot([sparse]).reach).toBeNull();
+
+    const zero: PostHistoryItem = {
+      ...sparse,
+      id: "zero",
+      metrics: { reach: 0 },
+    };
+    expect(buildResultsSnapshot([zero]).reach).toBe(0);
+  });
+
   test("resultado é vinculado à campanha somente por referência explícita", () => {
     const linked = result("linked", 900, 1.5, "camp-1");
     const unrelated = result("unrelated", 5000, 6, "camp-2");
-    expect(resultsForCampaign(campaign, [linked, unrelated]).map((item) => item.id)).toEqual(["linked"]);
+    const titleOnly: PostHistoryItem = {
+      id: "title-only",
+      title: "Outro resultado",
+      channel: "Instagram",
+      format: "Reel",
+      publishedAt: "2026-08-27T12:00:00",
+      linkedObsidianNote: campaign.title,
+    };
+    const notePathLinked: PostHistoryItem = {
+      ...titleOnly,
+      id: "path-linked",
+      linkedObsidianNote: campaign.obsidianOutputNotePath,
+    };
+
+    expect(resultsForCampaign(campaign, [linked, unrelated, titleOnly, notePathLinked]).map((item) => item.id)).toEqual([
+      "linked",
+      "path-linked",
+    ]);
   });
 
   test("campanha gerada nunca vira CONFIRMADO automaticamente", () => {
