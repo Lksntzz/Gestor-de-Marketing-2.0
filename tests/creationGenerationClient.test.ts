@@ -23,4 +23,12 @@ describe("creation generation client", () => {
     expect(source).toContain('postCreation("/api/ai/generate-script"');
     expect(source).not.toContain("body: JSON.stringify(payload)");
   });
+
+  test("geração criativa ignora o engine legado e descarta fallback sintético", async () => {
+    const source = await read("src/services/creationGenerationClient.ts");
+    expect(source).toContain("Generative creation always uses the configured AI provider");
+    expect(source).toContain("if (data?.wasFallback)");
+    expect(source).toContain("descartou o fallback sintético");
+    expect(source).not.toContain("engineMode: payload.engineMode");
+  });
 });
