@@ -20,6 +20,16 @@ const priorityRank: Record<TaskPriority, number> = {
   low: 3,
 };
 
+export function editorialIdFromTask(taskOrId: MarketingTask | string): string | null {
+  const id = typeof taskOrId === "string" ? taskOrId : taskOrId.id;
+  const match = id.match(/^task-ed-(.+)$/);
+  return match?.[1]?.trim() || null;
+}
+
+export function isEditorialTask(taskOrId: MarketingTask | string): boolean {
+  return Boolean(editorialIdFromTask(taskOrId));
+}
+
 export function localDateKey(date = new Date()): string {
   const year = date.getFullYear();
   const month = String(date.getMonth() + 1).padStart(2, "0");
@@ -124,6 +134,10 @@ export function taskMatchesSearch(task: MarketingTask, query: string): boolean {
 }
 
 export function moveTaskToNextDay(task: MarketingTask, now = new Date()): MarketingTask {
+  if (isEditorialTask(task)) {
+    throw new Error("Tarefas editoriais devem ter data alterada no Calendário para preservar a fonte de verdade.");
+  }
+
   const tomorrow = new Date(now.getFullYear(), now.getMonth(), now.getDate() + 1);
   const tomorrowKey = localDateKey(tomorrow);
   const oldDueDate = task.dueDate;
