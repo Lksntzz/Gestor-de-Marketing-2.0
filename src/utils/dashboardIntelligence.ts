@@ -4,12 +4,14 @@ import type {
   ObsidianApiConfig,
   ObsidianNote,
 } from "../types";
+import { assessBaseReadiness } from "../domain/baseOnboarding";
 
 export type DashboardActionKind =
   | "task"
   | "campaign"
   | "connect-obsidian"
-  | "add-knowledge"
+  | "complete-base"
+  | "review-base"
   | "planning";
 
 export type DashboardActionTone = "urgent" | "high" | "normal" | "info";
@@ -27,10 +29,10 @@ export interface DashboardPriorityAction {
 }
 
 export interface DashboardBlocker {
-  id: "obsidian-disconnected" | "knowledge-empty";
+  id: "obsidian-disconnected" | "base-not-ready";
   title: string;
   detail: string;
-  destination: "settings" | "knowledge";
+  destination: "settings" | "base";
 }
 
 export interface DashboardActivityItem {
@@ -126,6 +128,24 @@ function taskSortTimestamp(task: MarketingTask): number {
   return parseLocalTimestamp(task.dueDate, task.dueTime) ?? Number.MAX_SAFE_INTEGER;
 }
 
+function baseReadinessDetail(notes: ObsidianNote[]): string {
+  const readiness = assessBaseReadiness(notes);
+  const missing = readiness.missingSectionIds.length;
+  const pending = readiness.pendingPaths.length;
+  const parts: string[] = [];
+
+  if (missing > 0) {
+    parts.push(`${missing} ${missing === 1 ? "documento canônico ainda não existe" : "documentos canônicos ainda não existem"}`);
+  }
+  if (pending > 0) {
+    parts.push(`${pending} ${pending === 1 ? "documento precisa de revisão" : "documentos precisam de revisão"}`);
+  }
+
+  return parts.length > 0
+    ? `${parts.join(" e ")}. Complete ou revise a Base antes de depender dela para decisões de marketing.`
+    : "A Base Inicial está pronta.";
+}
+
 export function buildDashboardBlockers(
   notes: ObsidianNote[],
   apiConfig: ObsidianApiConfig,
@@ -141,13 +161,14 @@ export function buildDashboardBlockers(
     ];
   }
 
-  if (notes.length === 0) {
+  const readiness = assessBaseReadiness(notes);
+  if (!readiness.complete) {
     return [
       {
-        id: "knowledge-empty",
-        title: "Base ainda vazia",
-        detail: "Adicione uma fonte real antes de depender do Nisti para planejamento fundamentado.",
-        destination: "knowledge",
+        id: "base-not-ready",
+        title: readiness.missingSectionIds.length > 0 ? "Base Inicial incompleta" : "Base Inicial precisa de revisão",
+        detail: baseReadinessDetail(notes),
+        destination: "base",
       },
     ];
   }
@@ -166,11 +187,34 @@ export function selectPriorityAction(
     return {
       id: "connect-obsidian",
       kind: "connect-obsidian",
-      title: "Conecte o Obsidian para liberar a base de conhecimento",
+      title: "Conecte o Obsidian para liberar a Base",
       subtitle:
-        "O Nisti só usa o cofre depois que a REST API e a pasta física do Vault são validadas.",
+        "O Nisti só usa o conhecimento depois que a conexão e a pasta física do Vault são validadas.",
       badgeLabel: "Configuração necessária",
       tone: "info",
+    };
+  }
+
+  const readiness = assessBaseReadiness(notes);
+  if (!readiness.complete) {
+    if (readiness.missingSectionIds.length > 0) {
+      return {
+        id: "complete-base",
+        kind: "complete-base",
+        title: "Complete a Base Inicial antes de planejar",
+        subtitle: baseReadinessDetail(notes),
+        badgeLabel: "Base incompleta",
+        tone: "info",
+      };
+    }
+
+    return {
+      id: "review-base",
+      kind: "review-base",
+      title: "Revise as pendências da Base Inicial",
+      subtitle: baseReadinessDetail(notes),
+      badgeLabel: "Base em revisão",
+      tone: "high",
     };
   }
 
@@ -241,23 +285,11 @@ export function selectPriorityAction(
     };
   }
 
-  if (notes.length === 0) {
-    return {
-      id: "add-knowledge",
-      kind: "add-knowledge",
-      title: "Adicione a primeira fonte à sua Base",
-      subtitle:
-        "O Vault está conectado, mas ainda não há conhecimento indexado para fundamentar o planejamento.",
-      badgeLabel: "Base vazia",
-      tone: "info",
-    };
-  }
-
   return {
     id: "planning",
     kind: "planning",
-    title: "Transforme o conhecimento da Base em um plano de ação",
-    subtitle: `${notes.length} ${notes.length === 1 ? "fonte está disponível" : "fontes estão disponíveis"} para apoiar o próximo planejamento.`,
+    title: "Transforme a Base em um plano de ação",
+    subtitle: "A Base Inicial está pronta e não há execução pendente. O próximo passo é planejar o que será feito e publicado.",
     channel: "Planejamento",
     badgeLabel: "Próximo passo",
     tone: "normal",
