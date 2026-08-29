@@ -2,6 +2,7 @@ export type PrimaryKnowledgeSource = "file" | "link" | "text";
 export type KnowledgeProcessorType = "pdf" | "image" | "youtube" | "site" | "text";
 
 const SUPPORTED_IMAGE_EXTENSIONS = [".png", ".jpg", ".jpeg", ".webp"] as const;
+const SUPPORTED_IMAGE_MIME_TYPES = ["image/png", "image/jpeg", "image/webp"] as const;
 
 export function detectKnowledgeFileType(input: {
   name: string;
@@ -11,7 +12,10 @@ export function detectKnowledgeFileType(input: {
   const mimeType = String(input.mimeType || "").trim().toLowerCase();
 
   if (mimeType === "application/pdf" || fileName.endsWith(".pdf")) return "pdf";
-  if (mimeType.startsWith("image/") || SUPPORTED_IMAGE_EXTENSIONS.some((extension) => fileName.endsWith(extension))) {
+  if (
+    SUPPORTED_IMAGE_MIME_TYPES.some((supported) => supported === mimeType) ||
+    SUPPORTED_IMAGE_EXTENSIONS.some((extension) => fileName.endsWith(extension))
+  ) {
     return "image";
   }
 
