@@ -10,7 +10,7 @@ permissions:
 
 jobs:
   patch:
-    if: github.event.head_commit.message == 'chore: run final v1 ui cleanup'
+    if: "${{ github.event.head_commit.message == 'chore: run final v1 ui cleanup' }}"
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -104,4 +104,4 @@ jobs:
           git commit -m "fix: finalize explicit planning and task review"
           git push origin HEAD:main
 
-# trigger: 2
+# trigger: 3
