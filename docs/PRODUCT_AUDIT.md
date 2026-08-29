@@ -122,3 +122,92 @@ Uma única área **Cofre de Conhecimento** com:
 - `Adicionar fonte`.
 
 Sem subaba permanente “Adicionar Conhecimento”, sem editor Markdown como caminho principal e sem painel técnico permanente de sincronização.
+
+---
+
+## 3. Estúdio de Criação — Ideias, Roteiros, Campanhas e Resultados
+
+### Direção recomendada
+
+O Estúdio deve ser organizado como **um fluxo criativo contínuo**, e não como várias ferramentas independentes:
+
+`Briefing → gerar ideias → escolher uma ideia → desenvolver roteiro/peça → aprovar → enviar ao planejamento`
+
+Campanha deve funcionar como **contexto/contêiner estratégico** para conteúdos, não como um segundo gerador concorrente. Resultados pertencem ao ciclo de aprendizado pós-publicação e não devem dominar o Estúdio de Criação.
+
+### Ideias e Roteiros
+
+| Elemento | Classificação | Diagnóstico |
+|---|---|---|
+| Gerar ideias a partir de objetivo, formato e canal | MANTER | É uma capacidade central e diretamente acionável. |
+| Mostrar fontes do Vault usadas na geração | MANTER discreto | Garante rastreabilidade sem precisar dominar a tela. |
+| Aviso de fallback/contexto insuficiente | MANTER | Importante para não apresentar geração sem base como se estivesse fundamentada. |
+| Separar permanentemente “Ideias” e “Roteiros” em duas ferramentas | MESCLAR | São estágios consecutivos do mesmo trabalho. Uma ideia aprovada deveria virar roteiro/peça sem redigitação. |
+| Formulário de roteiro exigindo digitar “Ideia / Título” novamente | REMOVER duplicação | A ideia deveria ser selecionada a partir da etapa anterior ou biblioteca aprovada. |
+| Salvar ideia/roteiro no Vault | MANTER | Mantém rastreabilidade e histórico, mas deve ser consequência clara de “aprovar/salvar”, não um fluxo paralelo. |
+| Adicionar direto ao calendário | SIMPLIFICAR / CORRIGIR | Hoje cria item com a data atual sem o usuário escolher uma data real. Isso transforma criação em falso planejamento. |
+| Biblioteca persistente de ideias/roteiros | MANTER como próxima evolução | O componente recebe `ideas` e `scripts`, mas a experiência atual é focada apenas no que acabou de ser gerado. Falta continuidade do acervo criativo. |
+
+### Problemas de lógica encontrados em Ideias/Roteiros
+
+- O botão `Calendário` grava um item editorial com `scheduledDate` igual ao dia atual, mesmo sem decisão explícita de agenda.
+- Ao enviar um roteiro ao calendário, a plataforma é gravada como `Instagram`, independentemente do valor informado em `scriptPlatform`.
+- Roteiros são persistidos internamente com tipo `video_reels`, independentemente do formato digitado.
+- Ideias salvas no Vault preservam muitos detalhes, mas o `IdeaItem` interno mantém apenas parte deles; isso cria duas representações divergentes da mesma ideia.
+- O fluxo de roteiro não seleciona uma ideia salva: exige nova entrada textual e pode perder contexto da ideia original.
+
+### Campanhas
+
+A criação de campanha atual possui disciplina boa: exige fontes, revisão humana, não inventa agenda e mantém estado epistemológico. Se todas as fontes forem confirmadas, a própria campanha gerada ainda é tratada como **HIPÓTESE**, o que é conceitualmente correto: estratégia gerada não vira fato só porque as fontes são confiáveis.
+
+| Elemento | Classificação | Diagnóstico |
+|---|---|---|
+| Campanha como agrupador estratégico | MANTER | É útil para organizar objetivo, público, canais, conteúdos e resultados relacionados. |
+| Wizard de 5 etapas | SIMPLIFICAR | Nome/objetivo/base/público/tom/canais/revisão são válidos, mas parte disso deve vir da Base Inicial/Briefing e não ser redigitada sempre. |
+| Seleção manual obrigatória de fontes do Vault | SIMPLIFICAR | Preservar transparência, mas permitir seleção automática recomendada com opção de revisar/trocar fontes. |
+| Campo Público e Tom em toda nova campanha | MESCLAR COM BRIEFING/BASE | Podem ser herdados da base e alterados quando a campanha realmente exigir exceção. |
+| “Sugerir diretrizes gerais” | SIMPLIFICAR | É útil, mas deve fazer parte do briefing assistido, não parecer ferramenta separada dentro do formulário. |
+| Alternância “Motor Local / IA” na tela de campanha | MOVER PARA AVANÇADO | Decisão técnica de execução, não decisão de marketing. |
+| Mostrar motor, fallback, status de gravação no card da campanha | MOVER PARA AVANÇADO | Rastreabilidade deve existir, mas como detalhes/auditoria, não como informação principal diária. |
+| Salvar no Obsidian | MANTER | Confirma o rascunho no Vault; deve permanecer explícito. |
+| Importar tarefas sugeridas | SIMPLIFICAR | Bom próximo passo, mas deve aparecer após aprovação da campanha, não competir com o conteúdo principal. |
+
+### Resultados
+
+A preocupação com evidência é correta, mas a implementação atual está pesada demais para uso recorrente.
+
+| Elemento | Classificação | Diagnóstico |
+|---|---|---|
+| Registrar resultado real vinculado a campanha | MANTER, mas simplificar | Fecha o ciclo de aprendizado e evita decisões só por intuição. |
+| Exigir fonte de evidência | MANTER | Boa proteção contra métricas inventadas. |
+| Exigir todas as métricas possíveis | SIMPLIFICAR fortemente | Plataformas e formatos não oferecem sempre impressões, alcance, CTR, conversão etc. Obrigatoriedade total pode impedir registro de dados reais parciais. |
+| Score 0–100 obrigatório | REMOVER ou tornar opcional | Sem definição objetiva de cálculo, vira classificação subjetiva com aparência quantitativa. |
+| Nicho, gatilho emocional, hook, horário e demais classificações manuais | MOVER PARA AVANÇADO / automatizar quando suportado | O formulário atual tem custo operacional alto e pode desestimular qualquer registro de resultado. |
+| Cards globais de publicações, alcance, leads e CTR | SIMPLIFICAR | Só têm valor com janela temporal e contexto; acumulados históricos podem induzir leitura errada. |
+| “Resultados por campanha” | MANTER | Comparação vinculada explicitamente a uma campanha é útil e rastreável. |
+
+### Problemas de medição encontrados
+
+- O snapshot soma métricas históricas de todas as publicações sem janela temporal.
+- O CTR médio é uma média simples dos percentuais informados por publicação, não ponderada por impressões/cliques. Pode produzir um indicador enganoso quando volumes são muito diferentes.
+- Campos ausentes são normalizados como zero no agregador; isso mistura “não medido” com “resultado zero”.
+- O formulário exige nove métricas quantitativas ao mesmo tempo, mesmo quando algumas não existem para determinado canal/formato.
+
+### Estúdio alvo
+
+A experiência recomendada é uma única área de criação:
+
+1. **Briefing** — objetivo + campanha opcional + contexto herdado da Base Inicial.
+2. **Ideias** — gerar algumas opções fundamentadas e escolher uma.
+3. **Desenvolver** — transformar a ideia escolhida em roteiro/carrossel/peça.
+4. **Aprovar** — salvar versão aprovada no Vault.
+5. **Planejar** — enviar para o Calendário, pedindo uma data real em vez de assumir hoje.
+
+Campanhas ficam como contexto organizador e podem ser criadas/gerenciadas numa visão mais simples. Resultados entram após publicação, vinculados à campanha/conteúdo, com somente as métricas realmente disponíveis e evidência explícita.
+
+### Decisão desta área
+
+- **Ideias + Roteiros:** MANTER, mas **MESCLAR como fluxo único**.
+- **Campanhas:** MANTER, mas **SIMPLIFICAR e aproximar do Briefing/Planejamento**.
+- **Resultados:** MANTER como capacidade de aprendizado, porém **reduzir drasticamente o formulário** e não deixar essa visão ser a porta de entrada do Estúdio.
+- **Controles técnicos de motor/fallback/sync:** manter para rastreabilidade, mas **MOVER PARA AVANÇADO**.
