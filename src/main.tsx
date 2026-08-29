@@ -40,11 +40,20 @@ function triggerVaultSync() {
   }, 500);
 }
 
+/**
+ * Tracks the authenticated Obsidian runtime without blocking the whole product.
+ *
+ * Vault reads/writes remain fail-closed in the API, StorageManager and Electron
+ * authorization boundary. Local-only work (for example task execution) must
+ * remain usable while the knowledge runtime is disconnected.
+ */
 function ObsidianRuntimeGate({ children }: { children: ReactNode }) {
   const isWeb = typeof window !== "undefined" && !window.electronAPI;
   const [connected, setConnected] = useState(() => isWeb || isObsidianRuntimeConnected());
   const [checking, setChecking] = useState(() => !isWeb);
-  const [reason, setReason] = useState("Conecte o Obsidian Local REST API e selecione o Vault físico para liberar o banco de conhecimento.");
+  const [reason, setReason] = useState(
+    "Conecte o Obsidian Local REST API e selecione o Vault físico para liberar operações da Base."
+  );
 
   useEffect(() => {
     if (isWeb) {
@@ -61,6 +70,7 @@ function ObsidianRuntimeGate({ children }: { children: ReactNode }) {
         triggerVaultSync();
       }, 0);
     };
+
     const onDisconnected = (event: Event) => {
       const detail = (event as CustomEvent<{ reason?: string }>).detail;
       setTimeout(() => {
@@ -77,12 +87,19 @@ function ObsidianRuntimeGate({ children }: { children: ReactNode }) {
       try {
         const config = await storage.loadApiConfig(DEFAULT_API_CONFIG);
         const vaultPath = window.electronAPI ? await window.electronAPI.getVaultPath() : null;
+
         if (config.endpoint?.trim() && config.apiKey?.trim() && (!window.electronAPI || vaultPath)) {
-          const result = await api.probeObsidianConnection({ endpoint: config.endpoint, apiKey: config.apiKey });
+          const result = await api.probeObsidianConnection({
+            endpoint: config.endpoint,
+            apiKey: config.apiKey,
+          });
+
           if (!result.success) {
             setReason(result.message || "Não foi possível validar o Obsidian.");
             setConnected(false);
           }
+        } else {
+          setConnected(false);
         }
       } catch (err: any) {
         setReason(err?.message || "Não foi possível validar o Obsidian.");
@@ -101,26 +118,39 @@ function ObsidianRuntimeGate({ children }: { children: ReactNode }) {
   return (
     <>
       {children}
-      {!connected && (
-        <div className="fixed inset-0 z-40 bg-[#0f131c]/88 backdrop-blur-sm flex items-center justify-center p-5">
-          <div className="w-full max-w-lg rounded-2xl border border-[#334155] bg-[#111827] shadow-2xl p-7 text-center">
-            <div className="w-14 h-14 mx-auto rounded-2xl bg-pink-500/10 border border-pink-500/25 flex items-center justify-center mb-4">
-              {checking ? <ShieldCheck className="w-7 h-7 text-pink-400 animate-pulse" /> : <FolderLock className="w-7 h-7 text-pink-400" />}
+
+      {!connected && !isWeb && (
+        <div className="fixed bottom-4 right-4 z-40 w-[min(360px,calc(100vw-2rem))] rounded-2xl border border-amber-500/25 bg-[#111827]/95 shadow-2xl backdrop-blur-md p-4">
+          <div className="flex items-start gap-3">
+            <div className="w-9 h-9 rounded-xl bg-amber-500/10 border border-amber-500/20 flex items-center justify-center shrink-0">
+              {checking ? (
+                <ShieldCheck className="w-4 h-4 text-amber-300 animate-pulse" />
+              ) : (
+                <FolderLock className="w-4 h-4 text-amber-300" />
+              )}
             </div>
-            <span className="text-[10px] font-black uppercase tracking-[0.2em] text-pink-400">Banco de conhecimento protegido</span>
-            <h1 className="text-xl font-black text-white mt-2">{checking ? "Validando o Obsidian..." : "Obsidian desconectado"}</h1>
-            <p className="text-xs text-slate-400 leading-relaxed mt-3">{checking ? "Verificando a REST API e a pasta física do Vault antes de liberar o sistema." : reason}</p>
-            {!checking && (
-              <>
-                <div className="mt-5 p-3 rounded-xl bg-[#0f131c] border border-[#334155] text-left text-[11px] text-slate-400 leading-relaxed">
-                  Sem essa validação, o Nisti Marketing não lê, cria ou altera conhecimento, nem usa o conteúdo do Vault para gerar decisões.
-                </div>
-                <button type="button" onClick={clickSettingsButton} className="mt-5 w-full py-3 rounded-xl bg-pink-600 hover:bg-pink-500 text-white text-xs font-black flex items-center justify-center gap-2">
-                  <Settings className="w-4 h-4" />
-                  Configurar e conectar Obsidian
+
+            <div className="min-w-0 flex-1">
+              <div className="text-xs font-black text-white">
+                {checking ? "Validando a Base..." : "Base desconectada"}
+              </div>
+              <p className="mt-1 text-[10px] leading-relaxed text-slate-400">
+                {checking
+                  ? "Verificando a REST API e o Vault físico. As áreas locais continuam disponíveis."
+                  : reason}
+              </p>
+
+              {!checking && (
+                <button
+                  type="button"
+                  onClick={clickSettingsButton}
+                  className="mt-3 px-3 py-2 rounded-lg border border-amber-500/25 bg-amber-500/10 text-amber-200 text-[10px] font-black flex items-center gap-1.5"
+                >
+                  <Settings className="w-3.5 h-3.5" />
+                  Configurar Base
                 </button>
-              </>
-            )}
+              )}
+            </div>
           </div>
         </div>
       )}
@@ -131,7 +161,12 @@ function ObsidianRuntimeGate({ children }: { children: ReactNode }) {
 if (typeof window !== "undefined") {
   window.addEventListener("unhandledrejection", (event) => {
     const msg = event.reason?.message || String(event.reason || "");
-    if (msg.includes("WebSocket") || msg.includes("websocket") || msg.includes("WS ") || msg.includes("HMR")) {
+    if (
+      msg.includes("WebSocket") ||
+      msg.includes("websocket") ||
+      msg.includes("WS ") ||
+      msg.includes("HMR")
+    ) {
       event.preventDefault();
       event.stopImmediatePropagation();
       console.warn("Suppressed benign sandbox WebSocket error:", msg);
@@ -140,7 +175,12 @@ if (typeof window !== "undefined") {
 
   window.addEventListener("error", (event) => {
     const msg = event.message || "";
-    if (msg.includes("WebSocket") || msg.includes("websocket") || msg.includes("WS ") || msg.includes("HMR")) {
+    if (
+      msg.includes("WebSocket") ||
+      msg.includes("websocket") ||
+      msg.includes("WS ") ||
+      msg.includes("HMR")
+    ) {
       event.preventDefault();
       event.stopImmediatePropagation();
       console.warn("Suppressed benign sandbox WebSocket error:", msg);
