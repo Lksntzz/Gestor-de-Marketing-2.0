@@ -61,7 +61,7 @@ describe("creative workflow", () => {
     expect(resolveCreativeScriptType("Reel", "Instagram")).toBe("video_reels");
   });
 
-  test("planejamento exige data explícita e preserva plataforma escolhida", () => {
+  test("planejamento exige data e prioridade explícitas e preserva plataforma escolhida", () => {
     expect(() => buildExplicitEditorialItem({
       id: "ed-1",
       title: "Conteúdo",
@@ -73,6 +73,17 @@ describe("creative workflow", () => {
       now: 1000,
     })).toThrow("Escolha uma data real");
 
+    expect(() => buildExplicitEditorialItem({
+      id: "ed-sem-prioridade",
+      title: "Conteúdo",
+      contentType: "Reel",
+      platform: "TikTok",
+      objective: "Apresentar produto",
+      scheduledDate: "2026-09-02",
+      status: "IN_PRODUCTION",
+      now: 1000,
+    })).toThrow("Defina a prioridade");
+
     const item = buildExplicitEditorialItem({
       id: "ed-2",
       title: "Conteúdo",
@@ -82,6 +93,7 @@ describe("creative workflow", () => {
       scheduledDate: "2026-09-02",
       scheduledTime: "14:30",
       status: "IN_PRODUCTION",
+      priority: "high",
       ideaId: "idea-1",
       scriptId: "script-1",
       now: 1000,
@@ -90,6 +102,7 @@ describe("creative workflow", () => {
     expect(item.platform).toBe("TikTok");
     expect(item.scheduledDate).toBe("2026-09-02");
     expect(item.scheduledTime).toBe("14:30");
+    expect(item.priority).toBe("high");
     expect(item.ideaId).toBe("idea-1");
     expect(item.scriptId).toBe("script-1");
     expect(item.createdAt).toBe(1000);
