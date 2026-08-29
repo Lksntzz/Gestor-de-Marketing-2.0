@@ -7,6 +7,7 @@ import type {
 } from "../src/types";
 import {
   buildDashboardActivity,
+  buildDashboardBlockers,
   computeDashboardMetrics,
   selectPriorityAction,
 } from "../src/utils/dashboardIntelligence";
@@ -95,7 +96,7 @@ describe("dashboard intelligence", () => {
     const action = selectPriorityAction(
       [note()],
       [],
-      [],
+      [task({ priority: "urgent" })],
       { ...connectedConfig, connectionStatus: "disconnected" },
       new Date("2026-08-27T09:00:00"),
     );
@@ -104,26 +105,47 @@ describe("dashboard intelligence", () => {
     expect(action.title).toContain("Conecte o Obsidian");
   });
 
-  test("orienta adicionar conhecimento quando o Vault validado está vazio", () => {
+  test("expõe bloqueios estruturais separadamente da fila operacional", () => {
+    expect(buildDashboardBlockers([note()], connectedConfig)).toEqual([]);
+
+    const disconnected = buildDashboardBlockers(
+      [note()],
+      { ...connectedConfig, connectionStatus: "disconnected" },
+    );
+    expect(disconnected[0]?.id).toBe("obsidian-disconnected");
+
+    const empty = buildDashboardBlockers([], connectedConfig);
+    expect(empty[0]?.id).toBe("knowledge-empty");
+  });
+
+  test("orienta adicionar conhecimento quando o Vault validado está vazio e não há execução pendente", () => {
     const action = selectPriorityAction([], [], [], connectedConfig, new Date("2026-08-27T09:00:00"));
     expect(action.kind).toBe("add-knowledge");
   });
 
-  test("calcula métricas somente a partir do estado registrado", () => {
+  test("calcula métricas registradas e resumo operacional da semana", () => {
     const metrics = computeDashboardMetrics(
       [note()],
       [campaign({ createdDate: "2026-08-25" }), campaign({ id: "campaign-old", createdDate: "2026-08-10" })],
-      [task({ status: "done" }), task({ id: "task-2", status: "todo" })],
+      [
+        task({ id: "done-this-week", status: "done", completedAt: "2026-08-26T15:00:00" }),
+        task({ id: "overdue", status: "todo", dueDate: "2026-08-24", dueTime: "18:00" }),
+        task({ id: "due-friday", status: "todo", dueDate: "2026-08-28", dueTime: "10:00" }),
+        task({ id: "future", status: "todo", dueDate: "2026-09-04", dueTime: "10:00" }),
+      ],
       connectedConfig,
       new Date("2026-08-27T09:00:00"),
     );
 
     expect(metrics.campaignsCount).toBe(2);
     expect(metrics.campaignsThisWeek).toBe(1);
-    expect(metrics.taskCompletionRate).toBe(50);
+    expect(metrics.taskCompletionRate).toBe(25);
     expect(metrics.completedTasksCount).toBe(1);
-    expect(metrics.pendingTasksCount).toBe(1);
+    expect(metrics.pendingTasksCount).toBe(3);
     expect(metrics.notesCount).toBe(1);
+    expect(metrics.overdueTasksCount).toBe(1);
+    expect(metrics.dueThisWeekCount).toBe(1);
+    expect(metrics.completedThisWeekCount).toBe(1);
   });
 
   test("timeline usa timestamps reais e não simula sincronização", () => {
