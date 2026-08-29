@@ -34,7 +34,7 @@ Chaves atuais protegidas:
 
 ### SQLite editorial
 
-`editorial_items` é a fonte persistente do Calendário Editorial e precisa ser incluída na proteção/migração antes de qualquer alteração estrutural no calendário.
+`editorial_items` é a fonte persistente do Calendário Editorial e está incluída no backup/restauração protegidos antes das alterações estruturais do calendário.
 
 ### Segredos
 
@@ -44,7 +44,7 @@ Segredos continuam protegidos via `safeStorage`/armazenamento seguro e nunca dev
 
 ## Formato de backup protegido
 
-O schema de workspace agora suporta `formatVersion: 2` e inclui, além do backup legado de notas/campanhas/tarefas:
+O schema de workspace suporta `formatVersion: 2` e inclui, além do backup legado de notas/campanhas/tarefas:
 
 - regras de automação;
 - ideias;
@@ -62,10 +62,11 @@ O schema de workspace agora suporta `formatVersion: 2` e inclui, além do backup
 ### Compatibilidade
 
 - backups legados sem `formatVersion` continuam aceitos;
-- coleções ausentes em backup legado permanecem `undefined`, portanto não devem ser transformadas em listas vazias automaticamente durante a restauração;
+- coleções ausentes em backup legado permanecem `undefined`, portanto não são transformadas em listas vazias automaticamente durante a restauração;
 - formatos futuros desconhecidos são rejeitados fail-closed;
 - `apiKey`, `geminiApiKey` e `openaiApiKey` são removidas;
-- `connectionStatus` importado é forçado para `disconnected`.
+- `connectionStatus` importado é forçado para `disconnected`;
+- itens editoriais são restaurados por `upsert` durante a Fase 0, sem excluir itens locais que não existam no backup.
 
 ## Estado legado que será aposentado depois
 
@@ -94,7 +95,7 @@ Antes da aposentadoria:
 
 ## Regras de restauração
 
-A restauração deve seguir estes princípios:
+A restauração segue estes princípios:
 
 1. validar todo o payload antes de mutar estado;
 2. não importar segredos;
@@ -103,6 +104,18 @@ A restauração deve seguir estes princípios:
 5. preservar IDs existentes;
 6. tratar dados editoriais SQLite de forma explícita;
 7. informar falha se uma parte crítica não puder ser restaurada, em vez de declarar sucesso parcial como restauração completa.
+
+## Proteção do reset local
+
+`factoryResetAll()` também foi endurecido antes da refatoração visual:
+
+- itens do Calendário Editorial em SQLite são removidos explicitamente antes do `localStorage`;
+- a autorização do renderer para o Vault é revogada;
+- credenciais protegidas de Obsidian, Gemini e OpenAI são removidas antes do restante do estado local;
+- falhas críticas são propagadas e interrompem o reset, em vez de declarar sucesso;
+- arquivos físicos do Vault do Obsidian **nunca são apagados** pelo reset do aplicativo.
+
+A seleção física do Vault pertence à configuração do runtime Electron e não é tratada como conteúdo a ser destruído. Qualquer futura opção de “esquecer este Vault” deve ser explícita e separada de exclusão de arquivos.
 
 ## Gates da Fase 0
 
@@ -113,10 +126,11 @@ Antes de iniciar a Fase 1, devem estar concluídos:
 - [x] proteção contra importação de credenciais;
 - [x] proteção fail-closed para formato futuro desconhecido;
 - [x] cobertura de teste do contrato de backup;
-- [ ] ligar o exportador da interface ao backup completo v2;
-- [ ] ligar o importador da interface às coleções opcionais sem apagar dados ausentes em backup legado;
-- [ ] incluir restauração explícita dos itens do Calendário Editorial;
-- [ ] testar round-trip `exportar → validar → importar` do workspace completo;
-- [ ] manter CI verde após o fluxo completo de backup/restauração.
+- [x] ligar o exportador da interface ao backup completo v2;
+- [x] ligar o importador da interface às coleções opcionais sem apagar dados ausentes em backup legado;
+- [x] incluir restauração explícita dos itens do Calendário Editorial;
+- [x] testar round-trip `exportar → validar → importar` do workspace completo;
+- [x] proteger o reset local contra calendário/credenciais residuais;
+- [x] manter CI verde após o fluxo completo de backup/restauração e reset.
 
-Somente depois desses gates a simplificação de navegação pode começar.
+**Status: Fase 0 concluída.** A Fase 1 pode alterar navegação e visibilidade sem apagar estruturas legadas ou dados persistidos.
