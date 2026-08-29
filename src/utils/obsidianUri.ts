@@ -154,7 +154,9 @@ export function formatToObsidianTask(task: {
 }
 
 /**
- * Parses an Obsidian task line into structured task data
+ * Parses an Obsidian task line into structured task data.
+ * Missing operational metadata stays missing; this parser never invents a
+ * deadline or priority just to complete a MarketingTask shape.
  */
 export function parseObsidianTaskString(line: string = "", fallbackId: string): Partial<MarketingTask> | null {
   const match = (line || "").match(/^[\s\-\*]*\[([ xX])\]\s*(.*)$/);
@@ -165,7 +167,7 @@ export function parseObsidianTaskString(line: string = "", fallbackId: string): 
 
   // Extract Due Date 📅 YYYY-MM-DD
   const dateMatch = rest.match(/📅\s*(\d{4}-\d{2}-\d{2})/);
-  const dueDate = dateMatch ? dateMatch[1] : new Date().toISOString().split("T")[0];
+  const dueDate = dateMatch ? dateMatch[1] : undefined;
   if (dateMatch) rest = rest.replace(dateMatch[0], "");
 
   // Extract Due Time ⏰ HH:mm
@@ -179,8 +181,8 @@ export function parseObsidianTaskString(line: string = "", fallbackId: string): 
   const reminderTime = reminderMatch ? reminderMatch[2] : undefined;
   if (reminderMatch) rest = rest.replace(reminderMatch[0], "");
 
-  // Extract priority
-  let priority: "urgent" | "high" | "medium" | "low" = "medium";
+  // Extract priority only when it is explicitly encoded.
+  let priority: MarketingTask["priority"] | undefined;
   if (rest.includes("🔺")) {
     priority = "urgent";
     rest = rest.replace("🔺", "");
