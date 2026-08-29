@@ -22,6 +22,7 @@ export interface CreativeArtifactMetadata {
   briefingInstructions?: string;
   sourceIdeaId?: string;
   sourceIdeaTitle?: string;
+  workflowStatus?: "APROVADO";
   now?: Date;
 }
 
@@ -46,12 +47,15 @@ export function buildCreativeArtifactMarkdown(
 ): string {
   const now = metadata.now || new Date();
   const typeLabel = metadata.kind === "idea" ? "Ideia de Conteúdo" : "Roteiro de Conteúdo";
-  const tags = metadata.kind === "idea" ? ["conteudo", "ideia"] : ["conteudo", "roteiro"];
+  const tags = metadata.kind === "idea"
+    ? ["conteudo", "ideia"]
+    : ["conteudo", "roteiro", ...(metadata.workflowStatus === "APROVADO" ? ["workflow:approved"] : [])];
   const frontmatter = [
     "---",
     `tipo: ${yamlValue(typeLabel)}`,
     `status: ${yamlValue("EM REVISÃO")}`,
     `epistemic_status: ${yamlValue("HIPÓTESE")}`,
+    metadata.workflowStatus ? `workflow_status: ${yamlValue(metadata.workflowStatus)}` : "",
     `created_at: ${yamlValue(localDateKey(now))}`,
     `updated_at: ${yamlValue(localDateKey(now))}`,
     `origem: ${yamlValue("Nisti Marketing / Assistente de Briefing")}`,
