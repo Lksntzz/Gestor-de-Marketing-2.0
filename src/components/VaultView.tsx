@@ -23,6 +23,7 @@ import type { ObsidianNote, ObsidianApiConfig } from "../types";
 import { buildObsidianOpenUri } from "../utils/obsidianUri";
 import { api } from "../services/api";
 import { OBSIDIAN_DISCONNECTED_EVENT, OBSIDIAN_SNAPSHOT_EVENT } from "../services/obsidianRuntimeState";
+import { BaseOnboardingPanel } from "./BaseOnboardingPanel";
 import {
   cleanMarkdown,
   compactFolderSummary,
@@ -288,6 +289,8 @@ export const VaultView: React.FC<VaultViewProps> = ({
           {error}
         </div>
       )}
+
+      <BaseOnboardingPanel notes={visibleNotes} isConnected={isConnected} />
 
       <div className="shrink-0 rounded-xl border border-stone-200 bg-white px-3 py-2.5 flex flex-col xl:flex-row xl:items-center xl:justify-between gap-2">
         <div className="min-w-0">
