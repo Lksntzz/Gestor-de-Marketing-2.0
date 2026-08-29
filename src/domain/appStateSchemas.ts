@@ -199,6 +199,25 @@ export const PersistedRoutineSlotSchema = z.object({
   linkedPostId: z.string().optional(),
 }).passthrough();
 
+export const PersistedEditorialItemSchema = z.object({
+  id: z.string().min(1),
+  title: z.string().min(1),
+  contentType: z.string(),
+  platform: z.string(),
+  objective: z.string(),
+  scheduledDate: z.string(),
+  scheduledTime: z.string().optional(),
+  status: z.enum(["DRAFT", "IN_PRODUCTION", "REVIEW", "APPROVED", "SCHEDULED", "PUBLISHED", "ARCHIVED"]),
+  priority: z.enum(["low", "medium", "high", "urgent"]),
+  ideaId: z.string().optional(),
+  scriptId: z.string().optional(),
+  campaignId: z.string().optional(),
+  obsidianPath: z.string().optional(),
+  notes: z.string().optional(),
+  createdAt: z.number(),
+  updatedAt: z.number(),
+}).passthrough();
+
 export const AppStateSchemas = {
   engineMode: z.enum(["local", "gemini", "ai"]),
   notes: z.array(PersistedObsidianNoteSchema),
@@ -213,6 +232,7 @@ export const AppStateSchemas = {
   postHistory: z.array(PersistedPostHistorySchema),
   learnings: z.array(PersistedLearningSchema),
   weeklyRoutine: z.array(PersistedRoutineSlotSchema),
+  editorialItems: z.array(PersistedEditorialItemSchema),
   firedReminderKeys: z.array(z.string()),
 };
 
@@ -234,23 +254,64 @@ const ImportedApiConfigSchema = z.object({
 }).strip();
 
 export const WorkspaceImportSchema = z.object({
+  formatVersion: z.union([z.literal(1), z.literal(2)]).optional(),
   version: z.string().optional(),
+  exportedAt: z.string().optional(),
   notes: AppStateSchemas.notes,
   campaigns: AppStateSchemas.campaigns,
   tasks: AppStateSchemas.tasks,
+  automationRules: AppStateSchemas.automationRules.optional(),
+  ideas: AppStateSchemas.ideas.optional(),
+  scripts: AppStateSchemas.scripts.optional(),
+  visuals: AppStateSchemas.visuals.optional(),
+  emotionalDrivers: AppStateSchemas.emotionalDrivers.optional(),
+  niches: AppStateSchemas.niches.optional(),
+  postHistory: AppStateSchemas.postHistory.optional(),
+  learnings: AppStateSchemas.learnings.optional(),
+  weeklyRoutine: AppStateSchemas.weeklyRoutine.optional(),
+  engineMode: AppStateSchemas.engineMode.optional(),
+  editorialItems: AppStateSchemas.editorialItems.optional(),
   apiConfig: ImportedApiConfigSchema.optional(),
 }).strip();
 
 export type WorkspaceImport = z.infer<typeof WorkspaceImportSchema>;
 
+export type WorkspaceBackupInput = {
+  version: string;
+  exportedAt?: string;
+  notes: z.input<typeof AppStateSchemas.notes>;
+  campaigns: z.input<typeof AppStateSchemas.campaigns>;
+  tasks: z.input<typeof AppStateSchemas.tasks>;
+  automationRules: z.input<typeof AppStateSchemas.automationRules>;
+  ideas: z.input<typeof AppStateSchemas.ideas>;
+  scripts: z.input<typeof AppStateSchemas.scripts>;
+  visuals: z.input<typeof AppStateSchemas.visuals>;
+  emotionalDrivers: z.input<typeof AppStateSchemas.emotionalDrivers>;
+  niches: z.input<typeof AppStateSchemas.niches>;
+  postHistory: z.input<typeof AppStateSchemas.postHistory>;
+  learnings: z.input<typeof AppStateSchemas.learnings>;
+  weeklyRoutine: z.input<typeof AppStateSchemas.weeklyRoutine>;
+  engineMode: z.input<typeof AppStateSchemas.engineMode>;
+  editorialItems: z.input<typeof AppStateSchemas.editorialItems>;
+  apiConfig?: z.input<typeof ImportedApiConfigSchema>;
+};
+
 export function parseWorkspaceImport(input: unknown): WorkspaceImport {
   const parsed = WorkspaceImportSchema.parse(input);
-  if (parsed.apiConfig && "apiKey" in parsed.apiConfig) {
-    delete (parsed.apiConfig as Record<string, unknown>).apiKey;
-  }
   if (parsed.apiConfig) {
+    delete (parsed.apiConfig as Record<string, unknown>).apiKey;
     delete (parsed.apiConfig as Record<string, unknown>).geminiApiKey;
     delete (parsed.apiConfig as Record<string, unknown>).openaiApiKey;
+    parsed.apiConfig.connectionStatus = "disconnected";
+    delete parsed.apiConfig.errorMessage;
   }
   return parsed;
+}
+
+export function buildWorkspaceBackup(input: WorkspaceBackupInput): WorkspaceImport {
+  return parseWorkspaceImport({
+    ...input,
+    formatVersion: 2,
+    exportedAt: input.exportedAt || new Date().toISOString(),
+  });
 }
