@@ -45,7 +45,7 @@ interface VaultViewProps {
   selectedNote: ObsidianNote | null;
   onSelectNote: (note: ObsidianNote) => void;
   onUpdateNote: (updatedNote: ObsidianNote) => void;
-  onOpenNewNoteModal: () => void;
+  onOpenAddSource: () => void;
   onExtractTasksFromNote: (note: ObsidianNote) => void;
   onGenerateCampaignFromNote: (note: ObsidianNote) => void;
   onPushNoteToObsidianApi: (note: ObsidianNote) => void;
@@ -88,7 +88,7 @@ export const VaultView: React.FC<VaultViewProps> = ({
   selectedNote,
   onSelectNote,
   onUpdateNote,
-  onOpenNewNoteModal,
+  onOpenAddSource,
   onExtractTasksFromNote,
   onGenerateCampaignFromNote,
   onPushNoteToObsidianApi: _onPushNoteToObsidianApi,
@@ -273,12 +273,12 @@ export const VaultView: React.FC<VaultViewProps> = ({
         </div>
 
         <button
-          onClick={() => (isConnected ? onOpenNewNoteModal() : setError("Conecte o Obsidian antes de criar uma nota."))}
+          onClick={() => (isConnected ? onOpenAddSource() : setError("Conecte o Obsidian antes de adicionar uma fonte."))}
           className="h-9 px-3 rounded-xl bg-stone-900 text-white text-xs font-bold disabled:opacity-40"
           disabled={!isConnected}
         >
           <Plus className="w-3.5 h-3.5 inline mr-1.5" />
-          Nova nota
+          Adicionar fonte
         </button>
       </div>
 
