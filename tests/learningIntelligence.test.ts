@@ -107,7 +107,7 @@ describe("learning intelligence audit", () => {
     expect(source).toContain("Aprender");
     expect(source).toContain("Registrar resultado");
     expect(source).toContain("Registrar aprendizado");
-    expect(source).toContain("Campos não medidos permaneceram ausentes");
+    expect(source).toContain("campos não medidos permaneceram ausentes");
     expect(source).toContain("editorialItemId");
     expect(source).toContain('item.status === "PUBLISHED"');
     expect(source).toContain("A data planejada no Calendário não é usada como data real");
