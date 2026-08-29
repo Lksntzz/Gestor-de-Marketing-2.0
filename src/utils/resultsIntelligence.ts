@@ -18,10 +18,10 @@ export type GroundedResult = PostHistoryItem & {
 
 export interface ResultsSnapshot {
   publications: number;
-  impressions: number;
-  reach: number;
-  saves: number;
-  clicksOrLeads: number;
+  impressions: number | null;
+  reach: number | null;
+  saves: number | null;
+  clicksOrLeads: number | null;
   averageCtr: number | null;
   averageConversion: number | null;
 }
@@ -43,9 +43,15 @@ function normalizePriority(value: unknown): TaskPriority | null {
   return PRIORITIES.has(clean) ? clean : null;
 }
 
-function safeMetric(value: unknown): number {
+function finiteMetric(value: unknown): number | null {
+  if (value === undefined || value === null || value === "") return null;
   const number = Number(value);
-  return Number.isFinite(number) && number >= 0 ? number : 0;
+  return Number.isFinite(number) && number >= 0 ? number : null;
+}
+
+function sumRecorded(values: Array<number | null>): number | null {
+  const recorded = values.filter((value): value is number => value !== null);
+  return recorded.length ? recorded.reduce((sum, value) => sum + value, 0) : null;
 }
 
 export function noteEpistemicStatus(note: ObsidianNote): EpistemicStatus {
@@ -112,38 +118,41 @@ export function resultsForCampaign(campaign: MarketingCampaign, history: PostHis
   return history.filter((item) => {
     const grounded = item as GroundedResult;
     if (grounded.linkedCampaignId && grounded.linkedCampaignId === campaign.id) return true;
-    if (!item.linkedObsidianNote) return false;
-    return item.linkedObsidianNote === campaign.obsidianOutputNotePath || item.linkedObsidianNote === campaign.title;
+    return Boolean(
+      campaign.obsidianOutputNotePath
+      && item.linkedObsidianNote
+      && item.linkedObsidianNote === campaign.obsidianOutputNotePath
+    );
   }) as GroundedResult[];
 }
 
 export function buildResultsSnapshot(history: PostHistoryItem[]): ResultsSnapshot {
+  const impressionsValues: Array<number | null> = [];
+  const reachValues: Array<number | null> = [];
+  const savesValues: Array<number | null> = [];
+  const clickValues: Array<number | null> = [];
   const ctrValues: number[] = [];
   const conversionValues: number[] = [];
-  let impressions = 0;
-  let reach = 0;
-  let saves = 0;
-  let clicksOrLeads = 0;
 
   history.forEach((item) => {
-    impressions += safeMetric(item.metrics?.impressions);
-    reach += safeMetric(item.metrics?.reach);
-    saves += safeMetric(item.metrics?.saves);
-    clicksOrLeads += safeMetric(item.metrics?.clicksOrLeads);
+    impressionsValues.push(finiteMetric(item.metrics?.impressions));
+    reachValues.push(finiteMetric(item.metrics?.reach));
+    savesValues.push(finiteMetric(item.metrics?.saves));
+    clickValues.push(finiteMetric(item.metrics?.clicksOrLeads));
 
-    const ctr = Number(item.metrics?.ctrPercent);
-    if (Number.isFinite(ctr) && ctr >= 0) ctrValues.push(ctr);
+    const ctr = finiteMetric(item.metrics?.ctrPercent);
+    if (ctr !== null) ctrValues.push(ctr);
 
-    const conversion = Number(item.metrics?.conversionRatePercent);
-    if (Number.isFinite(conversion) && conversion >= 0) conversionValues.push(conversion);
+    const conversion = finiteMetric(item.metrics?.conversionRatePercent);
+    if (conversion !== null) conversionValues.push(conversion);
   });
 
   return {
     publications: history.length,
-    impressions,
-    reach,
-    saves,
-    clicksOrLeads,
+    impressions: sumRecorded(impressionsValues),
+    reach: sumRecorded(reachValues),
+    saves: sumRecorded(savesValues),
+    clicksOrLeads: sumRecorded(clickValues),
     averageCtr: ctrValues.length ? ctrValues.reduce((sum, value) => sum + value, 0) / ctrValues.length : null,
     averageConversion: conversionValues.length
       ? conversionValues.reduce((sum, value) => sum + value, 0) / conversionValues.length
