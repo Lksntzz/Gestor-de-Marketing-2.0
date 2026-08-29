@@ -4,6 +4,7 @@ import {
   Check,
   ChevronDown,
   ChevronRight,
+  ClipboardList,
   Copy,
   Edit3,
   ExternalLink,
@@ -18,9 +19,11 @@ import {
   Tags,
   Clock3,
   ShieldCheck,
+  X,
 } from "lucide-react";
 import type { ObsidianNote, ObsidianApiConfig } from "../types";
 import { buildObsidianOpenUri } from "../utils/obsidianUri";
+import { extractLocalTasksFromNote } from "../utils/localEngine";
 import { api } from "../services/api";
 import { OBSIDIAN_DISCONNECTED_EVENT, OBSIDIAN_SNAPSHOT_EVENT } from "../services/obsidianRuntimeState";
 import { BaseOnboardingPanel } from "./BaseOnboardingPanel";
@@ -40,6 +43,8 @@ import {
   type EpistemicState,
   type VaultSourceKind,
 } from "../utils/vaultWorkspace";
+
+type TaskReviewCandidate = ReturnType<typeof extractLocalTasksFromNote>["reviewCandidates"][number];
 
 interface VaultViewProps {
   notes: ObsidianNote[];
@@ -84,17 +89,25 @@ function shortTimestamp(value?: string): string {
   return date.toLocaleDateString("pt-BR", { day: "2-digit", month: "2-digit", year: "2-digit" });
 }
 
+function priorityLabel(priority?: TaskReviewCandidate["priority"]): string {
+  if (priority === "urgent") return "Urgente";
+  if (priority === "high") return "Alta";
+  if (priority === "medium") return "Média";
+  if (priority === "low") return "Baixa";
+  return "Não informada";
+}
+
 export const VaultView: React.FC<VaultViewProps> = ({
   notes,
   selectedNote,
   onSelectNote,
   onUpdateNote,
   onOpenAddSource,
-  onExtractTasksFromNote,
+  onExtractTasksFromNote: _onExtractTasksFromNote,
   onGenerateCampaignFromNote,
   onPushNoteToObsidianApi: _onPushNoteToObsidianApi,
   apiConfig,
-  isExtractingTasks,
+  isExtractingTasks: _isExtractingTasks,
   isPushingToApi: _isPushingToApi,
 }) => {
   const [search, setSearch] = useState("");
@@ -107,6 +120,7 @@ export const VaultView: React.FC<VaultViewProps> = ({
   const [error, setError] = useState<string | null>(null);
   const [copied, setCopied] = useState(false);
   const [runtimeConnected, setRuntimeConnected] = useState(() => api.isObsidianSessionVerified());
+  const [taskReview, setTaskReview] = useState<{ noteTitle: string; candidates: TaskReviewCandidate[] } | null>(null);
 
   const isConnected = runtimeConnected && apiConfig.connectionStatus === "connected";
   const visibleNotes = isConnected ? notes : [];
@@ -127,6 +141,7 @@ export const VaultView: React.FC<VaultViewProps> = ({
       setSelectedFolder(null);
       setError("Obsidian desconectado. O banco de conhecimento está bloqueado.");
       setEditing(false);
+      setTaskReview(null);
     };
 
     window.addEventListener(OBSIDIAN_SNAPSHOT_EVENT, onSnapshot as EventListener);
@@ -259,6 +274,18 @@ export const VaultView: React.FC<VaultViewProps> = ({
     }
   };
 
+  const openTaskReview = () => {
+    if (!current || !canUseOperationally) return;
+    const review = extractLocalTasksFromNote({
+      noteTitle: current.title,
+      noteContent: current.content,
+    });
+    setTaskReview({
+      noteTitle: current.title,
+      candidates: review.reviewCandidates,
+    });
+  };
+
   return (
     <div className="h-[calc(100vh-7.5rem)] md:h-[calc(100vh-5rem)] overflow-hidden flex flex-col gap-3 min-h-0">
       <div className="flex items-center justify-between gap-3 shrink-0">
@@ -334,15 +361,10 @@ export const VaultView: React.FC<VaultViewProps> = ({
           <div className="overflow-y-auto p-2 flex-1 min-h-0">
             <button
               onClick={() => setSelectedFolder(null)}
-              className={`w-full h-9 px-2 rounded-lg flex items-center justify-between text-left text-[11px] font-bold ${
-                selectedFolder === null ? "bg-purple-50 text-purple-900" : "hover:bg-stone-50 text-stone-700"
-              }`}
+              className={`w-full h-9 px-2 rounded-lg flex items-center justify-between text-left text-[11px] font-bold ${selectedFolder === null ? "bg-purple-50 text-purple-900" : "hover:bg-stone-50 text-stone-700"}`}
               disabled={!isConnected}
             >
-              <span className="flex items-center gap-2">
-                <Folder className="w-3.5 h-3.5 text-purple-600" />
-                Todo o Vault
-              </span>
+              <span className="flex items-center gap-2"><Folder className="w-3.5 h-3.5 text-purple-600" />Todo o Vault</span>
               <span className="text-stone-400">{visibleNotes.length}</span>
             </button>
 
@@ -356,26 +378,13 @@ export const VaultView: React.FC<VaultViewProps> = ({
                 <div key={folder} style={{ paddingLeft: Math.min(depth * 10, 30) }}>
                   <div className={`h-9 rounded-lg flex items-center ${selectedFolder === folder ? "bg-purple-50" : "hover:bg-stone-50"}`}>
                     {hasChildren ? (
-                      <button
-                        onClick={() => setCollapsed((previous) => ({ ...previous, [folder]: !previous[folder] }))}
-                        className="w-6 h-8 flex items-center justify-center text-stone-400"
-                        title={isCollapsed ? "Expandir pasta" : "Recolher pasta"}
-                      >
+                      <button onClick={() => setCollapsed((previous) => ({ ...previous, [folder]: !previous[folder] }))} className="w-6 h-8 flex items-center justify-center text-stone-400" title={isCollapsed ? "Expandir pasta" : "Recolher pasta"}>
                         {isCollapsed ? <ChevronRight className="w-3 h-3" /> : <ChevronDown className="w-3 h-3" />}
                       </button>
-                    ) : (
-                      <span className="w-6 h-8" />
-                    )}
-
+                    ) : <span className="w-6 h-8" />}
                     <button
-                      onClick={() => {
-                        setSelectedFolder(folder);
-                        setEditing(false);
-                        setError(null);
-                      }}
-                      className={`min-w-0 flex-1 text-left text-[11px] font-semibold truncate ${
-                        selectedFolder === folder ? "text-purple-900" : "text-stone-700"
-                      }`}
+                      onClick={() => { setSelectedFolder(folder); setEditing(false); setError(null); }}
+                      className={`min-w-0 flex-1 text-left text-[11px] font-semibold truncate ${selectedFolder === folder ? "text-purple-900" : "text-stone-700"}`}
                       title={folder}
                     >
                       {folder.split("/").pop()}
@@ -386,25 +395,14 @@ export const VaultView: React.FC<VaultViewProps> = ({
               );
             })}
 
-            {isConnected && allFolders.length === 0 && (
-              <div className="px-3 py-6 text-center text-[10px] text-stone-500">Nenhuma pasta encontrada no Vault.</div>
-            )}
+            {isConnected && allFolders.length === 0 && <div className="px-3 py-6 text-center text-[10px] text-stone-500">Nenhuma pasta encontrada no Vault.</div>}
           </div>
         </aside>
 
         <section className="col-span-12 lg:col-span-4 rounded-2xl bg-white border border-stone-200 overflow-hidden flex flex-col min-h-0">
           <div className="h-12 px-4 border-b border-stone-100 flex items-center justify-between shrink-0">
-            <div>
-              <div className="text-[10px] font-bold uppercase tracking-wider text-stone-500">Fontes</div>
-              <div className="text-[10px] text-stone-400">
-                {filteredNotes.length} {filteredNotes.length === 1 ? "item" : "itens"}
-              </div>
-            </div>
-            {search && (
-              <button onClick={() => setSearch("")} className="text-[10px] font-bold text-purple-700 hover:underline">
-                Limpar busca
-              </button>
-            )}
+            <div><div className="text-[10px] font-bold uppercase tracking-wider text-stone-500">Fontes</div><div className="text-[10px] text-stone-400">{filteredNotes.length} {filteredNotes.length === 1 ? "item" : "itens"}</div></div>
+            {search && <button onClick={() => setSearch("")} className="text-[10px] font-bold text-purple-700 hover:underline">Limpar busca</button>}
           </div>
 
           <div className="overflow-y-auto p-2 flex-1 min-h-0 space-y-1">
@@ -413,53 +411,15 @@ export const VaultView: React.FC<VaultViewProps> = ({
               const state = epistemicState(note);
               const Icon = sourceIcon(kind);
               const active = current?.path === note.path;
-
               return (
-                <button
-                  key={note.path}
-                  onClick={() => {
-                    onSelectNote(note);
-                    setEditing(false);
-                    setError(null);
-                  }}
-                  className={`w-full min-h-20 rounded-xl px-3 py-2.5 flex items-start gap-2.5 text-left border transition-colors ${
-                    active
-                      ? "bg-purple-50 border-purple-200"
-                      : "bg-white border-transparent hover:border-stone-200 hover:bg-stone-50"
-                  }`}
-                >
-                  <div className={`w-8 h-8 rounded-lg flex items-center justify-center shrink-0 ${active ? "bg-white text-purple-700" : "bg-stone-100 text-stone-500"}`}>
-                    <Icon className="w-3.5 h-3.5" />
-                  </div>
-                  <div className="min-w-0 flex-1">
-                    <div className="flex items-center justify-between gap-2">
-                      <div className="text-[11px] font-bold text-stone-900 truncate">{note.title}</div>
-                      <span className={`px-1.5 py-0.5 rounded border text-[8px] font-black shrink-0 ${STATE_CLASS[state]}`}>
-                        {state}
-                      </span>
-                    </div>
-                    <div className="text-[10px] text-stone-500 line-clamp-2 mt-0.5">{noteSummary(note)}</div>
-                    <div className="flex items-center gap-2 mt-1.5 text-[9px] text-stone-400">
-                      <span>{KIND_LABEL[kind]}</span>
-                      <span>•</span>
-                      <span>{shortTimestamp(note.lastModified)}</span>
-                    </div>
-                  </div>
+                <button key={note.path} onClick={() => { onSelectNote(note); setEditing(false); setError(null); }} className={`w-full min-h-20 rounded-xl px-3 py-2.5 flex items-start gap-2.5 text-left border transition-colors ${active ? "bg-purple-50 border-purple-200" : "bg-white border-transparent hover:border-stone-200 hover:bg-stone-50"}`}>
+                  <div className={`w-8 h-8 rounded-lg flex items-center justify-center shrink-0 ${active ? "bg-white text-purple-700" : "bg-stone-100 text-stone-500"}`}><Icon className="w-3.5 h-3.5" /></div>
+                  <div className="min-w-0 flex-1"><div className="flex items-center justify-between gap-2"><div className="text-[11px] font-bold text-stone-900 truncate">{note.title}</div><span className={`px-1.5 py-0.5 rounded border text-[8px] font-black shrink-0 ${STATE_CLASS[state]}`}>{state}</span></div><div className="text-[10px] text-stone-500 line-clamp-2 mt-0.5">{noteSummary(note)}</div><div className="flex items-center gap-2 mt-1.5 text-[9px] text-stone-400"><span>{KIND_LABEL[kind]}</span><span>•</span><span>{shortTimestamp(note.lastModified)}</span></div></div>
                 </button>
               );
             })}
-
-            {!isConnected && (
-              <div className="h-full min-h-32 flex items-center justify-center text-xs text-stone-500 text-center p-4">
-                Conecte e valide o Obsidian para visualizar o banco de conhecimento.
-              </div>
-            )}
-
-            {isConnected && filteredNotes.length === 0 && (
-              <div className="h-32 flex items-center justify-center text-xs text-stone-500 text-center p-4">
-                Nenhuma fonte corresponde à pasta ou busca atual.
-              </div>
-            )}
+            {!isConnected && <div className="h-full min-h-32 flex items-center justify-center text-xs text-stone-500 text-center p-4">Conecte e valide o Obsidian para visualizar o banco de conhecimento.</div>}
+            {isConnected && filteredNotes.length === 0 && <div className="h-32 flex items-center justify-center text-xs text-stone-500 text-center p-4">Nenhuma fonte corresponde à pasta ou busca atual.</div>}
           </div>
         </section>
 
@@ -467,204 +427,93 @@ export const VaultView: React.FC<VaultViewProps> = ({
           {current && isConnected ? (
             <>
               <div className="px-4 py-3 border-b border-stone-100 flex items-start justify-between gap-3 shrink-0">
-                <div className="min-w-0 flex items-start gap-2.5">
-                  <div className="w-9 h-9 rounded-xl bg-purple-50 flex items-center justify-center shrink-0">
-                    <CurrentIcon className="w-4 h-4 text-purple-700" />
-                  </div>
-                  <div className="min-w-0">
-                    <div className="flex items-center gap-2 min-w-0">
-                      <h2 className="text-sm font-black text-stone-950 truncate">{current.title}</h2>
-                      <span className={`px-1.5 py-0.5 rounded border text-[8px] font-black shrink-0 ${STATE_CLASS[currentState]}`}>
-                        {currentState}
-                      </span>
-                    </div>
-                    <div className="text-[10px] text-stone-500 truncate mt-0.5">{sourcePath}</div>
-                  </div>
-                </div>
-
+                <div className="min-w-0 flex items-start gap-2.5"><div className="w-9 h-9 rounded-xl bg-purple-50 flex items-center justify-center shrink-0"><CurrentIcon className="w-4 h-4 text-purple-700" /></div><div className="min-w-0"><div className="flex items-center gap-2 min-w-0"><h2 className="text-sm font-black text-stone-950 truncate">{current.title}</h2><span className={`px-1.5 py-0.5 rounded border text-[8px] font-black shrink-0 ${STATE_CLASS[currentState]}`}>{currentState}</span></div><div className="text-[10px] text-stone-500 truncate mt-0.5">{sourcePath}</div></div></div>
                 <div className="flex items-center gap-1 shrink-0">
-                  <button onClick={copySummary} className="w-8 h-8 rounded-lg border border-stone-200 flex items-center justify-center" title="Copiar síntese">
-                    <Copy className="w-3.5 h-3.5 text-stone-500" />
-                  </button>
-                  {!isReadOnlyAsset && (
-                    <button onClick={openEdit} className="w-8 h-8 rounded-lg border border-stone-200 flex items-center justify-center" title="Editar Markdown">
-                      <Edit3 className="w-3.5 h-3.5 text-stone-500" />
-                    </button>
-                  )}
-                  <a
-                    href={buildObsidianOpenUri(apiConfig.vaultName, sourcePath)}
-                    className="w-8 h-8 rounded-lg border border-stone-200 flex items-center justify-center"
-                    title="Abrir fonte no Obsidian"
-                  >
-                    <ExternalLink className="w-3.5 h-3.5 text-stone-500" />
-                  </a>
+                  <button onClick={copySummary} className="w-8 h-8 rounded-lg border border-stone-200 flex items-center justify-center" title="Copiar síntese"><Copy className="w-3.5 h-3.5 text-stone-500" /></button>
+                  {!isReadOnlyAsset && <button onClick={openEdit} className="w-8 h-8 rounded-lg border border-stone-200 flex items-center justify-center" title="Editar Markdown"><Edit3 className="w-3.5 h-3.5 text-stone-500" /></button>}
+                  <a href={buildObsidianOpenUri(apiConfig.vaultName, sourcePath)} className="w-8 h-8 rounded-lg border border-stone-200 flex items-center justify-center" title="Abrir fonte no Obsidian"><ExternalLink className="w-3.5 h-3.5 text-stone-500" /></a>
                 </div>
               </div>
 
               <div className="overflow-y-auto flex-1 min-h-0 p-4 space-y-4">
                 {editing ? (
                   <div className="h-full min-h-[360px] flex flex-col gap-3">
-                    <textarea
-                      value={editingContent}
-                      onChange={(event) => setEditingContent(event.target.value)}
-                      className="flex-1 min-h-[300px] rounded-xl border border-stone-200 bg-stone-50 p-3 text-xs font-mono outline-none focus:border-purple-400"
-                    />
-                    <div className="flex justify-end gap-2">
-                      <button onClick={() => setEditing(false)} className="h-9 px-3 rounded-xl border border-stone-200 text-xs font-bold">
-                        Cancelar
-                      </button>
-                      <button
-                        onClick={saveEdit}
-                        disabled={isSaving}
-                        className="h-9 px-3 rounded-xl bg-emerald-600 text-white text-xs font-bold disabled:opacity-50"
-                      >
-                        {isSaving ? (
-                          <Loader2 className="w-3.5 h-3.5 animate-spin inline mr-1" />
-                        ) : (
-                          <Check className="w-3.5 h-3.5 inline mr-1" />
-                        )}
-                        Salvar no Obsidian
-                      </button>
-                    </div>
+                    <textarea value={editingContent} onChange={(event) => setEditingContent(event.target.value)} className="flex-1 min-h-[300px] rounded-xl border border-stone-200 bg-stone-50 p-3 text-xs font-mono outline-none focus:border-purple-400" />
+                    <div className="flex justify-end gap-2"><button onClick={() => setEditing(false)} className="h-9 px-3 rounded-xl border border-stone-200 text-xs font-bold">Cancelar</button><button onClick={saveEdit} disabled={isSaving} className="h-9 px-3 rounded-xl bg-emerald-600 text-white text-xs font-bold disabled:opacity-50">{isSaving ? <Loader2 className="w-3.5 h-3.5 animate-spin inline mr-1" /> : <Check className="w-3.5 h-3.5 inline mr-1" />}Salvar no Obsidian</button></div>
                   </div>
                 ) : (
                   <>
-                    <div className="rounded-xl bg-stone-50 border border-stone-100 p-4">
-                      <div className="flex items-center justify-between gap-2 mb-2">
-                        <div className="text-[10px] uppercase tracking-wider font-bold text-stone-500">Síntese</div>
-                        <span className="text-[9px] text-stone-400">Fonte completa no Obsidian</span>
-                      </div>
-                      <p className="text-xs leading-relaxed text-stone-700">{currentSummary}</p>
-                    </div>
-
-                    <div>
-                      <div className="text-[10px] uppercase tracking-wider font-bold text-stone-500 mb-2">Pontos estruturados</div>
-                      {currentPoints.length ? (
-                        <div className="space-y-2">
-                          {currentPoints.map((point, index) => (
-                            <div key={`${point}-${index}`} className="flex items-start gap-2 text-xs text-stone-700">
-                              <span className="w-1.5 h-1.5 rounded-full bg-purple-500 mt-1.5 shrink-0" />
-                              <span>{point}</span>
-                            </div>
-                          ))}
-                        </div>
-                      ) : (
-                        <p className="text-xs text-stone-500">A fonte ainda não possui pontos importantes estruturados explicitamente.</p>
-                      )}
-                    </div>
-
+                    <div className="rounded-xl bg-stone-50 border border-stone-100 p-4"><div className="flex items-center justify-between gap-2 mb-2"><div className="text-[10px] uppercase tracking-wider font-bold text-stone-500">Síntese</div><span className="text-[9px] text-stone-400">Fonte completa no Obsidian</span></div><p className="text-xs leading-relaxed text-stone-700">{currentSummary}</p></div>
+                    <div><div className="text-[10px] uppercase tracking-wider font-bold text-stone-500 mb-2">Pontos estruturados</div>{currentPoints.length ? <div className="space-y-2">{currentPoints.map((point, index) => <div key={`${point}-${index}`} className="flex items-start gap-2 text-xs text-stone-700"><span className="w-1.5 h-1.5 rounded-full bg-purple-500 mt-1.5 shrink-0" /><span>{point}</span></div>)}</div> : <p className="text-xs text-stone-500">A fonte ainda não possui pontos importantes estruturados explicitamente.</p>}</div>
                     <div className="grid grid-cols-2 gap-2">
-                      <div className="rounded-xl border border-stone-200 p-3">
-                        <div className="text-[9px] uppercase font-bold text-stone-400">Estado</div>
-                        <div className="text-[11px] font-bold text-stone-800 mt-1">{currentState}</div>
-                      </div>
-                      <div className="rounded-xl border border-stone-200 p-3">
-                        <div className="text-[9px] uppercase font-bold text-stone-400">Tipo</div>
-                        <div className="text-[11px] font-bold text-stone-800 mt-1">{KIND_LABEL[currentKind]}</div>
-                      </div>
-                      <div className="rounded-xl border border-stone-200 p-3">
-                        <div className="text-[9px] uppercase font-bold text-stone-400">Categoria</div>
-                        <div className="text-[11px] font-bold text-stone-800 mt-1 truncate">{currentCategory || "Não definida"}</div>
-                      </div>
-                      <div className="rounded-xl border border-stone-200 p-3">
-                        <div className="text-[9px] uppercase font-bold text-stone-400">Atualização</div>
-                        <div className="text-[11px] font-bold text-stone-800 mt-1">{shortTimestamp(current.lastModified)}</div>
-                      </div>
+                      <div className="rounded-xl border border-stone-200 p-3"><div className="text-[9px] uppercase font-bold text-stone-400">Estado</div><div className="text-[11px] font-bold text-stone-800 mt-1">{currentState}</div></div>
+                      <div className="rounded-xl border border-stone-200 p-3"><div className="text-[9px] uppercase font-bold text-stone-400">Tipo</div><div className="text-[11px] font-bold text-stone-800 mt-1">{KIND_LABEL[currentKind]}</div></div>
+                      <div className="rounded-xl border border-stone-200 p-3"><div className="text-[9px] uppercase font-bold text-stone-400">Categoria</div><div className="text-[11px] font-bold text-stone-800 mt-1 truncate">{currentCategory || "Não definida"}</div></div>
+                      <div className="rounded-xl border border-stone-200 p-3"><div className="text-[9px] uppercase font-bold text-stone-400">Atualização</div><div className="text-[11px] font-bold text-stone-800 mt-1">{shortTimestamp(current.lastModified)}</div></div>
                     </div>
-
-                    {currentKeywords.length > 0 && (
-                      <div>
-                        <div className="text-[10px] uppercase tracking-wider font-bold text-stone-500 mb-2 flex items-center gap-1.5">
-                          <Tags className="w-3 h-3" />
-                          Tags
-                        </div>
-                        <div className="flex flex-wrap gap-1.5">
-                          {currentKeywords.map((keyword) => (
-                            <span key={keyword} className="px-2 py-1 rounded-full bg-stone-100 border border-stone-200 text-[9px] font-bold text-stone-600">
-                              {keyword}
-                            </span>
-                          ))}
-                        </div>
-                      </div>
-                    )}
-
-                    {isReadOnlyAsset && current.frontmatter?.visible_text && (
-                      <div className="rounded-xl border border-stone-200 bg-white p-3 flex items-start gap-2">
-                        <FileText className="w-3.5 h-3.5 text-stone-500 mt-0.5 shrink-0" />
-                        <div>
-                          <div className="text-[10px] font-bold text-stone-700">Texto extraído disponível</div>
-                          <div className="text-[9px] text-stone-500 mt-0.5">O conteúdo completo permanece oculto nesta tela para manter o cofre enxuto.</div>
-                        </div>
-                      </div>
-                    )}
-
-                    {currentState === "PENDENTE" && (
-                      <div className="rounded-xl border border-amber-200 bg-amber-50 px-3 py-2.5 text-[10px] text-amber-900 flex items-start gap-2">
-                        <AlertCircle className="w-3.5 h-3.5 mt-0.5 shrink-0" />
-                        Esta fonte está PENDENTE. Revise ou confirme o conhecimento antes de utilizá-lo para gerar campanha ou tarefas.
-                      </div>
-                    )}
-
+                    {currentKeywords.length > 0 && <div><div className="text-[10px] uppercase tracking-wider font-bold text-stone-500 mb-2 flex items-center gap-1.5"><Tags className="w-3 h-3" />Tags</div><div className="flex flex-wrap gap-1.5">{currentKeywords.map((keyword) => <span key={keyword} className="px-2 py-1 rounded-full bg-stone-100 border border-stone-200 text-[9px] font-bold text-stone-600">{keyword}</span>)}</div></div>}
+                    {isReadOnlyAsset && current.frontmatter?.visible_text && <div className="rounded-xl border border-stone-200 bg-white p-3 flex items-start gap-2"><FileText className="w-3.5 h-3.5 text-stone-500 mt-0.5 shrink-0" /><div><div className="text-[10px] font-bold text-stone-700">Texto extraído disponível</div><div className="text-[9px] text-stone-500 mt-0.5">O conteúdo completo permanece oculto nesta tela para manter o cofre enxuto.</div></div></div>}
+                    {currentState === "PENDENTE" && <div className="rounded-xl border border-amber-200 bg-amber-50 px-3 py-2.5 text-[10px] text-amber-900 flex items-start gap-2"><AlertCircle className="w-3.5 h-3.5 mt-0.5 shrink-0" />Esta fonte está PENDENTE. Revise ou confirme o conhecimento antes de utilizá-lo para gerar campanha ou revisar tarefas.</div>}
                     <div className="pt-3 border-t border-stone-100 flex flex-wrap gap-2">
-                      <button
-                        onClick={() => current && onGenerateCampaignFromNote(current)}
-                        disabled={!canUseOperationally}
-                        className="h-9 px-3 rounded-xl bg-purple-700 text-white text-xs font-bold disabled:opacity-40 disabled:cursor-not-allowed"
-                      >
-                        <Sparkles className="w-3.5 h-3.5 inline mr-1.5" />
-                        Usar no marketing
-                      </button>
-                      <button
-                        onClick={() => current && onExtractTasksFromNote(current)}
-                        disabled={!canUseOperationally || isExtractingTasks}
-                        className="h-9 px-3 rounded-xl border border-stone-200 text-xs font-bold disabled:opacity-40 disabled:cursor-not-allowed"
-                      >
-                        {isExtractingTasks ? <Loader2 className="w-3.5 h-3.5 animate-spin inline mr-1.5" /> : null}
-                        Extrair tarefas
-                      </button>
+                      <button onClick={() => current && onGenerateCampaignFromNote(current)} disabled={!canUseOperationally} className="h-9 px-3 rounded-xl bg-purple-700 text-white text-xs font-bold disabled:opacity-40 disabled:cursor-not-allowed"><Sparkles className="w-3.5 h-3.5 inline mr-1.5" />Usar no marketing</button>
+                      <button onClick={openTaskReview} disabled={!canUseOperationally} className="h-9 px-3 rounded-xl border border-stone-200 text-xs font-bold disabled:opacity-40 disabled:cursor-not-allowed"><ClipboardList className="w-3.5 h-3.5 inline mr-1.5" />Revisar tarefas</button>
                     </div>
-
                     {copied && <div className="text-[10px] text-emerald-700 font-bold">Síntese copiada.</div>}
                   </>
                 )}
               </div>
             </>
           ) : (
-            <div className="h-full flex items-center justify-center text-center p-8">
-              <div>
-                {isConnected ? (
-                  <FileText className="w-7 h-7 text-stone-300 mx-auto mb-2" />
-                ) : (
-                  <ShieldCheck className="w-7 h-7 text-stone-300 mx-auto mb-2" />
-                )}
-                <p className="text-sm font-bold text-stone-700">
-                  {isConnected ? "Selecione uma fonte" : "Banco de conhecimento bloqueado"}
-                </p>
-                <p className="text-xs text-stone-500 mt-1 max-w-sm">
-                  {isConnected
-                    ? "O sistema mostra somente a síntese operacional; o contexto completo permanece no Obsidian."
-                    : "Valide a REST API e a pasta física do Vault para liberar as informações do cofre."}
-                </p>
-              </div>
-            </div>
+            <div className="h-full flex items-center justify-center text-center p-8"><div>{isConnected ? <FileText className="w-7 h-7 text-stone-300 mx-auto mb-2" /> : <ShieldCheck className="w-7 h-7 text-stone-300 mx-auto mb-2" />}<p className="text-sm font-bold text-stone-700">{isConnected ? "Selecione uma fonte" : "Banco de conhecimento bloqueado"}</p><p className="text-xs text-stone-500 mt-1 max-w-sm">{isConnected ? "O sistema mostra somente a síntese operacional; o contexto completo permanece no Obsidian." : "Valide a REST API e a pasta física do Vault para liberar as informações do cofre."}</p></div></div>
           )}
         </section>
       </div>
 
       <div className="h-8 shrink-0 rounded-xl border border-stone-200 bg-white px-3 flex items-center justify-between gap-3 text-[9px] text-stone-500 overflow-hidden">
-        <div className="flex items-center gap-3 min-w-0">
-          <span className="flex items-center gap-1.5 shrink-0">
-            <span className={`w-1.5 h-1.5 rounded-full ${isConnected ? "bg-emerald-500" : "bg-stone-400"}`} />
-            {isConnected ? "Obsidian conectado" : "Obsidian desconectado"}
-          </span>
-          <span className="truncate">{allFolders.length} pastas</span>
-          <span className="truncate">{visibleNotes.length} fontes indexadas</span>
-        </div>
-        <div className="flex items-center gap-1.5 shrink-0">
-          <Clock3 className="w-3 h-3" />
-          <span>{apiConfig.lastSyncTime ? `Última sync: ${apiConfig.lastSyncTime}` : "Sem sincronização registrada"}</span>
-        </div>
+        <div className="flex items-center gap-3 min-w-0"><span className="flex items-center gap-1.5 shrink-0"><span className={`w-1.5 h-1.5 rounded-full ${isConnected ? "bg-emerald-500" : "bg-stone-400"}`} />{isConnected ? "Obsidian conectado" : "Obsidian desconectado"}</span><span className="truncate">{allFolders.length} pastas</span><span className="truncate">{visibleNotes.length} fontes indexadas</span></div>
+        <div className="flex items-center gap-1.5 shrink-0"><Clock3 className="w-3 h-3" /><span>{apiConfig.lastSyncTime ? `Última sync: ${apiConfig.lastSyncTime}` : "Sem sincronização registrada"}</span></div>
       </div>
+
+      {taskReview && (
+        <div className="fixed inset-0 z-50 bg-black/60 backdrop-blur-sm flex items-center justify-center p-4">
+          <div className="w-full max-w-2xl max-h-[85vh] overflow-hidden rounded-2xl border border-stone-200 bg-white shadow-2xl flex flex-col">
+            <div className="px-5 py-4 border-b border-stone-100 flex items-start justify-between gap-4 shrink-0">
+              <div><div className="text-[10px] uppercase tracking-wider font-black text-purple-700">Revisão segura</div><h2 className="text-lg font-black text-stone-950 mt-1">Tarefas explícitas na fonte</h2><p className="text-xs text-stone-500 mt-1">{taskReview.noteTitle}</p></div>
+              <button type="button" onClick={() => setTaskReview(null)} className="w-8 h-8 rounded-lg border border-stone-200 flex items-center justify-center" aria-label="Fechar revisão"><X className="w-4 h-4 text-stone-500" /></button>
+            </div>
+
+            <div className="p-5 overflow-y-auto flex-1 min-h-0">
+              <div className="rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-[11px] leading-relaxed text-amber-900">
+                Nenhuma tarefa é criada automaticamente. Esta revisão mostra somente linhas Markdown de tarefa já existentes na fonte; prioridade, prazo, horário e lembrete permanecem “não informados” quando não estavam codificados.
+              </div>
+
+              {taskReview.candidates.length === 0 ? (
+                <div className="py-10 text-center"><ClipboardList className="w-8 h-8 text-stone-300 mx-auto" /><p className="mt-3 text-sm font-bold text-stone-800">Nenhuma tarefa explícita encontrada</p><p className="mt-1 text-xs text-stone-500">O Nisti não derivou ações por inferência a partir do texto da nota.</p></div>
+              ) : (
+                <div className="mt-4 space-y-3">
+                  {taskReview.candidates.map((candidate, index) => (
+                    <article key={`${candidate.obsidianTaskString}-${index}`} className="rounded-xl border border-stone-200 bg-stone-50 p-4">
+                      <h3 className="text-sm font-black text-stone-900">{candidate.title}</h3>
+                      <div className="mt-3 grid grid-cols-2 sm:grid-cols-4 gap-2 text-[10px]">
+                        <div><span className="block text-stone-400 uppercase font-bold">Prioridade</span><span className="block mt-1 text-stone-700 font-semibold">{priorityLabel(candidate.priority)}</span></div>
+                        <div><span className="block text-stone-400 uppercase font-bold">Prazo</span><span className="block mt-1 text-stone-700 font-semibold">{candidate.dueDate || "Não informado"}</span></div>
+                        <div><span className="block text-stone-400 uppercase font-bold">Horário</span><span className="block mt-1 text-stone-700 font-semibold">{candidate.dueTime || "Não informado"}</span></div>
+                        <div><span className="block text-stone-400 uppercase font-bold">Lembrete</span><span className="block mt-1 text-stone-700 font-semibold">{candidate.reminderDate && candidate.reminderTime ? `${candidate.reminderDate} ${candidate.reminderTime}` : "Não informado"}</span></div>
+                      </div>
+                      <pre className="mt-3 whitespace-pre-wrap break-words rounded-lg border border-stone-200 bg-white p-3 text-[10px] text-stone-600 font-mono">{candidate.obsidianTaskString}</pre>
+                    </article>
+                  ))}
+                </div>
+              )}
+            </div>
+
+            <div className="px-5 py-4 border-t border-stone-100 flex items-center justify-between gap-3 shrink-0">
+              <p className="text-[10px] text-stone-500">Para transformar um candidato em compromisso operacional, registre e revise a tarefa em Executar.</p>
+              <button type="button" onClick={() => setTaskReview(null)} className="h-9 px-4 rounded-xl bg-stone-900 text-white text-xs font-bold">Fechar</button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 };
