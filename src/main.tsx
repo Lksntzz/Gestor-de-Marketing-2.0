@@ -4,6 +4,7 @@ import { FolderLock, Settings, ShieldCheck } from "lucide-react";
 import App from "./App.tsx";
 import "./index.css";
 import { api } from "./services/api";
+import { installLegacyTaskImportGuard } from "./services/legacyTaskImportGuard";
 import {
   OBSIDIAN_CONNECTED_EVENT,
   OBSIDIAN_DISCONNECTED_EVENT,
@@ -11,6 +12,8 @@ import {
 } from "./services/obsidianRuntimeState";
 import { StorageManager } from "./services/storage/StorageManager";
 import type { ObsidianApiConfig } from "./types";
+
+installLegacyTaskImportGuard(api);
 
 const storage = StorageManager.getInstance();
 const DEFAULT_API_CONFIG: ObsidianApiConfig = {
