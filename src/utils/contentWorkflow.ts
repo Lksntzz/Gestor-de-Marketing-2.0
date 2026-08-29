@@ -135,6 +135,9 @@ export function buildExplicitEditorialItem(input: ExplicitEditorialInput): Edito
   if (scheduledTime && !/^\d{2}:\d{2}$/.test(scheduledTime)) {
     throw new Error("O horário informado é inválido.");
   }
+  if (!input.priority) {
+    throw new Error("Defina a prioridade no Calendário antes de confirmar o planejamento.");
+  }
 
   const now = input.now ?? Date.now();
   return {
@@ -146,7 +149,7 @@ export function buildExplicitEditorialItem(input: ExplicitEditorialInput): Edito
     scheduledDate,
     scheduledTime: scheduledTime || undefined,
     status: input.status,
-    priority: input.priority || "medium",
+    priority: input.priority,
     ideaId: input.ideaId,
     scriptId: input.scriptId,
     createdAt: now,
