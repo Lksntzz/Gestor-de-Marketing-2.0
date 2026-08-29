@@ -37,6 +37,7 @@ function startVaultWatcher(vaultPath: string) {
 
 const STANDARD_FOLDERS = [
   "00_Inbox",
+  "00_Base",
   "01_Estrategia",
   "02_Produtos",
   "03_Conteudos",
@@ -82,6 +83,7 @@ interface KnowledgeCommitPayload {
   title: string;
   content: string;
   frontmatter?: Record<string, unknown>;
+  failIfExists?: boolean;
   asset?: {
     fileName: string;
     dataUrl: string;
@@ -90,6 +92,13 @@ interface KnowledgeCommitPayload {
 
 type AssetIndex = Record<string, CachedAssetEntry>;
 
+async function ensureStandardFolders(vaultPath: string): Promise<void> {
+  for (const folder of STANDARD_FOLDERS) {
+    const fullFolderPath = path.join(vaultPath, folder);
+    if (!existsSync(fullFolderPath)) await fs.mkdir(fullFolderPath, { recursive: true });
+  }
+}
+
 async function loadConfig() {
   try {
     if (existsSync(configFilePath)) {
@@ -97,6 +106,7 @@ async function loadConfig() {
       const config = JSON.parse(data);
       if (config.vaultPath && existsSync(config.vaultPath)) {
         selectedVaultPath = path.resolve(config.vaultPath);
+        await ensureStandardFolders(selectedVaultPath);
         startVaultWatcher(selectedVaultPath);
       }
     }
@@ -615,10 +625,7 @@ ipcMain.handle("vault:select", async () => {
   const vaultPath = path.resolve(result.filePaths[0]);
   selectedVaultPath = vaultPath;
   startVaultWatcher(vaultPath);
-  for (const folder of STANDARD_FOLDERS) {
-    const fullFolderPath = path.join(vaultPath, folder);
-    if (!existsSync(fullFolderPath)) await fs.mkdir(fullFolderPath, { recursive: true });
-  }
+  await ensureStandardFolders(vaultPath);
   await saveConfig({ vaultPath });
   return { vaultPath, foldersCreated: STANDARD_FOLDERS };
 });
@@ -689,7 +696,13 @@ ipcMain.handle("knowledge:commit", async (_, payload: KnowledgeCommitPayload) =>
       };
     }
 
-    const notePath = await resolveUniqueVaultPath(folder, `${title}.md`);
+    const requestedNotePath = validateAndResolvePath(folder, `${title}.md`);
+    if (payload.failIfExists && existsSync(requestedNotePath)) {
+      throw new Error(`O documento canônico ${vaultRelativePath(requestedNotePath)} já existe. A gravação foi bloqueada para evitar duplicação.`);
+    }
+    const notePath = payload.failIfExists
+      ? requestedNotePath
+      : await resolveUniqueVaultPath(folder, `${title}.md`);
     const noteTitle = path.basename(notePath, ".md");
     const frontmatter: Record<string, unknown> = { ...(payload.frontmatter || {}) };
     let noteBody = content;
