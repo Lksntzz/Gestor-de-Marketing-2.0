@@ -46,7 +46,7 @@ interface DashboardViewProps {
   visuals: VisualAsset[];
   apiConfig: ObsidianApiConfig;
   engineMode: EngineMode;
-  onNavigateTab: (tab: "dashboard" | "vault" | "campaigns" | "tasks" | "automations" | "routine" | "knowledge") => void;
+  onNavigateTab: (tab: "dashboard" | "vault" | "campaigns" | "editorial" | "tasks" | "automations" | "routine" | "knowledge") => void;
   onSelectNote: (note: ObsidianNote) => void;
   onToggleTaskStatus: (taskId: string) => void;
   onOpenNewCampaignModal: () => void;
@@ -145,7 +145,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
       return;
     }
 
-    onNavigateTab("routine");
+    onNavigateTab("editorial");
   };
 
   const primaryActionLabel =
@@ -156,7 +156,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
         : priorityAction.kind === "connect-obsidian"
           ? "Configurar Obsidian"
           : priorityAction.kind === "add-knowledge"
-            ? "Adicionar conhecimento"
+            ? "Adicionar fonte"
             : "Abrir planejamento";
 
   const PrimaryActionIcon =
@@ -225,7 +225,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
             className="px-4 py-2 bg-primary-container hover:bg-blue-700 text-white text-xs font-bold rounded-xl transition-all flex items-center gap-1.5 cursor-pointer shadow-md"
           >
             <Plus className="w-3.5 h-3.5" />
-            <span>Adicionar conhecimento</span>
+            <span>Adicionar fonte</span>
           </button>
         </div>
       </div>
@@ -425,8 +425,8 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
                   <FolderOpen className="w-4 h-4" />
                 </div>
                 <div>
-                  <span className="text-xs font-bold text-text-primary block">Cofre</span>
-                  <span className="text-[9px] text-text-secondary block mt-0.5">{metrics.notesCount} notas indexadas</span>
+                  <span className="text-xs font-bold text-text-primary block">Base</span>
+                  <span className="text-[9px] text-text-secondary block mt-0.5">{metrics.notesCount} fontes indexadas</span>
                 </div>
               </button>
 
@@ -438,21 +438,21 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
                   <Plus className="w-4 h-4" />
                 </div>
                 <div>
-                  <span className="text-xs font-bold text-text-primary block">Conhecimento</span>
-                  <span className="text-[9px] text-text-secondary block mt-0.5">Adicionar fonte</span>
+                  <span className="text-xs font-bold text-text-primary block">Adicionar fonte</span>
+                  <span className="text-[9px] text-text-secondary block mt-0.5">Arquivo, link ou texto</span>
                 </div>
               </button>
 
               <button
-                onClick={() => onNavigateTab("routine")}
+                onClick={() => onNavigateTab("editorial")}
                 className="p-3.5 bg-surface-card border border-outline-border hover:border-primary-container rounded-2xl text-left transition-all group cursor-pointer flex flex-col justify-between h-24"
               >
                 <div className="w-8 h-8 rounded-xl bg-primary-container/10 border border-primary-container/20 flex items-center justify-center text-primary shrink-0 group-hover:scale-105 transition-transform">
                   <Calendar className="w-4 h-4" />
                 </div>
                 <div>
-                  <span className="text-xs font-bold text-text-primary block">Planejamento</span>
-                  <span className="text-[9px] text-text-secondary block mt-0.5">Organizar próximos passos</span>
+                  <span className="text-xs font-bold text-text-primary block">Planejar</span>
+                  <span className="text-[9px] text-text-secondary block mt-0.5">Campanhas e calendário</span>
                 </div>
               </button>
 
@@ -464,7 +464,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
                   <CheckSquare className="w-4 h-4" />
                 </div>
                 <div>
-                  <span className="text-xs font-bold text-text-primary block">Execução</span>
+                  <span className="text-xs font-bold text-text-primary block">Executar</span>
                   <span className="text-[9px] text-text-secondary block mt-0.5">{pendingTasks.length} pendentes</span>
                 </div>
               </button>
