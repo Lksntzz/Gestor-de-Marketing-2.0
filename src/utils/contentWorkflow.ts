@@ -13,6 +13,65 @@ export type IdeaDevelopmentSource = Pick<
   | "callToAction"
 >;
 
+export interface CreativeArtifactMetadata {
+  kind: "idea" | "script";
+  objective?: string;
+  format?: string;
+  channel?: string;
+  theme?: string;
+  briefingInstructions?: string;
+  sourceIdeaId?: string;
+  sourceIdeaTitle?: string;
+  now?: Date;
+}
+
+function cleanMetadata(value: unknown): string {
+  return String(value || "").replace(/[\r\n]+/g, " ").trim();
+}
+
+function yamlValue(value: unknown): string {
+  return `"${cleanMetadata(value).replace(/"/g, "'")}"`;
+}
+
+function localDateKey(now: Date): string {
+  const year = now.getFullYear();
+  const month = String(now.getMonth() + 1).padStart(2, "0");
+  const day = String(now.getDate()).padStart(2, "0");
+  return `${year}-${month}-${day}`;
+}
+
+export function buildCreativeArtifactMarkdown(
+  metadata: CreativeArtifactMetadata,
+  body: string,
+): string {
+  const now = metadata.now || new Date();
+  const typeLabel = metadata.kind === "idea" ? "Ideia de Conteúdo" : "Roteiro de Conteúdo";
+  const tags = metadata.kind === "idea" ? ["conteudo", "ideia"] : ["conteudo", "roteiro"];
+  const frontmatter = [
+    "---",
+    `tipo: ${yamlValue(typeLabel)}`,
+    `status: ${yamlValue("EM REVISÃO")}`,
+    `epistemic_status: ${yamlValue("HIPÓTESE")}`,
+    `created_at: ${yamlValue(localDateKey(now))}`,
+    `updated_at: ${yamlValue(localDateKey(now))}`,
+    `origem: ${yamlValue("Nisti Marketing / Assistente de Briefing")}`,
+    metadata.objective?.trim() ? `objective: ${yamlValue(metadata.objective)}` : "",
+    metadata.format?.trim() ? `format: ${yamlValue(metadata.format)}` : "",
+    metadata.channel?.trim() ? `channel: ${yamlValue(metadata.channel)}` : "",
+    metadata.theme?.trim() ? `briefing_theme: ${yamlValue(metadata.theme)}` : "",
+    metadata.briefingInstructions?.trim()
+      ? `briefing_instructions: ${yamlValue(metadata.briefingInstructions)}`
+      : "",
+    metadata.sourceIdeaId?.trim() ? `source_idea_id: ${yamlValue(metadata.sourceIdeaId)}` : "",
+    metadata.sourceIdeaTitle?.trim() ? `source_idea_title: ${yamlValue(metadata.sourceIdeaTitle)}` : "",
+    "tags:",
+    ...tags.map((tag) => `  - ${yamlValue(tag)}`),
+    "---",
+  ].filter(Boolean).join("\n");
+
+  return `${frontmatter}\n\n${body.trim()}\n`;
+}
+
 export function buildScriptBriefFromIdea(idea: IdeaDevelopmentSource): string {
   const sections = [
     idea.title.trim(),
