@@ -27,7 +27,6 @@ export interface CreationIdeaRequest {
   theme?: string;
   customInstructions?: string;
   count?: number;
-  engineMode: string;
   knowledgeNotes: ObsidianNote[];
 }
 
@@ -37,7 +36,6 @@ export interface CreationScriptRequest {
   platform: string;
   objective: string;
   customInstructions?: string;
-  engineMode: string;
   knowledgeNotes: ObsidianNote[];
 }
 
@@ -82,14 +80,6 @@ async function selectKnowledge(
   return { knowledgeSources: selection.sources, knowledgeWarning: selection.warning };
 }
 
-function requireGenerativeAI(engineMode: string): void {
-  if (String(engineMode || "").toLowerCase() === "local") {
-    throw new Error(
-      "O Motor Local não fabrica ideias ou roteiros. Configure e selecione um provedor de IA para gerar conteúdo; a Base continua sendo usada como fonte de contexto.",
-    );
-  }
-}
-
 function rejectSyntheticFallback<T extends { wasFallback?: boolean; usedModel?: string }>(data: T): T {
   if (data?.wasFallback) {
     throw new Error(
@@ -118,7 +108,6 @@ async function postCreation<T extends { wasFallback?: boolean; usedModel?: strin
 
 export const creationGenerationClient = {
   async generateIdeas(payload: CreationIdeaRequest): Promise<any> {
-    requireGenerativeAI(payload.engineMode);
     const query = [
       "ideias de conteúdo",
       payload.objective,
@@ -136,13 +125,11 @@ export const creationGenerationClient = {
       theme: payload.theme || "",
       customInstructions: payload.customInstructions || "",
       count: payload.count || 3,
-      engineMode: payload.engineMode,
       ...knowledge,
     });
   },
 
   async generateScript(payload: CreationScriptRequest): Promise<any> {
-    requireGenerativeAI(payload.engineMode);
     const query = [
       "roteiro de conteúdo",
       payload.idea,
@@ -159,7 +146,6 @@ export const creationGenerationClient = {
       platform: payload.platform,
       objective: payload.objective,
       customInstructions: payload.customInstructions || "",
-      engineMode: payload.engineMode,
       ...knowledge,
     });
   },
