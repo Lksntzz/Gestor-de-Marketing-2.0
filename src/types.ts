@@ -383,6 +383,7 @@ declare global {
         title: string;
         content: string;
         frontmatter?: Record<string, unknown>;
+        failIfExists?: boolean;
         asset?: { fileName: string; dataUrl: string };
       }) => KnowledgeCommitResult;
       writeNote: {
