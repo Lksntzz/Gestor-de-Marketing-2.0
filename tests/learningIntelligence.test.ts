@@ -75,11 +75,42 @@ describe("learning intelligence audit", () => {
     expect(snapshot.learnings[0].id).toBe("learning-1");
   });
 
-  test("tela Aprender não reintroduz planejamento, rotinas ou métricas simuladas", async () => {
+  test("ausência de medição permanece ausente e zero explícito continua sendo zero", () => {
+    const sparse: PostHistoryItem = {
+      id: "sparse",
+      title: "Publicação sem analytics",
+      channel: "Instagram",
+      format: "Reel",
+      publishedAt: "2026-08-29T10:00",
+      evidenceSource: "https://example.test/post",
+    };
+    const explicitZero: PostHistoryItem = {
+      id: "zero",
+      title: "Publicação medida",
+      channel: "Instagram",
+      format: "Reel",
+      publishedAt: "2026-08-29T11:00",
+      metrics: { reach: 0, clicksOrLeads: 0 },
+    };
+
+    const onlySparse = buildLearningSnapshot([sparse], []);
+    expect(onlySparse.reach).toBeNull();
+    expect(onlySparse.clicksOrLeads).toBeNull();
+
+    const withZero = buildLearningSnapshot([sparse, explicitZero], []);
+    expect(withZero.reach).toBe(0);
+    expect(withZero.clicksOrLeads).toBe(0);
+  });
+
+  test("tela Aprender registra resultado esparso sem reintroduzir rotinas", async () => {
     const source = await readFile(new URL("../src/components/RoutineIntelligenceView.tsx", import.meta.url), "utf8");
     expect(source).toContain("Aprender");
-    expect(source).toContain("Resultados registrados");
-    expect(source).toContain("Aprendizados com evidência");
+    expect(source).toContain("Registrar resultado");
+    expect(source).toContain("Registrar aprendizado");
+    expect(source).toContain("Campos não medidos permaneceram ausentes");
+    expect(source).toContain("editorialItemId");
+    expect(source).toContain('item.status === "PUBLISHED"');
+    expect(source).toContain("A data planejada no Calendário não é usada como data real");
     expect(source).not.toContain("Pautas registradas");
     expect(source).not.toContain("Sincronizar semana");
     expect(source).not.toContain("Campanhas abertas");
