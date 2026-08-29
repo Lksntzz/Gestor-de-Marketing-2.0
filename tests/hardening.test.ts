@@ -162,14 +162,17 @@ describe("v2 hardening invariants", () => {
     expect(source).not.toContain("readinessScore: 92");
   });
 
-  test("local engine never invents scheduling and generated campaign stays under review", async () => {
+  test("local engine never promotes unscheduled suggestions into execution tasks", async () => {
     const source = await read("src/utils/localEngine.ts");
 
     expect(source).toContain("CONFIRMADO, HIPÓTESE ou PENDENTE");
     expect(source).toContain("não inventa preços, prazos, datas de publicação, métricas");
     expect(source).toContain('status: "EM REVISÃO"');
-    expect(source).toContain('dueDate: ""');
-    expect(source).toContain("Datas, horários e lembretes só são preenchidos quando existem na fonte");
+    expect(source).toContain("tasks: []");
+    expect(source).toContain("taskSuggestions");
+    expect(source).toContain("Checklist sugerido — requer registro humano antes de virar tarefa");
+    expect(source).toContain("reviewCandidates");
+    expect(source).toContain("Nenhum foi criado automaticamente");
     expect(source).not.toContain("Margem de até 150%");
     expect(source).not.toContain("Produção ágil em até 5 dias úteis");
     expect(source).not.toContain("a partir de 10 unidades");
