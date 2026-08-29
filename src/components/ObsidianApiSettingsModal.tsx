@@ -22,6 +22,10 @@ import {
 import { ObsidianApiConfig, UpdateState } from "../types";
 import { api } from "../services/api";
 import { googleDriveService } from "../services/googleDriveService";
+import {
+  downloadWorkspaceBackup,
+  restoreWorkspaceBackupText,
+} from "../services/workspaceBackupService";
 
 interface ObsidianApiSettingsModalProps {
   isOpen: boolean;
@@ -42,8 +46,6 @@ export const ObsidianApiSettingsModal: React.FC<ObsidianApiSettingsModalProps> =
   config,
   onSaveConfig,
   onTestConnection,
-  onExportVault,
-  onImportVault,
   onClearAllData,
 }) => {
   const [activeTab, setActiveTab] = useState<SettingsTab>("ai");
@@ -60,6 +62,8 @@ export const ObsidianApiSettingsModal: React.FC<ObsidianApiSettingsModalProps> =
   const [driveError, setDriveError] = useState<string | null>(null);
 
   const [confirmClear, setConfirmClear] = useState(false);
+  const [isBackupBusy, setIsBackupBusy] = useState(false);
+  const [backupResult, setBackupResult] = useState<{ success: boolean; message: string } | null>(null);
 
   const [updateState, setUpdateState] = useState<UpdateState | null>(null);
   const [isCheckingUpdate, setIsCheckingUpdate] = useState(false);
@@ -77,6 +81,8 @@ export const ObsidianApiSettingsModal: React.FC<ObsidianApiSettingsModalProps> =
       setAiTestResult(null);
       setTestResult(null);
       setConfirmClear(false);
+      setBackupResult(null);
+      setIsBackupBusy(false);
 
       if (window.electronAPI?.getUpdateStatus) {
         window.electronAPI.getUpdateStatus().then((st) => {
@@ -119,6 +125,47 @@ export const ObsidianApiSettingsModal: React.FC<ObsidianApiSettingsModalProps> =
       await window.electronAPI.installUpdate();
     } catch {
       setIsInstallingUpdate(false);
+    }
+  };
+
+  const handleExportWorkspace = async () => {
+    setIsBackupBusy(true);
+    setBackupResult(null);
+    try {
+      const backup = await downloadWorkspaceBackup(config);
+      setBackupResult({
+        success: true,
+        message: `Backup completo gerado com segurança (${backup.editorialItems} itens do calendário incluídos).`,
+      });
+    } catch (err: any) {
+      setBackupResult({
+        success: false,
+        message: err?.message || "Não foi possível gerar o backup completo.",
+      });
+    } finally {
+      setIsBackupBusy(false);
+    }
+  };
+
+  const handleImportWorkspace = async (file: File) => {
+    setIsBackupBusy(true);
+    setBackupResult(null);
+    try {
+      const result = await restoreWorkspaceBackupText(await file.text(), config);
+      if (result.restoredApiConfig) {
+        onSaveConfig(result.restoredApiConfig);
+      }
+      setBackupResult({
+        success: true,
+        message: `Backup validado e restaurado. ${result.editorialItemsMerged} itens do calendário foram reconciliados sem apagar dados existentes. Reiniciando a interface...`,
+      });
+      setTimeout(() => window.location.reload(), 700);
+    } catch (err: any) {
+      setBackupResult({
+        success: false,
+        message: err?.message || "O arquivo não corresponde ao formato de backup esperado.",
+      });
+      setIsBackupBusy(false);
     }
   };
 
@@ -730,32 +777,52 @@ export const ObsidianApiSettingsModal: React.FC<ObsidianApiSettingsModalProps> =
               </div>
 
               <div className="p-4 bg-[#0f131c] border border-outline-border rounded-xl space-y-3">
-                <h4 className="text-xs font-bold text-text-primary uppercase tracking-wider">Backup e Cópia de Segurança</h4>
+                <div className="space-y-1">
+                  <h4 className="text-xs font-bold text-text-primary uppercase tracking-wider">Backup completo da área de trabalho</h4>
+                  <p className="text-[11px] text-text-secondary leading-normal">
+                    Inclui estado local, ideias, roteiros, resultados, aprendizados, rotinas legadas e Calendário Editorial. Credenciais nunca são exportadas.
+                  </p>
+                </div>
                 <div className="flex flex-wrap gap-2">
                   <button
                     type="button"
-                    onClick={onExportVault}
-                    className="flex items-center gap-1.5 px-3 py-2 bg-surface-card hover:bg-[#0f131c] text-text-secondary text-xs font-semibold rounded-lg transition-colors border border-outline-border cursor-pointer"
+                    onClick={handleExportWorkspace}
+                    disabled={isBackupBusy}
+                    className="flex items-center gap-1.5 px-3 py-2 bg-surface-card hover:bg-[#0f131c] disabled:opacity-50 disabled:cursor-not-allowed text-text-secondary text-xs font-semibold rounded-lg transition-colors border border-outline-border cursor-pointer"
                   >
-                    <Download className="w-3.5 h-3.5" />
-                    <span>Exportar Banco Local (JSON)</span>
+                    {isBackupBusy ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Download className="w-3.5 h-3.5" />}
+                    <span>Exportar Backup Completo</span>
                   </button>
 
-                  <label className="flex items-center gap-1.5 px-3 py-2 bg-surface-card hover:bg-[#0f131c] text-text-secondary text-xs font-semibold rounded-lg transition-colors border border-outline-border cursor-pointer">
+                  <label className={`flex items-center gap-1.5 px-3 py-2 bg-surface-card hover:bg-[#0f131c] text-text-secondary text-xs font-semibold rounded-lg transition-colors border border-outline-border ${isBackupBusy ? "opacity-50 cursor-not-allowed" : "cursor-pointer"}`}>
                     <Upload className="w-3.5 h-3.5" />
-                    <span>Importar Banco de Dados</span>
+                    <span>Importar Backup</span>
                     <input
                       type="file"
-                      accept=".json"
+                      accept=".json,application/json"
+                      disabled={isBackupBusy}
                       className="hidden"
                       onChange={(e) => {
-                        if (e.target.files && e.target.files[0]) {
-                          onImportVault(e.target.files[0]);
-                        }
+                        const file = e.target.files?.[0];
+                        if (file) void handleImportWorkspace(file);
+                        e.currentTarget.value = "";
                       }}
                     />
                   </label>
                 </div>
+
+                {backupResult && (
+                  <div className={`p-3 rounded-lg border text-[11px] leading-relaxed flex items-start gap-2 ${
+                    backupResult.success
+                      ? "bg-emerald-500/10 text-emerald-400 border-emerald-500/30"
+                      : "bg-rose-500/10 text-rose-400 border-rose-500/30"
+                  }`}>
+                    {backupResult.success
+                      ? <CheckCircle2 className="w-4 h-4 shrink-0 mt-0.5" />
+                      : <AlertCircle className="w-4 h-4 shrink-0 mt-0.5" />}
+                    <span>{backupResult.message}</span>
+                  </div>
+                )}
               </div>
 
               {onClearAllData && (
