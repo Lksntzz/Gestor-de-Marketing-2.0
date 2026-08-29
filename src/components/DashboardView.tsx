@@ -7,7 +7,6 @@ import {
   Clock,
   ExternalLink,
   FolderOpen,
-  Plus,
   Settings,
 } from "lucide-react";
 import type {
@@ -91,8 +90,8 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
       openBaseConfiguration();
       return;
     }
-    if (priorityAction.kind === "add-knowledge") {
-      onNavigateTab("knowledge");
+    if (priorityAction.kind === "complete-base" || priorityAction.kind === "review-base") {
+      onNavigateTab("vault");
       return;
     }
     onNavigateTab("editorial");
@@ -105,17 +104,19 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
         ? "Abrir campanha"
         : priorityAction.kind === "connect-obsidian"
           ? (onOpenSetupWizard ? "Configurar Base" : "Abrir Base")
-          : priorityAction.kind === "add-knowledge"
-            ? "Adicionar fonte"
-            : "Abrir planejamento";
+          : priorityAction.kind === "complete-base"
+            ? "Completar Base"
+            : priorityAction.kind === "review-base"
+              ? "Revisar Base"
+              : "Abrir planejamento";
 
   const PrimaryActionIcon =
     priorityAction.kind === "task"
       ? Check
       : priorityAction.kind === "connect-obsidian"
         ? Settings
-        : priorityAction.kind === "add-knowledge"
-          ? Plus
+        : priorityAction.kind === "complete-base" || priorityAction.kind === "review-base"
+          ? FolderOpen
           : ArrowRight;
 
   return (
@@ -239,8 +240,8 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
               <div className="mt-5 rounded-2xl border border-emerald-500/20 bg-emerald-500/5 p-4 flex items-start gap-3">
                 <CheckCircle2 className="w-5 h-5 text-emerald-400 shrink-0" />
                 <div>
-                  <div className="text-xs font-bold text-text-primary">Sem bloqueios estruturais</div>
-                  <div className="text-[10px] text-text-secondary mt-1">A Base está disponível para o fluxo atual.</div>
+                  <div className="text-xs font-bold text-text-primary">Base Inicial pronta</div>
+                  <div className="text-[10px] text-text-secondary mt-1">Os documentos canônicos estão confirmados para o fluxo atual.</div>
                 </div>
               </div>
             ) : (
@@ -255,10 +256,10 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
                       </div>
                     </div>
                     <button
-                      onClick={() => blocker.destination === "settings" ? openBaseConfiguration() : onNavigateTab("knowledge")}
+                      onClick={() => blocker.destination === "settings" ? openBaseConfiguration() : onNavigateTab("vault")}
                       className="mt-3 text-[10px] font-black text-amber-300 hover:underline"
                     >
-                      {blocker.destination === "settings" ? (onOpenSetupWizard ? "Configurar Base" : "Abrir Base") : "Adicionar fonte"}
+                      {blocker.destination === "settings" ? (onOpenSetupWizard ? "Configurar Base" : "Abrir Base") : "Abrir Base"}
                     </button>
                   </div>
                 ))}
