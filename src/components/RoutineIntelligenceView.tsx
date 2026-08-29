@@ -24,6 +24,8 @@ interface RoutineIntelligenceViewProps {
   [legacyProp: string]: unknown;
 }
 
+const FIELD_INPUT_CLASS = "w-full bg-black/20 border border-outline-border rounded-xl px-3 py-2.5 text-xs text-text-primary placeholder:text-text-secondary/70 focus:outline-none focus:border-pink-500/50";
+
 function formatPublishedAt(value: string): string {
   const date = new Date(value);
   if (Number.isNaN(date.getTime())) return value || "Data não registrada";
@@ -246,12 +248,12 @@ export const RoutineIntelligenceView: React.FC<RoutineIntelligenceViewProps> = (
 
             <div className="space-y-3">
               <Field label="Título">
-                <input value={learningTitle} onChange={(event) => setLearningTitle(event.target.value)} className="field-input" placeholder="Ex.: CTA específico gerou mais cliques" />
+                <input value={learningTitle} onChange={(event) => setLearningTitle(event.target.value)} className={FIELD_INPUT_CLASS} placeholder="Ex.: CTA específico gerou mais cliques" />
               </Field>
 
               <div className="grid grid-cols-2 gap-3">
                 <Field label="Categoria">
-                  <select value={learningCategory} onChange={(event) => setLearningCategory(event.target.value as LearningInsight["category"])} className="field-input">
+                  <select value={learningCategory} onChange={(event) => setLearningCategory(event.target.value as LearningInsight["category"])} className={FIELD_INPUT_CLASS}>
                     <option value="formato">Formato</option>
                     <option value="horario">Horário</option>
                     <option value="nicho">Nicho</option>
@@ -260,7 +262,7 @@ export const RoutineIntelligenceView: React.FC<RoutineIntelligenceViewProps> = (
                   </select>
                 </Field>
                 <Field label="Status da hipótese">
-                  <select value={learningVerdict} onChange={(event) => setLearningVerdict(event.target.value as LearningInsight["verdict"])} className="field-input">
+                  <select value={learningVerdict} onChange={(event) => setLearningVerdict(event.target.value as LearningInsight["verdict"])} className={FIELD_INPUT_CLASS}>
                     <option value="EM_TESTE">Em teste</option>
                     <option value="ALTO_IMPACTO">Alto impacto</option>
                     <option value="VENCEDOR">Vencedor</option>
@@ -270,13 +272,13 @@ export const RoutineIntelligenceView: React.FC<RoutineIntelligenceViewProps> = (
               </div>
 
               <Field label="Regra observada">
-                <textarea value={learningRule} onChange={(event) => setLearningRule(event.target.value)} rows={2} className="field-input resize-none" placeholder="O que exatamente você acredita ter aprendido?" />
+                <textarea value={learningRule} onChange={(event) => setLearningRule(event.target.value)} rows={2} className={`${FIELD_INPUT_CLASS} resize-none`} placeholder="O que exatamente você acredita ter aprendido?" />
               </Field>
               <Field label="Evidência">
-                <textarea value={learningEvidence} onChange={(event) => setLearningEvidence(event.target.value)} rows={3} className="field-input resize-none" placeholder="Quais resultados, testes ou registros sustentam essa regra?" />
+                <textarea value={learningEvidence} onChange={(event) => setLearningEvidence(event.target.value)} rows={3} className={`${FIELD_INPUT_CLASS} resize-none`} placeholder="Quais resultados, testes ou registros sustentam essa regra?" />
               </Field>
               <Field label="Próxima ação">
-                <textarea value={learningAction} onChange={(event) => setLearningAction(event.target.value)} rows={2} className="field-input resize-none" placeholder="Como essa hipótese será aplicada ou testada novamente?" />
+                <textarea value={learningAction} onChange={(event) => setLearningAction(event.target.value)} rows={2} className={`${FIELD_INPUT_CLASS} resize-none`} placeholder="Como essa hipótese será aplicada ou testada novamente?" />
               </Field>
             </div>
 
