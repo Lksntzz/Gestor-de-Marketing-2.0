@@ -1,5 +1,6 @@
 import React from "react";
 import {
+  BarChart3,
   Compass,
   FolderOpen,
   Calendar,
@@ -24,6 +25,7 @@ const NAV_ICONS: Record<PrimaryNavigationIcon, React.ComponentType<{ className?:
   create: Sparkles,
   plan: Calendar,
   execute: CheckSquare,
+  learn: BarChart3,
 };
 
 export const Sidebar: React.FC<SidebarProps> = ({
@@ -33,7 +35,6 @@ export const Sidebar: React.FC<SidebarProps> = ({
 }) => {
   return (
     <aside className="w-20 bg-[#0B0D1B] text-slate-400 flex flex-col h-screen sticky top-0 border-r border-slate-800/40 shrink-0 z-30 select-none items-center">
-      {/* Brand Header */}
       <div className="py-6 border-b border-slate-800/30 flex justify-center w-full shrink-0">
         <div className="shrink-0 cursor-pointer" title="Nisti Print - Marketing Hub">
           <svg className="w-9 h-9" viewBox="0 0 40 40" fill="none" xmlns="http://www.w3.org/2000/svg">
@@ -54,7 +55,6 @@ export const Sidebar: React.FC<SidebarProps> = ({
         </div>
       </div>
 
-      {/* Primary product workflow */}
       <nav className="flex-1 w-full px-2 py-6 flex flex-col items-center gap-3 overflow-y-auto scrollbar-hide">
         {PRIMARY_NAVIGATION.map((item) => {
           const Icon = NAV_ICONS[item.icon];
@@ -84,7 +84,6 @@ export const Sidebar: React.FC<SidebarProps> = ({
         })}
       </nav>
 
-      {/* Technical/admin settings stay outside the marketing workflow */}
       <div className="p-4 border-t border-slate-800/40 flex flex-col items-center gap-4 w-full shrink-0">
         <button
           onClick={onOpenSettings}
