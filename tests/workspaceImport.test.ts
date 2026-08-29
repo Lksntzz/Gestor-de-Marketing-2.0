@@ -63,6 +63,30 @@ describe("workspace import validation", () => {
     expect((parsed.apiConfig as Record<string, unknown>).apiKey).toBeUndefined();
   });
 
+  test("accepts sparse result evidence without fabricating legacy metrics", () => {
+    const parsed = parseWorkspaceImport({
+      ...validWorkspace,
+      postHistory: [
+        {
+          id: "result-sparse",
+          title: "Publicação real",
+          channel: "Instagram",
+          format: "Reel",
+          publishedAt: "2026-08-29T12:30",
+          editorialItemId: "ed-1",
+          evidenceSource: "https://example.test/post",
+        },
+      ],
+    });
+
+    expect(parsed.postHistory?.[0]).toMatchObject({
+      id: "result-sparse",
+      editorialItemId: "ed-1",
+    });
+    expect(parsed.postHistory?.[0].metrics).toBeUndefined();
+    expect(parsed.postHistory?.[0].performanceScore).toBeUndefined();
+  });
+
   test("rejects malformed tasks instead of contaminating persisted state", () => {
     expect(() =>
       parseWorkspaceImport({
