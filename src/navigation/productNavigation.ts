@@ -19,6 +19,11 @@ export interface PrimaryNavigationItem {
   matches: readonly AppViewId[];
 }
 
+export interface ProductSubNavigationItem {
+  id: AppViewId;
+  label: string;
+}
+
 /**
  * Primary product navigation after the product audit.
  *
@@ -64,6 +69,16 @@ export const PRIMARY_NAVIGATION: readonly PrimaryNavigationItem[] = [
   },
 ] as const;
 
+/**
+ * The only permanent subnavigation kept in Phase 1.
+ * Knowledge ingestion is opened as an action inside Base, while routine and
+ * automation views remain compatibility routes only.
+ */
+export const PLANNING_SUBNAVIGATION: readonly ProductSubNavigationItem[] = [
+  { id: "campaigns", label: "Campanhas" },
+  { id: "editorial", label: "Calendário" },
+] as const;
+
 export const LEGACY_COMPATIBILITY_VIEWS: readonly AppViewId[] = [
   "knowledge",
   "routine",
@@ -72,4 +87,8 @@ export const LEGACY_COMPATIBILITY_VIEWS: readonly AppViewId[] = [
 
 export function isPrimaryNavigationDestination(view: AppViewId): boolean {
   return PRIMARY_NAVIGATION.some((item) => item.id === view);
+}
+
+export function isPlanningSubnavigationView(view: AppViewId): boolean {
+  return PLANNING_SUBNAVIGATION.some((item) => item.id === view);
 }
