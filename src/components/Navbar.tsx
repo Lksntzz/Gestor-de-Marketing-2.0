@@ -183,27 +183,17 @@ export const Navbar: React.FC<NavbarProps> = ({
             <div className="relative" ref={createDropdownRef}>
               <button
                 type="button"
-                onClick={() => {
-                  if (!isBaseConnected) {
-                    onOpenSettings();
-                    return;
-                  }
-                  setIsCreateDropdownOpen((open) => !open);
-                }}
-                className={`px-4 py-2 ${
-                  isBaseConnected
-                    ? "bg-pink-600 hover:bg-pink-500 text-white"
-                    : "bg-surface-container-low text-text-secondary hover:bg-surface-variant border border-outline-border"
-                } text-xs font-bold rounded-xl shadow-sm transition-all flex items-center gap-1.5 cursor-pointer`}
+                onClick={() => setIsCreateDropdownOpen((open) => !open)}
+                className="px-4 py-2 bg-pink-600 hover:bg-pink-500 text-white text-xs font-bold rounded-xl shadow-sm transition-all flex items-center gap-1.5 cursor-pointer"
                 aria-expanded={isCreateDropdownOpen}
               >
                 <Plus className="w-3.5 h-3.5" />
-                <span>{isBaseConnected ? "Criar" : "Conectar base"}</span>
-                {isBaseConnected && <ChevronDown className="w-3 h-3 text-white/80" />}
+                <span>Criar</span>
+                <ChevronDown className="w-3 h-3 text-white/80" />
               </button>
 
               {isCreateDropdownOpen && (
-                <div className="absolute right-0 mt-2 w-56 bg-surface-card rounded-2xl border border-outline-border shadow-lg py-2 z-50 animate-fadeIn">
+                <div className="absolute right-0 mt-2 w-60 bg-surface-card rounded-2xl border border-outline-border shadow-lg py-2 z-50 animate-fadeIn">
                   <div className="px-3 py-1.5 border-b border-outline-border">
                     <span className="text-[10px] font-bold text-text-secondary uppercase tracking-wider">Criar</span>
                   </div>
@@ -212,6 +202,10 @@ export const Navbar: React.FC<NavbarProps> = ({
                     type="button"
                     onClick={() => {
                       setIsCreateDropdownOpen(false);
+                      if (!isBaseConnected) {
+                        onOpenSettings();
+                        return;
+                      }
                       onQuickNewCampaign();
                     }}
                     className="w-full px-3 py-2 text-left text-xs font-semibold text-text-primary hover:bg-surface-elevated flex items-center gap-2.5 transition-colors cursor-pointer"
@@ -221,7 +215,9 @@ export const Navbar: React.FC<NavbarProps> = ({
                     </div>
                     <div>
                       <span className="block font-bold">Nova campanha</span>
-                      <span className="text-[10px] text-text-secondary font-normal">Planejar estratégia e canais</span>
+                      <span className="text-[10px] text-text-secondary font-normal">
+                        {isBaseConnected ? "Planejar estratégia e canais" : "Requer Base conectada"}
+                      </span>
                     </div>
                   </button>
 
@@ -229,6 +225,10 @@ export const Navbar: React.FC<NavbarProps> = ({
                     type="button"
                     onClick={() => {
                       setIsCreateDropdownOpen(false);
+                      if (!isBaseConnected) {
+                        handleTabClick("tasks");
+                        return;
+                      }
                       onQuickNewTask();
                     }}
                     className="w-full px-3 py-2 text-left text-xs font-semibold text-text-primary hover:bg-surface-elevated flex items-center gap-2.5 transition-colors cursor-pointer"
@@ -238,7 +238,9 @@ export const Navbar: React.FC<NavbarProps> = ({
                     </div>
                     <div>
                       <span className="block font-bold">Nova tarefa</span>
-                      <span className="text-[10px] text-text-secondary font-normal">Registrar uma ação operacional</span>
+                      <span className="text-[10px] text-text-secondary font-normal">
+                        {isBaseConnected ? "Registrar uma ação operacional" : "Abrir Execução — funciona sem Base"}
+                      </span>
                     </div>
                   </button>
 
@@ -246,6 +248,10 @@ export const Navbar: React.FC<NavbarProps> = ({
                     type="button"
                     onClick={() => {
                       setIsCreateDropdownOpen(false);
+                      if (!isBaseConnected) {
+                        onOpenSettings();
+                        return;
+                      }
                       onQuickNewNote();
                     }}
                     className="w-full px-3 py-2 text-left text-xs font-semibold text-text-primary hover:bg-surface-elevated flex items-center gap-2.5 transition-colors cursor-pointer"
@@ -255,7 +261,9 @@ export const Navbar: React.FC<NavbarProps> = ({
                     </div>
                     <div>
                       <span className="block font-bold">Nova nota</span>
-                      <span className="text-[10px] text-text-secondary font-normal">Adicionar conhecimento ao cofre</span>
+                      <span className="text-[10px] text-text-secondary font-normal">
+                        {isBaseConnected ? "Adicionar conhecimento ao cofre" : "Requer Base conectada"}
+                      </span>
                     </div>
                   </button>
 
