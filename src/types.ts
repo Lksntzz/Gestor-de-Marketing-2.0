@@ -252,33 +252,43 @@ export interface NicheSegment {
   conversionAvgRate: string;
 }
 
+/**
+ * Evidence record for a real publication/result.
+ *
+ * Legacy workspaces may contain the richer historical fields below. New records
+ * deliberately keep them optional so an unmeasured metric or classification is
+ * never persisted as a fabricated zero/default simply to satisfy the model.
+ */
 export interface PostHistoryItem {
   id: string;
   title: string;
   channel: string;
-  format: "carrossel" | "reels_video" | "artigo_blog" | "newsletter" | "thread_post";
+  format: string;
   publishedAt: string;
-  dayOfWeek: string;
-  timeSlot: string;
-  targetNiche: NicheSegmentKey;
-  emotionalDriver: EmotionalDriverKey;
-  hookUsed: string;
-  metrics: {
-    impressions: number;
-    reach: number;
-    likes: number;
-    comments: number;
-    shares: number;
-    saves: number;
-    clicksOrLeads: number;
-    ctrPercent: number;
-    conversionRatePercent: number;
+  dayOfWeek?: string;
+  timeSlot?: string;
+  targetNiche?: NicheSegmentKey;
+  emotionalDriver?: EmotionalDriverKey;
+  hookUsed?: string;
+  metrics?: {
+    impressions?: number;
+    reach?: number;
+    likes?: number;
+    comments?: number;
+    shares?: number;
+    saves?: number;
+    clicksOrLeads?: number;
+    ctrPercent?: number;
+    conversionRatePercent?: number;
   };
-  performanceScore: number;
-  learnings: string;
-  whatWorked: string[];
-  whatToAvoid: string[];
+  performanceScore?: number;
+  learnings?: string;
+  whatWorked?: string[];
+  whatToAvoid?: string[];
   linkedObsidianNote?: string;
+  editorialItemId?: string;
+  linkedCampaignId?: string;
+  evidenceSource?: string;
 }
 
 export interface LearningInsight {
