@@ -14,6 +14,8 @@ interface TasksAutomationViewProps {
   onUpdateTask?: (task: MarketingTask) => void;
   onDeleteTask: (taskId: string) => void;
   onOpenNewTaskModal: () => void;
+  onPublishEditorialTask?: (taskId: string) => Promise<void>;
+  onOpenPlanning?: () => void;
   onToggleRule: (ruleId: string) => void;
   onRunRuleNow: (ruleId: string) => void;
   onSyncDailyNote: () => void;
@@ -37,6 +39,8 @@ export const TasksAutomationView: React.FC<TasksAutomationViewProps> = ({
   onUpdateTask,
   onDeleteTask,
   onOpenNewTaskModal,
+  onPublishEditorialTask,
+  onOpenPlanning,
   apiConfig,
   initialSection = "tasks",
 }) => {
@@ -57,6 +61,8 @@ export const TasksAutomationView: React.FC<TasksAutomationViewProps> = ({
       onUpdateTask={onUpdateTask}
       onDeleteTask={onDeleteTask}
       onOpenNewTaskModal={onOpenNewTaskModal}
+      onPublishEditorialTask={onPublishEditorialTask}
+      onOpenPlanning={onOpenPlanning}
       apiConfig={apiConfig}
     />
   );
