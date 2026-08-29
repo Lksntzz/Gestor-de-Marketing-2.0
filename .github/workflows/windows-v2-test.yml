@@ -1,16 +1,28 @@
-name: Windows v2 Runtime Test
+name: Windows Desktop Runtime Test
 
 on:
   push:
     branches:
-      - "fix/v2.0-stabilization"
+      - "main"
+    paths:
+      - "electron-main.ts"
+      - "electron-bootstrap.ts"
+      - "src/electron/**"
+      - "src/services/knowledge/index/**"
+      - "src/domain/baseOnboarding.ts"
+      - "src/components/BaseOnboardingPanel.tsx"
+      - "src/types.ts"
+      - "tests-node/baseOnboardingDesktop.test.ts"
+      - "scripts/**"
+      - "package.json"
+      - ".github/workflows/windows-v2-test.yml"
   workflow_dispatch:
 
 permissions:
   contents: read
 
 concurrency:
-  group: windows-v2-${{ github.ref }}
+  group: windows-desktop-${{ github.ref }}
   cancel-in-progress: true
 
 jobs:
