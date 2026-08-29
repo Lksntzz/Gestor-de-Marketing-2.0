@@ -1,5 +1,6 @@
 import React, { useEffect, useRef, useState } from "react";
 import {
+  BarChart3,
   Bell,
   Calendar,
   CheckSquare,
@@ -44,6 +45,7 @@ const NAV_ICONS: Record<PrimaryNavigationIcon, React.ComponentType<{ className?:
   create: Sparkles,
   plan: Calendar,
   execute: CheckSquare,
+  learn: BarChart3,
 };
 
 export const Navbar: React.FC<NavbarProps> = ({
