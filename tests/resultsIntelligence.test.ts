@@ -109,12 +109,24 @@ describe("resultados fundamentados v2 etapa 6", () => {
     expect(normalizeSuggestedTasks([{ title: "Sem prioridade" }], "camp-1", "04_Campanhas/Campanha real.md")).toEqual([]);
   });
 
-  test("tela de resultados não deve conter métricas ou datas simuladas", async () => {
+  test("Campanhas fica focada em briefing grounded e não mistura Resultados ou controles técnicos", async () => {
     const source = await read("src/components/CampaignsView.tsx");
     expect(source).not.toContain("Math.random");
     expect(source).not.toContain("2026-08-26");
     expect(source).not.toContain("↑ 12%");
     expect(source).not.toContain("startDate: today");
     expect(source).not.toContain("86400000 * 20");
+    expect(source).not.toContain("Resultados & Campanhas");
+    expect(source).not.toContain("Registrar resultado");
+    expect(source).not.toContain("RESULT_METRICS");
+    expect(source).not.toContain("PostHistoryItem");
+    expect(source).not.toContain("onToggleEngineMode");
+    expect(source).not.toContain("setStep(");
+    expect(source).not.toContain("onGenerateCampaign");
+    expect(source).toContain("Briefing único");
+    expect(source).toContain('status: "draft"');
+    expect(source).toContain('startDate: ""');
+    expect(source).toContain('endDate: ""');
+    expect(source).toContain("Nada foi salvo no Vault, agendado ou enviado para Execução automaticamente");
   });
 });
