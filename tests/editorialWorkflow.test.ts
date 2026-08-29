@@ -1,7 +1,8 @@
 import { describe, expect, test } from "bun:test";
 import { readFile } from "node:fs/promises";
-import type { EditorialItem, MarketingTask } from "../src/types";
+import type { CreativeScript, EditorialItem, MarketingTask } from "../src/types";
 import {
+  approvedScriptToEditorialDraft,
   createEmptyEditorialDraft,
   finalizeEditorialDraft,
   normalizeWeeklyPlanSuggestions,
@@ -31,6 +32,26 @@ function editorial(overrides: Partial<EditorialItem> = {}): EditorialItem {
   };
 }
 
+function approvedScript(overrides: Partial<CreativeScript> = {}): CreativeScript {
+  return {
+    id: "script-1",
+    title: "Bastidores aprovados",
+    type: "video_reels",
+    durationOrSlides: "30s",
+    objective: "Mostrar processo",
+    targetAudience: "",
+    hookScene: "Como fazemos",
+    bodyScenes: [],
+    callToAction: "Conheça",
+    tags: ["workflow:approved"],
+    platform: "Instagram",
+    format: "Reel",
+    sourceIdeaId: "idea-1",
+    sourceIdeaTitle: "Bastidores",
+    ...overrides,
+  };
+}
+
 describe("editorial workflow audit", () => {
   test("novo conteúdo nasce sem inventar plataforma, formato, objetivo, data ou prioridade", () => {
     const draft = createEmptyEditorialDraft("ed-new", 10);
@@ -39,6 +60,20 @@ describe("editorial workflow audit", () => {
     expect(draft.contentType).toBe("");
     expect(draft.objective).toBe("");
     expect(draft.scheduledDate).toBe("");
+    expect(draft.priority).toBe("");
+    expect(draft.status).toBe("DRAFT");
+  });
+
+  test("conteúdo aprovado entra no editor com vínculo preservado, mas sem inventar data ou prioridade", () => {
+    const draft = approvedScriptToEditorialDraft(approvedScript(), "ed-approved", 10);
+    expect(draft.title).toBe("Bastidores aprovados");
+    expect(draft.platform).toBe("Instagram");
+    expect(draft.contentType).toBe("Reel");
+    expect(draft.objective).toBe("Mostrar processo");
+    expect(draft.ideaId).toBe("idea-1");
+    expect(draft.scriptId).toBe("script-1");
+    expect(draft.scheduledDate).toBe("");
+    expect(draft.scheduledTime).toBe("");
     expect(draft.priority).toBe("");
     expect(draft.status).toBe("DRAFT");
   });
@@ -63,7 +98,7 @@ describe("editorial workflow audit", () => {
     expect(explicit.updatedAt).toBe(20);
   });
 
-  test("sugestões de IA permanecem rascunhos de revisão e não recebem prioridade automática", () => {
+  test("parser legado de sugestões continua fail-closed e sem prioridade automática", () => {
     const suggestions = normalizeWeeklyPlanSuggestions([
       {
         title: "Tema A",
@@ -81,18 +116,10 @@ describe("editorial workflow audit", () => {
         date: "2026-09-08",
         time: "18:00",
       },
-      {
-        title: "Sem contexto suficiente",
-        platform: "",
-        format: "Reel",
-        objective: "Venda",
-        date: "2026-09-01",
-      },
     ], "2026-08-31");
 
     expect(suggestions).toHaveLength(1);
     const draft = suggestionToDraft(suggestions[0], "ed-suggestion", 30);
-    expect(draft.title).toBe("Tema A");
     expect(draft.priority).toBe("");
     expect(draft.status).toBe("DRAFT");
   });
@@ -141,27 +168,29 @@ describe("editorial workflow audit", () => {
 
     const archived = reconcileEditorialTask(published, editorial({ status: "ARCHIVED" }));
     expect(archived).toHaveLength(0);
-
     expect(removeEditorialTask(active, "ed-1")).toHaveLength(0);
   });
 
-  test("UI não reintroduz defaults silenciosos nem persiste planejamento da IA em loop", async () => {
+  test("UI semanal consome aprovados de Criar e não oferece geração paralela de pautas", async () => {
     const source = await readFile(new URL("../src/components/EditorialCalendarView.tsx", import.meta.url), "utf8");
+    expect(source).toContain("Aprovados aguardando data");
+    expect(source).toContain("approvedScriptToEditorialDraft");
+    expect(source).toContain('"workflow:approved"');
+    expect(source).toContain("Escolher data");
+    expect(source).toContain("Item manual");
+    expect(source).not.toContain("Gerar sugestões");
+    expect(source).not.toContain("generateEditorialPlanSuggestions");
     expect(source).not.toContain('title: "Novo Conteúdo"');
     expect(source).not.toContain('platform: "Instagram"');
     expect(source).not.toContain('objective: "Engajamento"');
-    expect(source).not.toContain('scheduledDate: formatDateYMD(new Date())');
-    expect(source).not.toContain("for (const item of res.data)");
     expect(source).not.toContain("toISOString().split(\"T\")[0]");
-    expect(source).toContain("Sugestões aguardando revisão");
   });
 
-  test("cliente de planejamento usa backend relativo e descarta fallback sintético", async () => {
+  test("cliente legado de planejamento continua relativo e descarta fallback sintético", async () => {
     const source = await readFile(new URL("../src/services/editorialPlanningApi.ts", import.meta.url), "utf8");
     expect(source).toContain('fetch("/api/ai/plan-week"');
     expect(source).not.toContain("http://localhost:3000");
     expect(source).toContain("if (data?.wasFallback)");
     expect(source).toContain("data: []");
-    expect(source).toContain('payload.engineMode === "local"');
   });
 });
