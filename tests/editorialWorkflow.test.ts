@@ -153,5 +153,15 @@ describe("editorial workflow audit", () => {
     expect(source).not.toContain('scheduledDate: formatDateYMD(new Date())');
     expect(source).not.toContain("for (const item of res.data)");
     expect(source).not.toContain("toISOString().split(\"T\")[0]");
+    expect(source).toContain("Sugestões aguardando revisão");
+  });
+
+  test("cliente de planejamento usa backend relativo e descarta fallback sintético", async () => {
+    const source = await readFile(new URL("../src/services/editorialPlanningApi.ts", import.meta.url), "utf8");
+    expect(source).toContain('fetch("/api/ai/plan-week"');
+    expect(source).not.toContain("http://localhost:3000");
+    expect(source).toContain("if (data?.wasFallback)");
+    expect(source).toContain("data: []");
+    expect(source).toContain('payload.engineMode === "local"');
   });
 });
