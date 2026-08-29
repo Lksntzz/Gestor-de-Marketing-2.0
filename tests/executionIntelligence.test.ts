@@ -86,6 +86,7 @@ describe("execution intelligence v2 etapa 5", () => {
     const execution = await readFile(new URL("../src/components/ExecutionTasksView.tsx", import.meta.url), "utf8");
     const modal = await readFile(new URL("../src/components/TaskModal.tsx", import.meta.url), "utf8");
     const main = await readFile(new URL("../src/main.tsx", import.meta.url), "utf8");
+    const navbar = await readFile(new URL("../src/components/Navbar.tsx", import.meta.url), "utf8");
 
     expect(execution).not.toContain("2026-08-26");
     expect(execution).not.toContain("2026-08-27");
@@ -101,6 +102,11 @@ describe("execution intelligence v2 etapa 5", () => {
     expect(main).toContain("ObsidianRuntimeGate");
     expect(main).not.toContain('className="fixed inset-0');
     expect(main).toContain("Local-only work");
+
+    expect(navbar).not.toContain("Conectar base");
+    expect(navbar).toContain('handleTabClick("tasks")');
+    expect(navbar).toContain("Abrir Execução — funciona sem Base");
+    expect(navbar).toContain("Requer Base conectada");
 
     expect(modal).toContain('useState<TaskPriority | "">("")');
     expect(modal).toContain("useState(false)");
