@@ -1,4 +1,5 @@
 import { describe, expect, test } from "bun:test";
+import { readFile } from "node:fs/promises";
 import type { ObsidianNote } from "../src/types";
 import {
   BASE_FOLDER,
@@ -57,9 +58,10 @@ describe("onboarding da Base Inicial", () => {
     expect(missing.complete).toBe(false);
     expect(missing.missingSectionIds).toEqual(["empresa"]);
 
+    const lastSection = BASE_ONBOARDING_SECTIONS[BASE_ONBOARDING_SECTIONS.length - 1];
     const pending = assessBaseReadiness([
       ...confirmed.slice(0, -1),
-      note(canonicalBasePath(BASE_ONBOARDING_SECTIONS.at(-1)!), "PENDENTE"),
+      note(canonicalBasePath(lastSection), "PENDENTE"),
     ]);
     expect(pending.complete).toBe(false);
     expect(pending.pendingPaths).toHaveLength(1);
@@ -117,5 +119,31 @@ describe("onboarding da Base Inicial", () => {
     expect(plans.every((plan) => plan.path.startsWith("00_Base/"))).toBe(true);
     expect(plans.find((plan) => plan.sectionId === "pendencias")?.epistemicStatus).toBe("CONFIRMADO");
     expect(plans.map((plan) => plan.content).join("\n")).not.toContain("Math.random");
+  });
+
+  test("fronteira desktop bloqueia duplicação e a UI usa commit canônico com refresh", async () => {
+    const [electron, panel, vault, navigation, types] = await Promise.all([
+      readFile(new URL("../electron-main.ts", import.meta.url), "utf8"),
+      readFile(new URL("../src/components/BaseOnboardingPanel.tsx", import.meta.url), "utf8"),
+      readFile(new URL("../src/components/VaultView.tsx", import.meta.url), "utf8"),
+      readFile(new URL("../src/navigation/productNavigation.ts", import.meta.url), "utf8"),
+      readFile(new URL("../src/types.ts", import.meta.url), "utf8"),
+    ]);
+
+    expect(electron).toContain('"00_Base"');
+    expect(electron).toContain("failIfExists?: boolean");
+    expect(electron).toContain("payload.failIfExists && existsSync(requestedNotePath)");
+    expect(electron).toContain('{ encoding: "utf8", flag: "wx" }');
+    expect(types).toContain("failIfExists?: boolean");
+
+    expect(panel).toContain("failIfExists: true");
+    expect(panel).toContain("readDesktopNotesForApp");
+    expect(panel).toContain("replacePersistentAppState");
+    expect(panel).not.toContain("generateCampaign");
+    expect(panel).not.toContain("generateIdeas");
+
+    expect(vault).toContain("<BaseOnboardingPanel");
+    expect(navigation).not.toContain('label: "Onboarding"');
+    expect(navigation).not.toContain('label: "Base Inicial"');
   });
 });
