@@ -4,6 +4,8 @@ import type {
   MarketingTask,
   ObsidianApiConfig,
 } from "../types";
+import { editorialExecutionService } from "../services/editorialExecutionService";
+import { reconcileEditorialTask } from "../utils/editorialWorkflow";
 import { ExecutionTasksView } from "./ExecutionTasksView";
 import { LegacyAutomationsView } from "./LegacyAutomationsView";
 
@@ -54,6 +56,22 @@ export const TasksAutomationView: React.FC<TasksAutomationViewProps> = ({
     );
   }
 
+  const publishEditorialTask = async (taskId: string) => {
+    if (onPublishEditorialTask) {
+      await onPublishEditorialTask(taskId);
+      return;
+    }
+
+    const task = tasks.find((item) => item.id === taskId);
+    if (!task) throw new Error("A tarefa editorial não foi encontrada na fila de execução.");
+    if (!onUpdateTask) throw new Error("A fila de execução não permite atualizar a tarefa reconciliada.");
+
+    const publishedItem = await editorialExecutionService.markTaskPublished(task);
+    const [reconciled] = reconcileEditorialTask([task], publishedItem);
+    if (!reconciled) throw new Error("A tarefa editorial não pôde ser reconciliada após a publicação.");
+    onUpdateTask(reconciled);
+  };
+
   return (
     <ExecutionTasksView
       tasks={tasks}
@@ -61,7 +79,7 @@ export const TasksAutomationView: React.FC<TasksAutomationViewProps> = ({
       onUpdateTask={onUpdateTask}
       onDeleteTask={onDeleteTask}
       onOpenNewTaskModal={onOpenNewTaskModal}
-      onPublishEditorialTask={onPublishEditorialTask}
+      onPublishEditorialTask={publishEditorialTask}
       onOpenPlanning={onOpenPlanning}
       apiConfig={apiConfig}
     />
