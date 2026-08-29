@@ -27,7 +27,7 @@ describe("creative workflow", () => {
     expect(brief).not.toContain("Vendas");
   });
 
-  test("salva artefato criativo como hipótese em revisão com origem explícita", () => {
+  test("aprovação de workflow não promove conteúdo criativo a fato confirmado", () => {
     const markdown = buildCreativeArtifactMarkdown({
       kind: "script",
       objective: "Apresentar produto",
@@ -37,12 +37,15 @@ describe("creative workflow", () => {
       briefingInstructions: "Não mencionar preço.",
       sourceIdeaId: "idea-1",
       sourceIdeaTitle: "Bastidores de produção",
+      workflowStatus: "APROVADO",
       now: new Date(2026, 7, 29, 10, 0, 0),
     }, "# Roteiro\n\nConteúdo em revisão.");
 
     expect(markdown).toContain('tipo: "Roteiro de Conteúdo"');
     expect(markdown).toContain('status: "EM REVISÃO"');
     expect(markdown).toContain('epistemic_status: "HIPÓTESE"');
+    expect(markdown).toContain('workflow_status: "APROVADO"');
+    expect(markdown).toContain('  - "workflow:approved"');
     expect(markdown).toContain('source_idea_id: "idea-1"');
     expect(markdown).toContain('source_idea_title: "Bastidores de produção"');
     expect(markdown).toContain('briefing_instructions: "Não mencionar preço."');
@@ -79,6 +82,7 @@ describe("creative workflow", () => {
       scheduledDate: "2026-09-02",
       scheduledTime: "14:30",
       status: "IN_PRODUCTION",
+      ideaId: "idea-1",
       scriptId: "script-1",
       now: 1000,
     });
@@ -86,17 +90,22 @@ describe("creative workflow", () => {
     expect(item.platform).toBe("TikTok");
     expect(item.scheduledDate).toBe("2026-09-02");
     expect(item.scheduledTime).toBe("14:30");
+    expect(item.ideaId).toBe("idea-1");
     expect(item.scriptId).toBe("script-1");
     expect(item.createdAt).toBe(1000);
   });
 
-  test("UI de criação mantém briefing como primeira etapa e não injeta decisões silenciosas", async () => {
+  test("UI de criação mantém fluxo contínuo e biblioteca derivada sem tela paralela", async () => {
     const source = await readFile(new URL("../src/components/ContentView.tsx", import.meta.url), "utf8");
 
     expect(source).toContain('type CreationStage = "briefing" | "ideas" | "develop"');
     expect(source).toContain("1. Briefing");
     expect(source).toContain("2. Ideias");
     expect(source).toContain("3. Desenvolver");
+    expect(source).toContain("Biblioteca de criação");
+    expect(source).toContain("buildCreativeLibrary");
+    expect(source).toContain("editorialList");
+    expect(source).toContain("Aprovar e salvar");
     expect(source).toContain("creationBriefingBaseStatus");
     expect(source).toContain("creationGenerationClient.generateIdeas");
     expect(source).toContain("creationGenerationClient.generateScript");
