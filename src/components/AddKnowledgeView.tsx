@@ -4,24 +4,25 @@ import {
   AlertCircle,
   Check,
   CheckCircle2,
-  Cloud,
   ExternalLink,
   FileText,
   FolderOpen,
-  Globe,
-  Image as ImageIcon,
   Link2,
   Loader2,
   ShieldCheck,
   Sparkles,
   UploadCloud,
-  Youtube,
 } from "lucide-react";
 import type { EngineMode, KnowledgeStatus, ObsidianApiConfig, ObsidianNote } from "../types";
 import { api } from "../services/api";
-import { googleDriveService } from "../services/googleDriveService";
 import { buildObsidianOpenUri } from "../utils/obsidianUri";
-import { GoogleDriveSelector } from "./GoogleDriveSelector";
+import {
+  detectKnowledgeFileType,
+  detectKnowledgeLinkType,
+  isSupportedKnowledgeLink,
+  type KnowledgeProcessorType,
+  type PrimaryKnowledgeSource,
+} from "../utils/knowledgeSourceInput";
 
 interface AddKnowledgeViewProps {
   notes: ObsidianNote[];
@@ -32,7 +33,6 @@ interface AddKnowledgeViewProps {
   engineMode: EngineMode;
 }
 
-type KnowledgeType = "pdf" | "image" | "youtube" | "site" | "text" | "gdrive";
 type EpistemicStatus = "CONFIRMADO" | "HIPÓTESE" | "PENDENTE";
 
 interface CurationProposal {
@@ -53,15 +53,6 @@ interface CurationProposal {
   analysisModel: string;
   wasFallback: boolean;
 }
-
-const TYPE_LABELS: Record<KnowledgeType, string> = {
-  site: "URL Web",
-  pdf: "PDF",
-  youtube: "YouTube",
-  image: "Imagem / OCR",
-  text: "Texto Livre",
-  gdrive: "Google Drive",
-};
 
 const MAX_MANUAL_SOURCE_BYTES = 15 * 1024 * 1024;
 
@@ -101,16 +92,13 @@ export const AddKnowledgeView: React.FC<AddKnowledgeViewProps> = ({
   onSelectNote,
   engineMode,
 }) => {
-  const [selectedType, setSelectedType] = useState<KnowledgeType>("text");
-  const [pdfFileName, setPdfFileName] = useState("");
-  const [pdfBase64, setPdfBase64] = useState("");
-  const [imageTitle, setImageTitle] = useState("");
-  const [imageFileName, setImageFileName] = useState("");
-  const [imageBase64, setImageBase64] = useState("");
-  const [youtubeUrl, setYoutubeUrl] = useState("");
-  const [youtubeTitle, setYoutubeTitle] = useState("");
-  const [siteUrl, setSiteUrl] = useState("");
-  const [siteTitle, setSiteTitle] = useState("");
+  const [sourceMode, setSourceMode] = useState<PrimaryKnowledgeSource>("text");
+  const [binaryType, setBinaryType] = useState<"pdf" | "image" | null>(null);
+  const [binaryFileName, setBinaryFileName] = useState("");
+  const [binaryDataUrl, setBinaryDataUrl] = useState("");
+  const [binaryTitle, setBinaryTitle] = useState("");
+  const [linkUrl, setLinkUrl] = useState("");
+  const [linkTitle, setLinkTitle] = useState("");
   const [rawTextTitle, setRawTextTitle] = useState("");
   const [rawText, setRawText] = useState("");
   const [vaultFolders, setVaultFolders] = useState<string[]>([]);
@@ -121,7 +109,12 @@ export const AddKnowledgeView: React.FC<AddKnowledgeViewProps> = ({
   const [createdNote, setCreatedNote] = useState<ObsidianNote | null>(null);
 
   const isConnected = api.isObsidianSessionVerified();
-  const driveConnected = googleDriveService.isAuthenticated();
+  const processorType: KnowledgeProcessorType =
+    sourceMode === "file"
+      ? binaryType || "pdf"
+      : sourceMode === "link"
+        ? detectKnowledgeLinkType(linkUrl)
+        : "text";
 
   useEffect(() => {
     let active = true;
@@ -145,18 +138,29 @@ export const AddKnowledgeView: React.FC<AddKnowledgeViewProps> = ({
   }, [isConnected, notes.length]);
 
   const sourceDescription = useMemo(() => {
-    if (selectedType === "youtube") {
-      return "O link é tratado como referência. Só considere conteúdo do vídeo como analisado quando houver texto/transcrição efetivamente disponível.";
+    if (sourceMode === "file") {
+      if (binaryType === "pdf") return "PDF detectado. O original será preservado junto da síntese após sua aprovação.";
+      if (binaryType === "image") return "Imagem detectada. A análise visual e o arquivo original serão preservados após sua aprovação.";
+      return "Selecione um PDF, PNG, JPG/JPEG ou WEBP. O Nisti identifica o tipo automaticamente.";
     }
-    if (selectedType === "pdf") return "O PDF é analisado primeiro e, após sua aprovação, o arquivo original e a síntese são gravados juntos no Vault.";
-    if (selectedType === "image") return "A imagem é analisada visualmente e, após sua aprovação, o arquivo original e a síntese são preservados juntos no Vault.";
-    return "A fonte será sintetizada e ficará pendente de revisão antes de ser gravada no Vault.";
-  }, [selectedType]);
+    if (sourceMode === "link") {
+      if (linkUrl && processorType === "youtube") {
+        return "YouTube detectado automaticamente. O link é tratado como referência e só vira evidência quando houver conteúdo realmente analisável.";
+      }
+      return "Cole um link de site ou YouTube. O Nisti escolhe o processador correto automaticamente.";
+    }
+    return "Cole uma informação real. O Nisti sintetiza e mantém a revisão humana antes de gravar no Vault.";
+  }, [sourceMode, binaryType, linkUrl, processorType]);
 
   const resetResult = () => {
     setError(null);
     setProposal(null);
     setCreatedNote(null);
+  };
+
+  const changeSourceMode = (mode: PrimaryKnowledgeSource) => {
+    setSourceMode(mode);
+    resetResult();
   };
 
   const readAsDataUrl = (file: File, onDone: (value: string) => void) => {
@@ -171,23 +175,66 @@ export const AddKnowledgeView: React.FC<AddKnowledgeViewProps> = ({
     reader.readAsDataURL(file);
   };
 
-  const buildPayload = (): Record<string, unknown> => {
-    if (selectedType === "pdf") return { fileName: pdfFileName, base64: pdfBase64 };
-    if (selectedType === "image") return { title: imageTitle, imageBase64 };
-    if (selectedType === "youtube") return { url: youtubeUrl, videoTitle: youtubeTitle };
-    if (selectedType === "site") return { url: siteUrl, pageTitle: siteTitle };
+  const handleFileSelected = (file: File) => {
+    const detectedType = detectKnowledgeFileType({ name: file.name, mimeType: file.type });
+    resetResult();
+    setSourceMode("file");
+    setBinaryDataUrl("");
+
+    if (!detectedType) {
+      setBinaryType(null);
+      setBinaryFileName("");
+      setBinaryTitle("");
+      setError("Formato não suportado. Use PDF, PNG, JPG/JPEG ou WEBP.");
+      return;
+    }
+
+    setBinaryType(detectedType);
+    setBinaryFileName(file.name);
+    setBinaryTitle(file.name.replace(/\.[^/.]+$/, ""));
+    readAsDataUrl(file, setBinaryDataUrl);
+  };
+
+  const handleLinkChange = (value: string) => {
+    setLinkUrl(value);
+    setError(null);
+    setProposal(null);
+    setCreatedNote(null);
+  };
+
+  const buildPayload = (type: KnowledgeProcessorType): Record<string, unknown> => {
+    if (type === "pdf") return { fileName: binaryFileName, base64: binaryDataUrl };
+    if (type === "image") return { title: binaryTitle, imageBase64: binaryDataUrl };
+    if (type === "youtube") return { url: linkUrl, videoTitle: linkTitle };
+    if (type === "site") return { url: linkUrl, pageTitle: linkTitle };
     return { title: rawTextTitle, text: rawText };
   };
 
   const validate = (): string | null => {
     if (!isConnected) return "Conecte e valide o Obsidian antes de processar conhecimento.";
-    if (selectedType === "pdf" && (!pdfFileName || !pdfBase64)) return "Selecione um arquivo PDF válido.";
-    if (selectedType === "image" && (!imageFileName || !imageBase64)) return "Selecione uma imagem válida.";
-    if (selectedType === "youtube" && !youtubeUrl.trim()) return "Informe o link do YouTube.";
-    if (selectedType === "site" && !siteUrl.trim()) return "Informe a URL do site.";
-    if (selectedType === "text" && (!rawTextTitle.trim() || !rawText.trim())) return "Informe título e conteúdo do texto.";
-    if (selectedType === "gdrive") return "Selecione um arquivo do Google Drive para continuar.";
+
+    if (sourceMode === "file") {
+      if (!binaryType || !binaryFileName || !binaryDataUrl) {
+        return "Selecione um PDF ou uma imagem suportada antes de continuar.";
+      }
+      return null;
+    }
+
+    if (sourceMode === "link") {
+      if (!linkUrl.trim()) return "Informe o link da fonte.";
+      if (!isSupportedKnowledgeLink(linkUrl)) return "Use um link HTTP ou HTTPS válido.";
+      return null;
+    }
+
+    if (!rawTextTitle.trim() || !rawText.trim()) return "Informe título e conteúdo do texto.";
     return null;
+  };
+
+  const fallbackTitleFor = (type: KnowledgeProcessorType): string => {
+    if (type === "pdf") return binaryFileName.replace(/\.pdf$/i, "");
+    if (type === "image") return binaryTitle;
+    if (type === "youtube" || type === "site") return linkTitle;
+    return rawTextTitle;
   };
 
   const handleProcess = async () => {
@@ -198,15 +245,16 @@ export const AddKnowledgeView: React.FC<AddKnowledgeViewProps> = ({
       return;
     }
 
+    const type = processorType;
     setIsProcessing(true);
     try {
-      const result = await api.processKnowledge(selectedType, buildPayload(), engineMode);
+      const result = await api.processKnowledge(type, buildPayload(type), engineMode);
       if (!result?.success || !result?.data) throw new Error(result?.error || "O processador não retornou uma proposta válida.");
 
       const data = result.data as Record<string, unknown>;
       const suggestedFolder = typeof data.folder === "string" ? data.folder : "00_Inbox";
       const folder = chooseLiveFolder(suggestedFolder, vaultFolders);
-      const title = sanitizeTitle(String(data.title || rawTextTitle || imageTitle || pdfFileName.replace(/\.pdf$/i, "") || siteTitle || youtubeTitle || "Novo Conhecimento"));
+      const title = sanitizeTitle(String(data.title || fallbackTitleFor(type) || "Novo Conhecimento"));
       const summary = String(data.summary || "").trim();
       const evidence = cleanStringArray(data.evidence || data.keyFacts || data.keyTakeaways);
       const hypotheses = cleanStringArray(data.marketingHypotheses || data.hypotheses || data.suggestedAngles);
@@ -220,7 +268,7 @@ export const AddKnowledgeView: React.FC<AddKnowledgeViewProps> = ({
         folder,
         status: folder === "00_Inbox" ? "NOVO" : "EM REVISÃO",
         epistemicStatus,
-        tipo: selectedType === "pdf" ? "Documento PDF" : selectedType === "image" ? "Ativo Visual" : selectedType === "youtube" ? "Referência YouTube" : selectedType === "site" ? "Artigo Web" : "Texto",
+        tipo: type === "pdf" ? "Documento PDF" : type === "image" ? "Ativo Visual" : type === "youtube" ? "Referência YouTube" : type === "site" ? "Artigo Web" : "Texto",
         category: String(data.category || "Não classificado"),
         keywords,
         wikilinks,
@@ -228,8 +276,8 @@ export const AddKnowledgeView: React.FC<AddKnowledgeViewProps> = ({
         summary,
         evidence,
         hypotheses,
-        sourceUrl: selectedType === "site" ? siteUrl : selectedType === "youtube" ? youtubeUrl : undefined,
-        fileName: selectedType === "pdf" ? pdfFileName : selectedType === "image" ? imageFileName : undefined,
+        sourceUrl: sourceMode === "link" ? linkUrl : undefined,
+        fileName: sourceMode === "file" ? binaryFileName : undefined,
         analysisModel: String(result.usedModel || "não informado"),
         wasFallback: Boolean(result.wasFallback),
       });
@@ -292,8 +340,8 @@ export const AddKnowledgeView: React.FC<AddKnowledgeViewProps> = ({
         analysis_fallback: proposal.wasFallback ? "true" : "false",
       };
       const curatedContent = buildCuratedContent(proposal);
-      const isBinarySource = selectedType === "pdf" || selectedType === "image";
-      const dataUrl = selectedType === "pdf" ? pdfBase64 : selectedType === "image" ? imageBase64 : "";
+      const isBinarySource = processorType === "pdf" || processorType === "image";
+      const dataUrl = isBinarySource ? binaryDataUrl : "";
 
       let noteTitle = proposal.title;
       let notePath = `${folder}/${sanitizeTitle(proposal.title)}.md`;
@@ -319,7 +367,7 @@ export const AddKnowledgeView: React.FC<AddKnowledgeViewProps> = ({
           committedFrontmatter = {
             ...committedFrontmatter,
             source_type: "curated_asset",
-            asset_kind: selectedType === "pdf" ? "pdf" : "image",
+            asset_kind: processorType === "pdf" ? "pdf" : "image",
             asset_path: commitResult.assetRelativePath,
             asset_mtime: String(commitResult.assetMtimeMs || ""),
             asset_size: String(commitResult.assetSize || ""),
@@ -363,39 +411,19 @@ export const AddKnowledgeView: React.FC<AddKnowledgeViewProps> = ({
     }
   };
 
-  const handleDriveFile = (fileData: { name: string; contentText: string; base64?: string; isPdf?: boolean; mimeType: string }) => {
-    resetResult();
-    if (fileData.isPdf || fileData.name.toLowerCase().endsWith(".pdf")) {
-      setSelectedType("pdf");
-      setPdfFileName(fileData.name);
-      setPdfBase64(fileData.base64 || "");
-      return;
-    }
-    if (fileData.mimeType.startsWith("image/")) {
-      setSelectedType("image");
-      setImageTitle(fileData.name.replace(/\.[^/.]+$/, ""));
-      setImageFileName(fileData.name);
-      setImageBase64(fileData.base64 || "");
-      return;
-    }
-    setSelectedType("text");
-    setRawTextTitle(fileData.name.replace(/\.[^/.]+$/, ""));
-    setRawText(fileData.contentText || "");
-  };
-
   return (
     <div className="w-full h-full min-h-0 flex flex-col gap-4 font-sans">
       <div className="flex items-center justify-between gap-4 pb-3 border-b border-outline-border shrink-0">
         <div>
           <div className="flex items-center gap-2 text-[10px] font-bold uppercase tracking-widest text-pink-500">
             <ShieldCheck className="w-3.5 h-3.5" />
-            Ingestão autenticada e rastreável
+            Fonte revisada antes de entrar na Base
           </div>
-          <h1 className="text-2xl font-black text-text-primary mt-1">Adicionar Conhecimento</h1>
-          <p className="text-xs text-text-secondary mt-1">A IA propõe, você revisa e o Obsidian recebe a fonte original junto da síntese quando houver arquivo binário.</p>
+          <h1 className="text-2xl font-black text-text-primary mt-1">Adicionar fonte</h1>
+          <p className="text-xs text-text-secondary mt-1">Escolha o que você tem. O Nisti identifica o formato técnico, prepara a síntese e só grava depois da sua revisão.</p>
         </div>
         <div className={`px-3 py-2 rounded-xl border text-xs font-bold ${isConnected ? "border-emerald-500/30 bg-emerald-500/10 text-emerald-300" : "border-red-500/30 bg-red-500/10 text-red-300"}`}>
-          {isConnected ? `Obsidian conectado • ${vaultFolders.length} pastas reais` : "Obsidian bloqueado"}
+          {isConnected ? `Base conectada • ${vaultFolders.length} pastas` : "Base bloqueada"}
         </div>
       </div>
 
@@ -408,14 +436,27 @@ export const AddKnowledgeView: React.FC<AddKnowledgeViewProps> = ({
 
       <div className="grid grid-cols-1 lg:grid-cols-12 gap-4 flex-1 min-h-0">
         <section className="lg:col-span-5 bg-surface-card border border-outline-border rounded-xl p-5 overflow-y-auto no-scrollbar">
-          <h2 className="text-xs font-extrabold uppercase tracking-widest text-text-primary mb-4">Fonte</h2>
+          <h2 className="text-xs font-extrabold uppercase tracking-widest text-text-primary mb-4">Como você quer adicionar?</h2>
+
           <div className="grid grid-cols-3 gap-2 mb-5">
-            {(["site", "pdf", "youtube", "image", "text", "gdrive"] as KnowledgeType[]).map((type) => {
-              const Icon = type === "site" ? Globe : type === "pdf" ? FileText : type === "youtube" ? Youtube : type === "image" ? ImageIcon : type === "gdrive" ? Cloud : AlignLeft;
+            {(["file", "link", "text"] as PrimaryKnowledgeSource[]).map((mode) => {
+              const Icon = mode === "file" ? UploadCloud : mode === "link" ? Link2 : AlignLeft;
+              const label = mode === "file" ? "Arquivo" : mode === "link" ? "Link" : "Texto";
+              const hint = mode === "file" ? "PDF ou imagem" : mode === "link" ? "Site ou YouTube" : "Digitar ou colar";
               return (
-                <button key={type} type="button" onClick={() => { setSelectedType(type); resetResult(); }} className={`p-3 rounded-xl border text-[10px] font-bold flex flex-col items-center gap-2 ${selectedType === type ? "border-pink-500 bg-pink-500/10 text-pink-200" : "border-outline-border bg-surface-container-low text-text-secondary hover:text-text-primary"}`}>
-                  <Icon className="w-4 h-4" />
-                  {TYPE_LABELS[type]}
+                <button
+                  key={mode}
+                  type="button"
+                  onClick={() => changeSourceMode(mode)}
+                  className={`p-3 rounded-xl border text-[10px] font-bold flex flex-col items-center gap-1.5 ${
+                    sourceMode === mode
+                      ? "border-pink-500 bg-pink-500/10 text-pink-200"
+                      : "border-outline-border bg-surface-container-low text-text-secondary hover:text-text-primary"
+                  }`}
+                >
+                  <Icon className="w-4 h-4 mb-0.5" />
+                  <span>{label}</span>
+                  <span className="text-[9px] font-medium opacity-70">{hint}</span>
                 </button>
               );
             })}
@@ -423,71 +464,85 @@ export const AddKnowledgeView: React.FC<AddKnowledgeViewProps> = ({
 
           <p className="text-[11px] text-text-secondary mb-4 leading-relaxed">{sourceDescription}</p>
 
-          {selectedType === "pdf" && (
-            <label className="block border border-dashed border-outline-border rounded-xl p-5 text-center cursor-pointer hover:border-pink-500/60">
-              <input type="file" accept="application/pdf,.pdf" className="hidden" onChange={(event) => {
-                const file = event.target.files?.[0];
-                if (!file) return;
-                resetResult();
-                setPdfFileName(file.name);
-                readAsDataUrl(file, setPdfBase64);
-              }} />
-              <UploadCloud className="w-6 h-6 mx-auto text-pink-400 mb-2" />
-              <span className="text-xs font-bold text-text-primary">{pdfFileName || "Selecionar PDF"}</span>
-              <span className="block text-[10px] text-text-secondary mt-1">máximo 15 MB</span>
-            </label>
-          )}
-
-          {selectedType === "image" && (
+          {sourceMode === "file" && (
             <div className="space-y-3">
               <label className="block border border-dashed border-outline-border rounded-xl p-5 text-center cursor-pointer hover:border-pink-500/60">
-                <input type="file" accept="image/png,image/jpeg,image/webp" className="hidden" onChange={(event) => {
-                  const file = event.target.files?.[0];
-                  if (!file) return;
-                  resetResult();
-                  setImageTitle(file.name.replace(/\.[^/.]+$/, ""));
-                  setImageFileName(file.name);
-                  readAsDataUrl(file, setImageBase64);
-                }} />
+                <input
+                  type="file"
+                  accept="application/pdf,.pdf,image/png,.png,image/jpeg,.jpg,.jpeg,image/webp,.webp"
+                  className="hidden"
+                  onChange={(event) => {
+                    const file = event.target.files?.[0];
+                    if (file) handleFileSelected(file);
+                  }}
+                />
                 <UploadCloud className="w-6 h-6 mx-auto text-pink-400 mb-2" />
-                <span className="text-xs font-bold text-text-primary">{imageFileName || "Selecionar imagem"}</span>
-                <span className="block text-[10px] text-text-secondary mt-1">PNG, JPG/JPEG ou WEBP • máximo 15 MB</span>
+                <span className="text-xs font-bold text-text-primary">{binaryFileName || "Selecionar arquivo"}</span>
+                <span className="block text-[10px] text-text-secondary mt-1">PDF, PNG, JPG/JPEG ou WEBP • máximo 15 MB</span>
               </label>
-              {imageBase64 && <img src={imageBase64} alt="Prévia" className="max-h-32 mx-auto rounded-lg object-contain" />}
+
+              {binaryFileName && binaryType && (
+                <div className="px-3 py-2 rounded-xl bg-surface-container-low border border-outline-border text-[10px] text-text-secondary flex items-center justify-between gap-2">
+                  <span className="truncate">{binaryFileName}</span>
+                  <span className="font-black text-text-primary shrink-0">{binaryType === "pdf" ? "PDF detectado" : "Imagem detectada"}</span>
+                </div>
+              )}
+
+              {binaryType === "image" && binaryDataUrl && (
+                <img src={binaryDataUrl} alt="Prévia da fonte" className="max-h-40 mx-auto rounded-lg object-contain" />
+              )}
             </div>
           )}
 
-          {selectedType === "youtube" && (
+          {sourceMode === "link" && (
             <div className="space-y-2">
-              <input value={youtubeUrl} onChange={(e) => setYoutubeUrl(e.target.value)} placeholder="https://youtube.com/watch?v=..." className="w-full bg-surface-container-lowest border border-outline-border rounded-xl px-3 py-2 text-xs text-text-primary outline-none" />
-              <input value={youtubeTitle} onChange={(e) => setYoutubeTitle(e.target.value)} placeholder="Título opcional" className="w-full bg-surface-container-lowest border border-outline-border rounded-xl px-3 py-2 text-xs text-text-primary outline-none" />
+              <input
+                value={linkUrl}
+                onChange={(event) => handleLinkChange(event.target.value)}
+                placeholder="https://..."
+                className="w-full bg-surface-container-lowest border border-outline-border rounded-xl px-3 py-2 text-xs text-text-primary outline-none"
+              />
+              <input
+                value={linkTitle}
+                onChange={(event) => { setLinkTitle(event.target.value); setProposal(null); setCreatedNote(null); }}
+                placeholder="Título opcional"
+                className="w-full bg-surface-container-lowest border border-outline-border rounded-xl px-3 py-2 text-xs text-text-primary outline-none"
+              />
+              {linkUrl.trim() && isSupportedKnowledgeLink(linkUrl) && (
+                <div className="px-3 py-2 rounded-xl bg-surface-container-low border border-outline-border text-[10px] text-text-secondary flex items-center justify-between gap-2">
+                  <span>Tipo identificado automaticamente</span>
+                  <span className="font-black text-text-primary">{processorType === "youtube" ? "YouTube" : "Site"}</span>
+                </div>
+              )}
             </div>
           )}
 
-          {selectedType === "site" && (
+          {sourceMode === "text" && (
             <div className="space-y-2">
-              <input value={siteUrl} onChange={(e) => setSiteUrl(e.target.value)} placeholder="https://..." className="w-full bg-surface-container-lowest border border-outline-border rounded-xl px-3 py-2 text-xs text-text-primary outline-none" />
-              <input value={siteTitle} onChange={(e) => setSiteTitle(e.target.value)} placeholder="Título opcional" className="w-full bg-surface-container-lowest border border-outline-border rounded-xl px-3 py-2 text-xs text-text-primary outline-none" />
+              <input
+                value={rawTextTitle}
+                onChange={(event) => { setRawTextTitle(event.target.value); setProposal(null); setCreatedNote(null); }}
+                placeholder="Título"
+                className="w-full bg-surface-container-lowest border border-outline-border rounded-xl px-3 py-2 text-xs text-text-primary outline-none"
+              />
+              <textarea
+                value={rawText}
+                onChange={(event) => { setRawText(event.target.value); setProposal(null); setCreatedNote(null); }}
+                placeholder="Digite ou cole a informação real aqui..."
+                className="w-full h-40 bg-surface-container-lowest border border-outline-border rounded-xl px-3 py-2 text-xs text-text-primary outline-none resize-none"
+              />
             </div>
           )}
 
-          {selectedType === "text" && (
-            <div className="space-y-2">
-              <input value={rawTextTitle} onChange={(e) => setRawTextTitle(e.target.value)} placeholder="Título" className="w-full bg-surface-container-lowest border border-outline-border rounded-xl px-3 py-2 text-xs text-text-primary outline-none" />
-              <textarea value={rawText} onChange={(e) => setRawText(e.target.value)} placeholder="Cole o conteúdo real aqui..." className="w-full h-36 bg-surface-container-lowest border border-outline-border rounded-xl px-3 py-2 text-xs text-text-primary outline-none resize-none" />
-            </div>
-          )}
-
-          {selectedType === "gdrive" && (
-            driveConnected ? <GoogleDriveSelector onSelectFile={handleDriveFile} onCancel={() => setSelectedType("text")} /> : <div className="p-4 rounded-xl border border-amber-500/30 bg-amber-500/10 text-amber-200 text-xs">Conecte o Google Drive nas Configurações.</div>
-          )}
-
-          {selectedType !== "gdrive" && (
-            <button type="button" disabled={isProcessing || !isConnected} onClick={handleProcess} className="mt-5 w-full py-3 rounded-xl bg-pink-600 hover:bg-pink-500 disabled:opacity-40 text-white text-xs font-black flex items-center justify-center gap-2">
-              {isProcessing ? <Loader2 className="w-4 h-4 animate-spin" /> : <Sparkles className="w-4 h-4" />}
-              {isProcessing ? "Analisando fonte..." : "Processar para revisão"}
-            </button>
-          )}
+          <button
+            type="button"
+            disabled={isProcessing || !isConnected}
+            onClick={handleProcess}
+            className="mt-5 w-full py-3 rounded-xl bg-pink-600 hover:bg-pink-500 disabled:opacity-40 text-white text-xs font-black flex items-center justify-center gap-2"
+          >
+            {isProcessing ? <Loader2 className="w-4 h-4 animate-spin" /> : <Sparkles className="w-4 h-4" />}
+            {isProcessing ? "Analisando fonte..." : "Analisar para revisão"}
+          </button>
         </section>
 
         <section className="lg:col-span-7 bg-surface-card border border-outline-border rounded-xl p-5 overflow-y-auto no-scrollbar">
@@ -504,8 +559,8 @@ export const AddKnowledgeView: React.FC<AddKnowledgeViewProps> = ({
               <p className="text-xs text-text-secondary mt-2 font-mono">{createdNote.path}</p>
               {createdNote.frontmatter.asset_path && <p className="text-[11px] text-emerald-300 mt-2">Fonte original preservada: {createdNote.frontmatter.asset_path}</p>}
               <div className="flex gap-2 mt-5">
-                <button onClick={() => { onSelectNote(createdNote); onNavigateTab("vault"); }} className="px-4 py-2 rounded-xl bg-surface-container-low border border-outline-border text-xs font-bold text-text-primary">Ver no Cofre</button>
-                <a href={buildObsidianOpenUri(apiConfig.vaultName, createdNote.path)} className="px-4 py-2 rounded-xl bg-pink-600 text-white text-xs font-bold flex items-center gap-1.5">Abrir análise no Obsidian <ExternalLink className="w-3.5 h-3.5" /></a>
+                <button onClick={() => { onSelectNote(createdNote); onNavigateTab("vault"); }} className="px-4 py-2 rounded-xl bg-surface-container-low border border-outline-border text-xs font-bold text-text-primary">Ver na Base</button>
+                <a href={buildObsidianOpenUri(apiConfig.vaultName, createdNote.path)} className="px-4 py-2 rounded-xl bg-pink-600 text-white text-xs font-bold flex items-center gap-1.5">Abrir no Obsidian <ExternalLink className="w-3.5 h-3.5" /></a>
               </div>
             </div>
           ) : proposal ? (
@@ -551,7 +606,7 @@ export const AddKnowledgeView: React.FC<AddKnowledgeViewProps> = ({
             <div className="h-full min-h-64 flex flex-col items-center justify-center text-center">
               <FileText className="w-10 h-10 text-text-secondary/40 mb-3" />
               <h3 className="font-bold text-text-primary">Aguardando uma fonte real</h3>
-              <p className="text-xs text-text-secondary max-w-md mt-1">O sistema não cria exemplos automáticos nem afirmações comerciais sem evidência. Depois da análise, você escolhe uma pasta real do Vault e revisa antes de gravar.</p>
+              <p className="text-xs text-text-secondary max-w-md mt-1">Escolha Arquivo, Link ou Texto. O Nisti não grava nada antes de você revisar a proposta.</p>
             </div>
           )}
         </section>
