@@ -1,6 +1,5 @@
 import type {
   MarketingChannelContent,
-  MarketingTask,
   ObsidianNote,
   VaultAuditInsight,
 } from "../types";
@@ -36,6 +35,10 @@ function normalizeTag(value: string): string {
  * Grounded local campaign generator.
  * It may structure a plan, but it never invents commercial facts or scheduling.
  * Every generated campaign remains EM REVISÃO until a human explicitly approves it.
+ *
+ * Structured MarketingTask objects are deliberately NOT returned here. The legacy
+ * App handler used to fill missing dates, hours, priorities and reminders with
+ * defaults. Suggestions remain Markdown-only until a human registers them.
  */
 export function generateLocalCampaign(input: LocalCampaignInput) {
   const {
@@ -87,35 +90,9 @@ export function generateLocalCampaign(input: LocalCampaignInput) {
   }));
 
   const campaignSlug = normalizeTag(campaignName) || "campanha";
-  const tasks: MarketingTask[] = [
-    {
-      id: `task-local-${campaignSlug}-validar-${today}`,
-      title: `Validar fatos e oferta da campanha ${campaignName}`,
-      description: hasConfirmedBase
-        ? `Revisar ${evidenceLabel} e confirmar o que pode ser usado antes da publicação.`
-        : "Adicionar uma base OFICIAL e validar oferta, público, diferenciais e restrições antes de produzir a peça final.",
-      channel: "Interno",
-      priority: "high",
-      status: "todo",
-      dueDate: "",
-      obsidianTaskString: `- [ ] Validar fatos e oferta da campanha ${campaignName} #revisao #pendente`,
-      tags: ["revisao", hasConfirmedBase ? "base-confirmada" : "pendente"],
-      isReminderActive: false,
-    },
-    {
-      id: `task-local-${campaignSlug}-produzir-${today}`,
-      title: `Produzir conteúdo da campanha ${campaignName}`,
-      description: selectedChannels.length
-        ? `Produzir peças para ${selectedChannels.join(", ")} usando somente informações validadas.`
-        : "PENDENTE: definir canais antes de produzir as peças.",
-      channel: selectedChannels[0] || "",
-      priority: "medium",
-      status: "todo",
-      dueDate: "",
-      obsidianTaskString: `- [ ] Produzir conteúdo da campanha ${campaignName} #conteudo #pendente-agendamento`,
-      tags: ["conteudo", campaignSlug],
-      isReminderActive: false,
-    },
+  const taskSuggestions = [
+    `- [ ] Validar fatos e oferta da campanha ${campaignName} #revisao #pendente`,
+    `- [ ] Produzir conteúdo da campanha ${campaignName} #conteudo #pendente-agendamento`,
   ];
 
   const customBlock = customInstructions?.trim()
@@ -161,8 +138,8 @@ ${channelsContent.length
   ? channelsContent.map((content) => `### ${content.channel}\n${content.copy}\n\n**CTA:** ${content.callToAction}`).join("\n\n---\n\n")
   : "PENDENTE: nenhum canal definido."}
 
-## Tarefas sugeridas
-${tasks.map((task) => task.obsidianTaskString).join("\n")}
+## Checklist sugerido — requer registro humano antes de virar tarefa
+${taskSuggestions.join("\n")}
 `;
 
   return {
@@ -171,7 +148,8 @@ ${tasks.map((task) => task.obsidianTaskString).join("\n")}
       : `Campanha '${campaignName}' mantida como PENDENTE porque não há base OFICIAL selecionada.`,
     strategy: `Objetivo informado: ${objectiveText}. Público informado: ${targetAudience}. Base: ${evidenceLabel}.`,
     channelsContent,
-    tasks,
+    tasks: [],
+    taskSuggestions,
     reminders: [],
     obsidianMarkdownNote,
     usedEngine: "Motor Local Grounded (0 tokens)",
@@ -179,12 +157,23 @@ ${tasks.map((task) => task.obsidianTaskString).join("\n")}
   };
 }
 
-/** Extract explicit Markdown tasks without inventing missing dates, times or reminders. */
+/**
+ * Reads explicit Markdown task lines, but does not promote them to MarketingTask.
+ * The former App import path completed missing operational fields with defaults.
+ * Candidates are now returned for a future review UI; nothing is auto-created.
+ */
 export function extractLocalTasksFromNote(input: LocalExtractionInput) {
   const { noteTitle, noteContent } = input;
   const lines = noteContent.split("\n");
-  const extractedTasks: any[] = [];
-  const suggestedReminders: any[] = [];
+  const reviewCandidates: Array<{
+    title: string;
+    priority?: "low" | "medium" | "high" | "urgent";
+    dueDate?: string;
+    dueTime?: string;
+    reminderDate?: string;
+    reminderTime?: string;
+    obsidianTaskString: string;
+  }> = [];
 
   lines.forEach((line) => {
     const trimmed = line.trim();
@@ -192,16 +181,13 @@ export function extractLocalTasksFromNote(input: LocalExtractionInput) {
 
     const rest = trimmed.slice(5).trim();
     const dateMatch = rest.match(/📅\s*(\d{4}-\d{2}-\d{2})/);
-    const dueDate = dateMatch?.[1] || "";
     const timeMatch = rest.match(/⏰\s*(\d{1,2}:\d{2})/);
-    const dueTime = timeMatch?.[1] || "";
     const reminderMatch = rest.match(/\(@(\d{4}-\d{2}-\d{2})\s*(\d{1,2}:\d{2})\)/);
-    const reminderDate = reminderMatch?.[1] || "";
-    const reminderTime = reminderMatch?.[2] || "";
 
-    let priority: "low" | "medium" | "high" | "urgent" = "medium";
+    let priority: "low" | "medium" | "high" | "urgent" | undefined;
     if (rest.includes("🔺") || rest.toLowerCase().includes("urgente")) priority = "urgent";
     else if (rest.includes("⏫") || rest.toLowerCase().includes("alta")) priority = "high";
+    else if (rest.includes("🔼") || rest.toLowerCase().includes("média") || rest.toLowerCase().includes("media")) priority = "medium";
     else if (rest.includes("🔽") || rest.toLowerCase().includes("baixa")) priority = "low";
 
     const cleanTitle = rest
@@ -214,34 +200,24 @@ export function extractLocalTasksFromNote(input: LocalExtractionInput) {
 
     if (!cleanTitle) return;
 
-    extractedTasks.push({
+    reviewCandidates.push({
       title: cleanTitle,
-      channel: "",
       priority,
-      dueDate,
-      dueTime,
+      dueDate: dateMatch?.[1],
+      dueTime: timeMatch?.[1],
+      reminderDate: reminderMatch?.[1],
+      reminderTime: reminderMatch?.[2],
       obsidianTaskString: trimmed,
-      reminderDate,
-      reminderTime,
-      category: "Extraída da fonte",
     });
-
-    if (reminderMatch) {
-      suggestedReminders.push({
-        title: cleanTitle,
-        triggerDate: reminderDate,
-        triggerTime: reminderTime,
-        obsidianReminderString: `- [ ] ${cleanTitle} (@${reminderDate} ${reminderTime})`,
-      });
-    }
   });
 
   return {
-    extractedTasks,
-    suggestedReminders,
+    extractedTasks: undefined,
+    suggestedReminders: [],
+    reviewCandidates,
     summaryInsights:
-      extractedTasks.length > 0
-        ? `Extraídas ${extractedTasks.length} tarefa(s) explícita(s) de [[${noteTitle}]]. Datas, horários e lembretes só são preenchidos quando existem na fonte.`
+      reviewCandidates.length > 0
+        ? `${reviewCandidates.length} candidato(s) de tarefa encontrado(s) em [[${noteTitle}]]. Nenhum foi criado automaticamente; prioridade, prazo e lembrete precisam ser revisados antes do registro.`
         : `Nenhuma tarefa explícita foi encontrada em [[${noteTitle}]]. O Motor Local não criou ações por inferência.`,
     usedEngine: "Motor Local Grounded (0 tokens)",
   };
