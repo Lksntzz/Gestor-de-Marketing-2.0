@@ -66,14 +66,21 @@ describe("creative workflow", () => {
     expect(item.createdAt).toBe(1000);
   });
 
-  test("UI de criação não agenda hoje nem injeta plataforma, objetivo ou tipo de roteiro", async () => {
+  test("UI de criação mantém briefing como primeira etapa e não injeta decisões silenciosas", async () => {
     const source = await readFile(new URL("../src/components/ContentView.tsx", import.meta.url), "utf8");
 
+    expect(source).toContain('type CreationStage = "briefing" | "ideas" | "develop"');
+    expect(source).toContain("1. Briefing");
+    expect(source).toContain("2. Ideias");
+    expect(source).toContain("3. Desenvolver");
+    expect(source).toContain("creationBriefingBaseStatus");
+    expect(source).toContain("creationGenerationClient.generateIdeas");
+    expect(source).toContain("creationGenerationClient.generateScript");
+    expect(source).toContain("customInstructions: briefingInstructions");
     expect(source).not.toContain('scheduledDate: new Date().toISOString().split("T")[0]');
     expect(source).not.toContain('platform: "Instagram"');
     expect(source).not.toContain('objective: "Engajamento"');
     expect(source).not.toContain('type: "video_reels"');
-    expect(source).toContain("Desenvolver");
     expect(source).toContain("Ideias salvas");
     expect(source).toContain("Escolha a data de publicação");
   });
