@@ -77,14 +77,22 @@ export const PersistedAutomationRuleSchema = z.object({
 export const PersistedIdeaSchema = z.object({
   id: z.string().min(1),
   title: z.string().min(1),
-  category: z.enum(["campanha", "artigo", "video", "redes", "lead-magnet", "growth"]),
-  impact: z.enum(["alto", "medio", "estrategico"]),
+  category: z.enum(["campanha", "artigo", "video", "redes", "lead-magnet", "growth"]).optional(),
+  impact: z.enum(["alto", "medio", "estrategico"]).optional(),
   status: z.enum(["ideia", "em-producao", "validado", "arquivado"]),
   targetPersona: z.string(),
   hook: z.string(),
   sourceNoteTitle: z.string().optional(),
   tags: StringArray,
   estimatedReach: z.string().optional(),
+  format: z.string().optional(),
+  channel: z.string().optional(),
+  objective: z.string().optional(),
+  concept: z.string().optional(),
+  keyMessage: z.string().optional(),
+  callToAction: z.string().optional(),
+  suggestedVisual: z.string().optional(),
+  rationale: z.string().optional(),
 }).passthrough();
 
 export const PersistedScriptSchema = z.object({
@@ -102,6 +110,10 @@ export const PersistedScriptSchema = z.object({
   })),
   callToAction: z.string(),
   tags: StringArray,
+  platform: z.string().optional(),
+  format: z.string().optional(),
+  sourceIdeaId: z.string().optional(),
+  sourceIdeaTitle: z.string().optional(),
 }).passthrough();
 
 export const PersistedVisualSchema = z.object({
