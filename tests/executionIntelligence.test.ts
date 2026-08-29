@@ -4,7 +4,9 @@ import type { MarketingTask } from "../src/types";
 import {
   buildExecutionSnapshot,
   classifyTask,
+  editorialIdFromTask,
   formatTaskDueLabel,
+  isEditorialTask,
   isReminderDue,
   localDateKey,
   moveTaskToNextDay,
@@ -62,7 +64,7 @@ describe("execution intelligence v2 etapa 5", () => {
     expect(isReminderDue(task({ isReminderActive: true, reminderDate: "2026-08-27", reminderTime: "11:00" }), now)).toBe(false);
   });
 
-  test("adiar é ação explícita e preserva horário, prioridade e lembrete associado", () => {
+  test("adiar tarefa manual é explícito e preserva horário, prioridade e lembrete associado", () => {
     const original = task({
       title: "Revisar pauta",
       priority: "high",
@@ -82,8 +84,22 @@ describe("execution intelligence v2 etapa 5", () => {
     expect(moved.obsidianTaskString).toContain("📅 2026-08-28");
   });
 
-  test("UI principal de execução é uma lista focada e não depende do Obsidian para criar tarefa", async () => {
+  test("tarefa editorial preserva o calendário como fonte de verdade", () => {
+    const editorialTask = task({
+      id: "task-ed-ed-123",
+      title: "Publicar: Conteúdo aprovado",
+      dueDate: "2026-08-27",
+    });
+
+    expect(isEditorialTask(editorialTask)).toBe(true);
+    expect(editorialIdFromTask(editorialTask)).toBe("ed-123");
+    expect(() => moveTaskToNextDay(editorialTask, now)).toThrow("Calendário");
+  });
+
+  test("UI principal de execução mantém publicações sincronizadas e tarefas manuais independentes", async () => {
     const execution = await readFile(new URL("../src/components/ExecutionTasksView.tsx", import.meta.url), "utf8");
+    const shell = await readFile(new URL("../src/components/TasksAutomationView.tsx", import.meta.url), "utf8");
+    const service = await readFile(new URL("../src/services/editorialExecutionService.ts", import.meta.url), "utf8");
     const modal = await readFile(new URL("../src/components/TaskModal.tsx", import.meta.url), "utf8");
     const main = await readFile(new URL("../src/main.tsx", import.meta.url), "utf8");
     const navbar = await readFile(new URL("../src/components/Navbar.tsx", import.meta.url), "utf8");
@@ -96,8 +112,17 @@ describe("execution intelligence v2 etapa 5", () => {
     expect(execution).not.toContain("Kanban");
     expect(execution).not.toContain("Automações");
     expect(execution).toContain("Nova tarefa");
+    expect(execution).toContain("Marcar como publicado");
+    expect(execution).toContain("Vinculada ao Calendário");
+    expect(execution).toContain("isEditorialTask");
     expect(execution).not.toContain("disabled={!isConnected}");
-    expect(execution).toContain("Tarefas continuam disponíveis mesmo quando a Base está desconectada");
+
+    expect(shell).toContain("editorialExecutionService.markTaskPublished");
+    expect(shell).toContain("reconcileEditorialTask");
+    expect(service).toContain('status: "PUBLISHED"');
+    expect(service).toContain("editorialUpsert");
+    expect(service).toContain("editorialList");
+    expect(service).toContain("A tarefa não foi alterada");
 
     expect(main).toContain("ObsidianRuntimeGate");
     expect(main).not.toContain('className="fixed inset-0');
