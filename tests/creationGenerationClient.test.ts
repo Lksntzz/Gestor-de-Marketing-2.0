@@ -11,7 +11,7 @@ describe("creation generation client", () => {
     expect(source).toContain('fetch("/api/auth/session"');
     expect(source).toContain('headers["x-ai-provider"]');
     expect(source).toContain('headers["x-ai-api-key"]');
-    expect(source).toContain('headers["x-app-session-token"]');
+    expect(source).toContain('"x-app-session-token": cachedSessionToken');
     expect(source).toContain("storage.loadAIRequestConfig");
   });
 
