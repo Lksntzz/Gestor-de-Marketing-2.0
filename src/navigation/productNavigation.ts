@@ -9,7 +9,7 @@ export type AppViewId =
   | "routine"
   | "automations";
 
-export type PrimaryNavigationIcon = "home" | "base" | "create" | "plan" | "execute";
+export type PrimaryNavigationIcon = "home" | "base" | "create" | "plan" | "execute" | "learn";
 
 export interface PrimaryNavigationItem {
   id: AppViewId;
@@ -27,9 +27,9 @@ export interface ProductSubNavigationItem {
 /**
  * Primary product navigation after the product audit.
  *
- * Legacy views can remain addressable internally during the refactor, but they
- * are deliberately absent as primary destinations until their data/functions
- * are migrated to the target architecture.
+ * Each destination maps to a distinct job in the marketing workflow. Legacy
+ * compatibility routes stay addressable internally but do not get navigation
+ * entries of their own.
  */
 export const PRIMARY_NAVIGATION: readonly PrimaryNavigationItem[] = [
   {
@@ -58,7 +58,7 @@ export const PRIMARY_NAVIGATION: readonly PrimaryNavigationItem[] = [
     label: "Planejar",
     description: "Campanhas e calendário",
     icon: "plan",
-    matches: ["campaigns", "editorial", "routine"],
+    matches: ["campaigns", "editorial"],
   },
   {
     id: "tasks",
@@ -67,12 +67,17 @@ export const PRIMARY_NAVIGATION: readonly PrimaryNavigationItem[] = [
     icon: "execute",
     matches: ["tasks", "automations"],
   },
+  {
+    id: "routine",
+    label: "Aprender",
+    description: "Resultados e evidências",
+    icon: "learn",
+    matches: ["routine"],
+  },
 ] as const;
 
 /**
- * The only permanent subnavigation kept in Phase 1.
- * Knowledge ingestion is opened as an action inside Base, while routine and
- * automation views remain compatibility routes only.
+ * Planning keeps only the two surfaces that materially change the plan.
  */
 export const PLANNING_SUBNAVIGATION: readonly ProductSubNavigationItem[] = [
   { id: "campaigns", label: "Campanhas" },
@@ -81,7 +86,6 @@ export const PLANNING_SUBNAVIGATION: readonly ProductSubNavigationItem[] = [
 
 export const LEGACY_COMPATIBILITY_VIEWS: readonly AppViewId[] = [
   "knowledge",
-  "routine",
   "automations",
 ] as const;
 
