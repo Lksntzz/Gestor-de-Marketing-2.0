@@ -26,6 +26,13 @@ export interface DashboardPriorityAction {
   tone: DashboardActionTone;
 }
 
+export interface DashboardBlocker {
+  id: "obsidian-disconnected" | "knowledge-empty";
+  title: string;
+  detail: string;
+  destination: "settings" | "knowledge";
+}
+
 export interface DashboardActivityItem {
   id: string;
   timestamp: number | null;
@@ -44,6 +51,9 @@ export interface DashboardMetrics {
   pendingTasksCount: number;
   notesCount: number;
   isVaultConnected: boolean;
+  dueThisWeekCount: number;
+  overdueTasksCount: number;
+  completedThisWeekCount: number;
 }
 
 const PRIORITY_SCORE: Record<MarketingTask["priority"], number> = {
@@ -116,6 +126,35 @@ function taskSortTimestamp(task: MarketingTask): number {
   return parseLocalTimestamp(task.dueDate, task.dueTime) ?? Number.MAX_SAFE_INTEGER;
 }
 
+export function buildDashboardBlockers(
+  notes: ObsidianNote[],
+  apiConfig: ObsidianApiConfig,
+): DashboardBlocker[] {
+  if (apiConfig.connectionStatus !== "connected") {
+    return [
+      {
+        id: "obsidian-disconnected",
+        title: "Base desconectada",
+        detail: "Valide o Obsidian para liberar conhecimento, contexto e gravações no Vault.",
+        destination: "settings",
+      },
+    ];
+  }
+
+  if (notes.length === 0) {
+    return [
+      {
+        id: "knowledge-empty",
+        title: "Base ainda vazia",
+        detail: "Adicione uma fonte real antes de depender do Nisti para planejamento fundamentado.",
+        destination: "knowledge",
+      },
+    ];
+  }
+
+  return [];
+}
+
 export function selectPriorityAction(
   notes: ObsidianNote[],
   campaigns: MarketingCampaign[],
@@ -123,6 +162,18 @@ export function selectPriorityAction(
   apiConfig: ObsidianApiConfig,
   now = new Date(),
 ): DashboardPriorityAction {
+  if (apiConfig.connectionStatus !== "connected") {
+    return {
+      id: "connect-obsidian",
+      kind: "connect-obsidian",
+      title: "Conecte o Obsidian para liberar a base de conhecimento",
+      subtitle:
+        "O Nisti só usa o cofre depois que a REST API e a pasta física do Vault são validadas.",
+      badgeLabel: "Configuração necessária",
+      tone: "info",
+    };
+  }
+
   const pendingTasks = tasks
     .filter((task) => task.status !== "done")
     .sort((a, b) => {
@@ -190,26 +241,13 @@ export function selectPriorityAction(
     };
   }
 
-  if (apiConfig.connectionStatus !== "connected") {
-    return {
-      id: "connect-obsidian",
-      kind: "connect-obsidian",
-      title: "Conecte o Obsidian para liberar a base de conhecimento",
-      subtitle:
-        "O Nisti só usa o cofre depois que a REST API e a pasta física do Vault são validadas.",
-      badgeLabel: "Configuração necessária",
-      tone: "info",
-    };
-  }
-
   if (notes.length === 0) {
     return {
       id: "add-knowledge",
       kind: "add-knowledge",
-      title: "Adicione a primeira fonte ao seu cofre",
+      title: "Adicione a primeira fonte à sua Base",
       subtitle:
         "O Vault está conectado, mas ainda não há conhecimento indexado para fundamentar o planejamento.",
-      channel: "Obsidian Vault",
       badgeLabel: "Base vazia",
       tone: "info",
     };
@@ -218,8 +256,8 @@ export function selectPriorityAction(
   return {
     id: "planning",
     kind: "planning",
-    title: "Transforme o conhecimento do cofre em um plano de ação",
-    subtitle: `${notes.length} ${notes.length === 1 ? "nota está disponível" : "notas estão disponíveis"} para apoiar o próximo planejamento.`,
+    title: "Transforme o conhecimento da Base em um plano de ação",
+    subtitle: `${notes.length} ${notes.length === 1 ? "fonte está disponível" : "fontes estão disponíveis"} para apoiar o próximo planejamento.`,
     channel: "Planejamento",
     badgeLabel: "Próximo passo",
     tone: "normal",
@@ -242,12 +280,41 @@ export function computeDashboardMetrics(
   const completedTasksCount = tasks.filter((task) => task.status === "done").length;
   const pendingTasksCount = tasks.length - completedTasksCount;
   const taskCompletionRate = tasks.length > 0 ? Math.round((completedTasksCount / tasks.length) * 100) : 0;
-  const weekStart = startOfLocalWeek(now).getTime();
+  const weekStartDate = startOfLocalWeek(now);
+  const weekStart = weekStartDate.getTime();
+  const weekEnd = new Date(
+    weekStartDate.getFullYear(),
+    weekStartDate.getMonth(),
+    weekStartDate.getDate() + 6,
+    23,
+    59,
+    59,
+    999,
+  ).getTime();
+  const startOfToday = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 0, 0, 0, 0).getTime();
   const endOfToday = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 23, 59, 59, 999).getTime();
 
   const campaignsThisWeek = campaigns.filter((campaign) => {
     const createdAt = parseLocalTimestamp(campaign.createdDate);
     return createdAt !== null && createdAt >= weekStart && createdAt <= endOfToday;
+  }).length;
+
+  const overdueTasksCount = tasks.filter((task) => {
+    if (task.status === "done") return false;
+    const dueAt = parseLocalTimestamp(task.dueDate, task.dueTime);
+    return dueAt !== null && dueAt < startOfToday;
+  }).length;
+
+  const dueThisWeekCount = tasks.filter((task) => {
+    if (task.status === "done") return false;
+    const dueAt = parseLocalTimestamp(task.dueDate, task.dueTime);
+    return dueAt !== null && dueAt >= startOfToday && dueAt <= weekEnd;
+  }).length;
+
+  const completedThisWeekCount = tasks.filter((task) => {
+    if (task.status !== "done") return false;
+    const completedAt = parseLocalTimestamp(task.completedAt);
+    return completedAt !== null && completedAt >= weekStart && completedAt <= endOfToday;
   }).length;
 
   return {
@@ -259,6 +326,9 @@ export function computeDashboardMetrics(
     pendingTasksCount,
     notesCount: notes.length,
     isVaultConnected: apiConfig.connectionStatus === "connected",
+    dueThisWeekCount,
+    overdueTasksCount,
+    completedThisWeekCount,
   };
 }
 
