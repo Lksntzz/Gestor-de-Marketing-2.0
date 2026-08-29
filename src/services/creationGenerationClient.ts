@@ -82,7 +82,27 @@ async function selectKnowledge(
   return { knowledgeSources: selection.sources, knowledgeWarning: selection.warning };
 }
 
-async function postCreation<T>(endpoint: string, body: Record<string, unknown>): Promise<T> {
+function requireGenerativeAI(engineMode: string): void {
+  if (String(engineMode || "").toLowerCase() === "local") {
+    throw new Error(
+      "O Motor Local não fabrica ideias ou roteiros. Configure e selecione um provedor de IA para gerar conteúdo; a Base continua sendo usada como fonte de contexto.",
+    );
+  }
+}
+
+function rejectSyntheticFallback<T extends { wasFallback?: boolean; usedModel?: string }>(data: T): T {
+  if (data?.wasFallback) {
+    throw new Error(
+      "O provedor de IA não respondeu com uma geração válida. O Nisti descartou o fallback sintético para não apresentar conteúdo inventado como resultado fundamentado.",
+    );
+  }
+  return data;
+}
+
+async function postCreation<T extends { wasFallback?: boolean; usedModel?: string }>(
+  endpoint: string,
+  body: Record<string, unknown>,
+): Promise<T> {
   const headers = await aiHeaders();
   const response = await fetch(endpoint, {
     method: "POST",
@@ -93,11 +113,12 @@ async function postCreation<T>(endpoint: string, body: Record<string, unknown>):
   if (!response.ok) {
     throw new Error(String(data?.error || `Falha HTTP ${response.status} na geração criativa.`));
   }
-  return data as T;
+  return rejectSyntheticFallback(data as T);
 }
 
 export const creationGenerationClient = {
   async generateIdeas(payload: CreationIdeaRequest): Promise<any> {
+    requireGenerativeAI(payload.engineMode);
     const query = [
       "ideias de conteúdo",
       payload.objective,
@@ -121,6 +142,7 @@ export const creationGenerationClient = {
   },
 
   async generateScript(payload: CreationScriptRequest): Promise<any> {
+    requireGenerativeAI(payload.engineMode);
     const query = [
       "roteiro de conteúdo",
       payload.idea,
