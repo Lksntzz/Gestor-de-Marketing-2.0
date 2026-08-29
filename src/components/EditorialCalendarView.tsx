@@ -12,7 +12,7 @@ import {
   X,
 } from "lucide-react";
 import type { EditorialItem, MarketingTask, TaskPriority } from "../types";
-import { api } from "../services/api";
+import { generateEditorialPlanSuggestions } from "../services/editorialPlanningApi";
 import { localDateKey } from "../utils/reliability";
 import {
   createEmptyEditorialDraft,
@@ -29,7 +29,8 @@ import {
 interface EditorialCalendarViewProps {
   tasks: MarketingTask[];
   onTasksChange: (tasks: MarketingTask[]) => void;
-  engineMode: string;
+  engineMode?: string;
+  [legacyProp: string]: unknown;
 }
 
 function splitValues(value: string): string[] {
@@ -55,8 +56,12 @@ const PRIORITY_LABELS: Array<{ value: TaskPriority; label: string }> = [
 export const EditorialCalendarView: React.FC<EditorialCalendarViewProps> = ({
   tasks,
   onTasksChange,
-  engineMode,
+  engineMode: engineModeProp,
 }) => {
+  const engineMode = engineModeProp
+    || (typeof window !== "undefined" ? window.localStorage.getItem("obsidian_engine_mode") : null)
+    || "local";
+
   const [items, setItems] = useState<EditorialItem[]>([]);
   const [currentWeekStart, setCurrentWeekStart] = useState<Date>(() => {
     const date = new Date();
@@ -209,7 +214,7 @@ export const EditorialCalendarView: React.FC<EditorialCalendarViewProps> = ({
           objective: item.objective,
         }));
 
-      const res = await api.planWeek({
+      const res = await generateEditorialPlanSuggestions({
         weekStart,
         count,
         platforms,
