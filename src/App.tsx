@@ -53,6 +53,10 @@ import { usePersistentState, usePersistentTextState } from "./hooks/usePersisten
 import { AppStateSchemas, parseWorkspaceImport } from "./domain/appStateSchemas";
 import { formatToObsidianTask } from "./utils/obsidianUri";
 import {
+  PLANNING_SUBNAVIGATION,
+  isPlanningSubnavigationView,
+} from "./navigation/productNavigation";
+import {
   generateLocalCampaign,
   extractLocalTasksFromNote,
   analyzeLocalVault,
@@ -73,7 +77,7 @@ import {
   upsertManagedSection,
 } from "./utils/reliability";
 import confetti from "canvas-confetti";
-import { Bell, CheckCircle2, Sparkles, FolderOpen, FileText, Lightbulb, Calendar, CheckSquare, BarChart3 } from "lucide-react";
+import { Bell, CheckCircle2, Sparkles, Calendar } from "lucide-react";
 
 const storage = StorageManager.getInstance();
 
@@ -108,38 +112,19 @@ function createDailyNote(today: string, content: string): ObsidianNote {
   };
 }
 
-const SubTabs = ({ activeTab, setActiveTab, group }: { activeTab: string, setActiveTab: (tab: any) => void, group: string }) => {
-  const tabs: Record<string, any[]> = {
-    knowledge: [
-      { id: "vault", label: "Explorador Obsidian", icon: FolderOpen },
-      { id: "knowledge", label: "Adicionar Conhecimento", icon: FileText }
-    ],
-    creation: [
-      { id: "content", label: "Ideias e Roteiros", icon: Lightbulb },
-      { id: "campaigns", label: "Campanhas e Resultados", icon: Sparkles }
-    ],
-    planning: [
-      { id: "editorial", label: "Calendário Editorial", icon: Calendar },
-      { id: "tasks", label: "Quadro de Tarefas", icon: CheckSquare },
-      { id: "routine", label: "Inteligência de Rotinas", icon: BarChart3 }
-    ]
-  };
-
-  const currentTabs = tabs[group];
-  if (!currentTabs) return null;
-
+const SubTabs = ({ activeTab, setActiveTab }: { activeTab: string, setActiveTab: (tab: any) => void }) => {
   return (
     <div className="bg-[#0B0D1B] border-b border-white/5 px-8 flex gap-6 pt-3 shrink-0">
-      {currentTabs.map(tab => {
+      {PLANNING_SUBNAVIGATION.map((tab) => {
         const isActive = activeTab === tab.id;
-        const Icon = tab.icon;
+        const Icon = tab.id === "campaigns" ? Sparkles : Calendar;
         return (
           <button
             key={tab.id}
             onClick={() => setActiveTab(tab.id)}
             className={`pb-3 text-sm font-bold flex items-center gap-2 border-b-2 transition-colors ${
-              isActive 
-                ? "border-pink-500 text-pink-500" 
+              isActive
+                ? "border-pink-500 text-pink-500"
                 : "border-transparent text-stone-400 hover:text-white"
             }`}
           >
@@ -152,7 +137,7 @@ const SubTabs = ({ activeTab, setActiveTab, group }: { activeTab: string, setAct
   );
 };
 
-export default function App() { 
+export default function App() {
   const [activeTab, setActiveTab] = useState<
     "dashboard" | "vault" | "campaigns" | "tasks" | "automations" | "routine" | "knowledge" | "content" | "editorial"
   >("dashboard");
@@ -242,8 +227,7 @@ export default function App() {
   const updateAndSaveApiConfig = useCallback((update: ObsidianApiConfig | ((prev: ObsidianApiConfig) => ObsidianApiConfig)) => {
     setApiConfig((prev) => {
       const next = typeof update === "function" ? update(prev) : update;
-      
-      // Defer side effects to ensure they run outside the state update/render phase
+
       setTimeout(() => {
         void storage.saveApiConfig(next);
         if (next.connectionStatus !== "connected" || !next.apiKey?.trim() || !next.endpoint?.trim()) {
@@ -277,7 +261,6 @@ export default function App() {
               console.warn("Auto-reconnection to Obsidian on startup failed:", err);
             }
           }
-          // Fallback: Disconnected / fail-closed
           setApiConfig({
             ...loaded,
             connectionStatus: "disconnected",
@@ -807,7 +790,6 @@ export default function App() {
           }
         }
       } else {
-        // Query GET / to identify the physical vault name automatically!
         try {
           const targetEndpoint = normalizeObsidianEndpoint(apiConfig.endpoint);
           const testRes = await fetch(`${targetEndpoint}/`, {
@@ -925,13 +907,12 @@ export default function App() {
       if (prev.some((r) => r.id === ruleId)) {
         return prev.map((r) => (r.id === ruleId ? { ...r, enabled: !r.enabled } : r));
       }
-      
-      // Default rule metadata that strictly satisfies PersistedAutomationRuleSchema
+
       let name = ruleId;
       let description = "Regra de automação do Vault";
       let trigger: "on_campaign_created" | "daily_schedule" | "on_note_tagged" | "reminder_triggered" = "daily_schedule";
       let action: "create_tasks_in_daily_note" | "schedule_reminders" | "push_to_obsidian_api" | "generate_status_report" = "create_tasks_in_daily_note";
-      
+
       if (ruleId === "rule_daily_sync") {
         name = "Sincronizador da Nota Diária";
         description = "Sincroniza tarefas concluídas e pendentes na nota diária.";
@@ -948,7 +929,7 @@ export default function App() {
         trigger = "on_note_tagged";
         action = "push_to_obsidian_api";
       }
-      
+
       return [...prev, { id: ruleId, name, description, trigger, action, enabled: false, executionCount: 0 }];
     });
   };
@@ -1088,7 +1069,6 @@ export default function App() {
         );
       }
 
-      // Default rule metadata that strictly satisfies PersistedAutomationRuleSchema
       let name = ruleId;
       let description = "Regra de automação do Vault";
       let trigger: "on_campaign_created" | "daily_schedule" | "on_note_tagged" | "reminder_triggered" = "daily_schedule";
@@ -1249,11 +1229,7 @@ export default function App() {
     }
   };
 
-  const macroGroup = 
-    ['vault', 'knowledge'].includes(activeTab) ? 'knowledge' :
-    ['content', 'campaigns'].includes(activeTab) ? 'creation' :
-    ['editorial', 'tasks', 'routine'].includes(activeTab) ? 'planning' :
-    '';
+  const showPlanningSubTabs = isPlanningSubnavigationView(activeTab);
 
   return (
     <div className="h-screen w-screen overflow-hidden bg-background text-text-primary flex flex-col lg:flex-row font-sans selection:bg-purple-500/30 selection:text-purple-200">
@@ -1283,7 +1259,6 @@ export default function App() {
         </div>
       )}
 
-      {/* Left Sidebar on Desktop */}
       <div className="hidden lg:block">
         <Sidebar
           activeTab={activeTab}
@@ -1292,7 +1267,6 @@ export default function App() {
         />
       </div>
 
-      {/* Right Main Content Area */}
       <div className="flex-1 flex flex-col min-w-0 h-screen overflow-hidden">
         <Navbar
           activeTab={activeTab}
@@ -1340,7 +1314,7 @@ export default function App() {
           }}
         />
 
-        {macroGroup && <SubTabs activeTab={activeTab} setActiveTab={setActiveTab} group={macroGroup} />}
+        {showPlanningSubTabs && <SubTabs activeTab={activeTab} setActiveTab={setActiveTab} />}
 
         <main className="flex-1 w-full px-4 sm:px-6 lg:px-8 py-4 flex flex-col min-h-0 overflow-hidden">
 
@@ -1397,7 +1371,7 @@ export default function App() {
                 setSelectedNote(updated);
                 showToast("success", "Nota Nota Atualizada", `Alterações salvas em [[${updated.title}]].`);
               }}
-              onOpenNewNoteModal={() => setIsNoteModalOpen(true)}
+              onOpenAddSource={() => setActiveTab("knowledge")}
               onExtractTasksFromNote={handleExtractTasksFromNote}
               onGenerateCampaignFromNote={(note) => {
                 setSelectedNote(note);
@@ -1467,7 +1441,7 @@ export default function App() {
           )}
 
           {activeTab === "editorial" && (
-            <EditorialCalendarView 
+            <EditorialCalendarView
               tasks={tasks}
               onTasksChange={setTasks}
               campaigns={campaigns}
@@ -1566,7 +1540,7 @@ export default function App() {
               engineMode={engineMode}
             />
           )}
-      </main>
+        </main>
       </div>
 
       <ObsidianApiSettingsModal
