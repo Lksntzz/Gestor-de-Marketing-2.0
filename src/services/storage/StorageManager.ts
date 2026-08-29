@@ -637,32 +637,60 @@ export class StorageManager implements IStorageService {
   }
 
   // ==========================================
-  // FACTORY RESET (ZERAR DE FÁBRICA)
+  // FACTORY RESET (LOCAL APP DATA ONLY)
   // ==========================================
   public async factoryResetAll(): Promise<void> {
     try {
-      if (typeof localStorage !== "undefined") {
-        localStorage.clear();
-      }
-      this.volatileSecrets = { obsidianApiKey: "", geminiApiKey: "", openaiApiKey: "" };
-
       if (this.isDesktopRuntime() && window.electronAPI) {
+        // Editorial items live in SQLite rather than localStorage. Clear them first
+        // so a failed bridge operation cannot leave the UI reset while calendar data survives.
+        if (window.electronAPI.editorialList && window.electronAPI.editorialDelete) {
+          const editorialItems = await window.electronAPI.editorialList();
+          for (const item of editorialItems) {
+            const result = await window.electronAPI.editorialDelete(item.id);
+            if (!result?.success) {
+              throw new Error(`Não foi possível remover o item editorial \"${item.title}\" durante o reset.`);
+            }
+          }
+        }
+
+        // Revoke the renderer's filesystem authorization. The physical Vault and
+        // its files are deliberately preserved; factory reset only clears app state.
+        if (window.electronAPI.setObsidianConnectionState) {
+          const connectionResult = await window.electronAPI.setObsidianConnectionState(false);
+          if (!connectionResult?.success || connectionResult.connected !== false) {
+            throw new Error("Não foi possível revogar a autorização local do Obsidian durante o reset.");
+          }
+        }
+
         if (window.electronAPI.deleteSecret) {
-          await Promise.all([
+          const secretResults = await Promise.all([
             window.electronAPI.deleteSecret("obsidianApiKey"),
             window.electronAPI.deleteSecret("geminiApiKey"),
             window.electronAPI.deleteSecret("openaiApiKey"),
           ]);
+          if (secretResults.some((result) => !result?.success)) {
+            throw new Error("Não foi possível remover todas as credenciais protegidas durante o reset.");
+          }
         } else if (window.electronAPI.setSecret) {
-          await Promise.all([
+          const secretResults = await Promise.all([
             window.electronAPI.setSecret("obsidianApiKey", ""),
             window.electronAPI.setSecret("geminiApiKey", ""),
             window.electronAPI.setSecret("openaiApiKey", ""),
           ]);
+          if (secretResults.some((result) => !result?.success)) {
+            throw new Error("Não foi possível limpar todas as credenciais protegidas durante o reset.");
+          }
         }
+      }
+
+      this.volatileSecrets = { obsidianApiKey: "", geminiApiKey: "", openaiApiKey: "" };
+      if (typeof localStorage !== "undefined") {
+        localStorage.clear();
       }
     } catch (e) {
       console.warn("Error during factory reset:", e);
+      throw e;
     }
   }
 }
