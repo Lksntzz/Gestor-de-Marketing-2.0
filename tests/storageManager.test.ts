@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, test } from "bun:test";
+import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { z } from "zod";
 import { StorageManager } from "../src/services/storage/StorageManager";
 
@@ -25,6 +25,11 @@ class MemoryStorage {
 describe("StorageManager app-state gateway", () => {
   beforeEach(() => {
     (globalThis as any).localStorage = new MemoryStorage();
+    delete (globalThis as any).window;
+  });
+
+  afterEach(() => {
+    delete (globalThis as any).window;
   });
 
   test("round-trips valid state through the centralized gateway", () => {
@@ -79,5 +84,59 @@ describe("StorageManager app-state gateway", () => {
     expect(loaded.aiProvider).toBe("openai");
     expect(loaded.aiModel).toBe("gpt-test");
     expect(loaded.openaiApiKey).toBe("openai-secret");
+  });
+
+  test("factory reset clears SQLite editorial data, revokes access and secrets before local state", async () => {
+    const storage = StorageManager.getInstance();
+    localStorage.setItem("workspace-state", "must-be-cleared");
+
+    const deletedEditorialIds: string[] = [];
+    const deletedSecrets: string[] = [];
+    const connectionStates: boolean[] = [];
+
+    (globalThis as any).window = {
+      electronAPI: {
+        editorialList: async () => [
+          { id: "editorial-1", title: "Post 1" },
+          { id: "editorial-2", title: "Post 2" },
+        ],
+        editorialDelete: async (id: string) => {
+          deletedEditorialIds.push(id);
+          return { success: true };
+        },
+        setObsidianConnectionState: async (connected: boolean) => {
+          connectionStates.push(connected);
+          return { success: true, connected };
+        },
+        deleteSecret: async (name: string) => {
+          deletedSecrets.push(name);
+          return { success: true };
+        },
+      },
+    };
+
+    await storage.factoryResetAll();
+
+    expect(deletedEditorialIds).toEqual(["editorial-1", "editorial-2"]);
+    expect(connectionStates).toEqual([false]);
+    expect(deletedSecrets.sort()).toEqual(["geminiApiKey", "obsidianApiKey", "openaiApiKey"].sort());
+    expect(localStorage.getItem("workspace-state")).toBeNull();
+  });
+
+  test("factory reset fails closed before clearing localStorage when SQLite cleanup fails", async () => {
+    const storage = StorageManager.getInstance();
+    localStorage.setItem("workspace-state", "must-survive");
+
+    (globalThis as any).window = {
+      electronAPI: {
+        editorialList: async () => [{ id: "editorial-1", title: "Post 1" }],
+        editorialDelete: async () => ({ success: false }),
+        setObsidianConnectionState: async (connected: boolean) => ({ success: true, connected }),
+        deleteSecret: async () => ({ success: true }),
+      },
+    };
+
+    await expect(storage.factoryResetAll()).rejects.toThrow("item editorial");
+    expect(localStorage.getItem("workspace-state")).toBe("must-survive");
   });
 });
