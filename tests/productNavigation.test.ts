@@ -8,13 +8,14 @@ import {
 } from "../src/navigation/productNavigation";
 
 describe("primary product navigation", () => {
-  test("exposes only the current audited workflow destinations", () => {
+  test("exposes the six audited workflow destinations", () => {
     expect(PRIMARY_NAVIGATION.map((item) => item.label)).toEqual([
       "Início",
       "Base",
       "Criar",
       "Planejar",
       "Executar",
+      "Aprender",
     ]);
 
     expect(PRIMARY_NAVIGATION.map((item) => item.id)).toEqual([
@@ -23,27 +24,29 @@ describe("primary product navigation", () => {
       "content",
       "editorial",
       "tasks",
+      "routine",
     ]);
   });
 
-  test("keeps legacy views addressable without making them primary destinations", () => {
-    expect(LEGACY_COMPATIBILITY_VIEWS).toEqual(["knowledge", "routine", "automations"]);
+  test("keeps only true compatibility views outside the primary workflow", () => {
+    expect(LEGACY_COMPATIBILITY_VIEWS).toEqual(["knowledge", "automations"]);
     for (const view of LEGACY_COMPATIBILITY_VIEWS) {
       expect(isPrimaryNavigationDestination(view)).toBe(false);
     }
+    expect(isPrimaryNavigationDestination("routine")).toBe(true);
   });
 
-  test("maps campaign planning and legacy compatibility views to the correct active area", () => {
+  test("maps related compatibility views to their correct active area", () => {
     const activeFor = (view: string) =>
       PRIMARY_NAVIGATION.find((item) => item.matches.includes(view as never))?.label;
 
     expect(activeFor("campaigns")).toBe("Planejar");
-    expect(activeFor("routine")).toBe("Planejar");
+    expect(activeFor("routine")).toBe("Aprender");
     expect(activeFor("automations")).toBe("Executar");
     expect(activeFor("knowledge")).toBe("Base");
   });
 
-  test("keeps only campaigns and calendar as visible subnavigation", () => {
+  test("keeps only campaigns and calendar as visible planning subnavigation", () => {
     expect(PLANNING_SUBNAVIGATION).toEqual([
       { id: "campaigns", label: "Campanhas" },
       { id: "editorial", label: "Calendário" },
