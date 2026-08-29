@@ -152,33 +152,40 @@ export const PersistedNicheSchema = z.object({
   conversionAvgRate: z.string(),
 }).passthrough();
 
+/**
+ * Result persistence accepts both the legacy rich shape and the sparse V1
+ * evidence shape. Optional metrics remain absent when they were not measured.
+ */
 export const PersistedPostHistorySchema = z.object({
   id: z.string().min(1),
-  title: z.string(),
-  channel: z.string(),
-  format: z.enum(["carrossel", "reels_video", "artigo_blog", "newsletter", "thread_post"]),
-  publishedAt: z.string(),
-  dayOfWeek: z.string(),
-  timeSlot: z.string(),
-  targetNiche: z.string(),
-  emotionalDriver: z.string(),
-  hookUsed: z.string(),
+  title: z.string().min(1),
+  channel: z.string().min(1),
+  format: z.string().min(1),
+  publishedAt: z.string().min(1),
+  dayOfWeek: z.string().optional(),
+  timeSlot: z.string().optional(),
+  targetNiche: z.string().optional(),
+  emotionalDriver: z.string().optional(),
+  hookUsed: z.string().optional(),
   metrics: z.object({
-    impressions: z.number(),
-    reach: z.number(),
-    likes: z.number(),
-    comments: z.number(),
-    shares: z.number(),
-    saves: z.number(),
-    clicksOrLeads: z.number(),
-    ctrPercent: z.number(),
-    conversionRatePercent: z.number(),
-  }),
-  performanceScore: z.number(),
-  learnings: z.string(),
-  whatWorked: StringArray,
-  whatToAvoid: StringArray,
+    impressions: z.number().nonnegative().optional(),
+    reach: z.number().nonnegative().optional(),
+    likes: z.number().nonnegative().optional(),
+    comments: z.number().nonnegative().optional(),
+    shares: z.number().nonnegative().optional(),
+    saves: z.number().nonnegative().optional(),
+    clicksOrLeads: z.number().nonnegative().optional(),
+    ctrPercent: z.number().nonnegative().optional(),
+    conversionRatePercent: z.number().nonnegative().optional(),
+  }).optional(),
+  performanceScore: z.number().optional(),
+  learnings: z.string().optional(),
+  whatWorked: StringArray.optional(),
+  whatToAvoid: StringArray.optional(),
   linkedObsidianNote: z.string().optional(),
+  editorialItemId: z.string().optional(),
+  linkedCampaignId: z.string().optional(),
+  evidenceSource: z.string().optional(),
 }).passthrough();
 
 export const PersistedLearningSchema = z.object({
