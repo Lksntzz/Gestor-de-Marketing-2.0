@@ -22,6 +22,7 @@ import {
   type CreationBriefing,
 } from "../domain/creationBriefing";
 import {
+  buildCreativeArtifactMarkdown,
   buildExplicitEditorialItem,
   buildScriptBriefFromIdea,
   resolveCreativeScriptType,
@@ -361,7 +362,7 @@ export const ContentView: React.FC<ContentViewProps> = ({
     setNotice(null);
 
     try {
-      const markdown = [
+      const body = [
         `# ${idea.title}`,
         optionalMarkdown("Objetivo", idea.objective),
         optionalMarkdown("Formato", idea.format),
@@ -375,6 +376,14 @@ export const ContentView: React.FC<ContentViewProps> = ({
         idea.suggestedVisual ? `## Visual Sugerido\n${idea.suggestedVisual}` : "",
         idea.rationale ? `## Fundamentação\n${idea.rationale}` : "",
       ].filter(Boolean).join("\n\n");
+      const markdown = buildCreativeArtifactMarkdown({
+        kind: "idea",
+        objective: idea.objective,
+        format: idea.format,
+        channel: idea.channel,
+        theme: normalizedBriefing.theme,
+        briefingInstructions: normalizedBriefing.instructions,
+      }, body);
 
       await onSaveToVault(markdown, "03_Conteudos/Ideias", idea.title);
 
@@ -419,7 +428,7 @@ export const ContentView: React.FC<ContentViewProps> = ({
         scene.onScreenText ? `**Texto na Tela:** ${scene.onScreenText}` : "",
       ].filter(Boolean).join("\n")).join("\n\n");
 
-      const markdown = [
+      const body = [
         `# ${script.title}`,
         optionalMarkdown("Objetivo", script.objective),
         optionalMarkdown("Formato", scriptFormat),
@@ -434,6 +443,16 @@ export const ContentView: React.FC<ContentViewProps> = ({
         script.productionNotes ? `## Notas de Produção\n${script.productionNotes}` : "",
         sourceIdeaTitle ? `## Origem\nIdeia: ${sourceIdeaTitle}` : "",
       ].filter(Boolean).join("\n\n");
+      const markdown = buildCreativeArtifactMarkdown({
+        kind: "script",
+        objective: script.objective || scriptObjective.trim(),
+        format: scriptFormat,
+        channel: scriptPlatform,
+        theme: normalizedBriefing.theme,
+        briefingInstructions: normalizedBriefing.instructions,
+        sourceIdeaId,
+        sourceIdeaTitle: sourceIdeaTitle || undefined,
+      }, body);
 
       await onSaveToVault(markdown, "03_Conteudos/Roteiros", script.title);
 
