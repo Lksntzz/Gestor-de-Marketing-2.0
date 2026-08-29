@@ -33,6 +33,8 @@ interface DashboardViewProps {
   onNavigateTab: (tab: AppViewId) => void;
   onToggleTaskStatus: (taskId: string) => void;
   onOpenSetupWizard?: () => void;
+  /** Transitional compatibility while App.tsx still passes audited legacy props. */
+  [legacyProp: string]: unknown;
 }
 
 const actionToneClass: Record<DashboardActionTone, string> = {
@@ -68,6 +70,14 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
     [notes, apiConfig.connectionStatus],
   );
 
+  const openBaseConfiguration = () => {
+    if (onOpenSetupWizard) {
+      onOpenSetupWizard();
+      return;
+    }
+    onNavigateTab("vault");
+  };
+
   const handlePriorityAction = () => {
     if (priorityAction.kind === "task") {
       onToggleTaskStatus(priorityAction.id);
@@ -78,7 +88,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
       return;
     }
     if (priorityAction.kind === "connect-obsidian") {
-      onOpenSetupWizard?.();
+      openBaseConfiguration();
       return;
     }
     if (priorityAction.kind === "add-knowledge") {
@@ -94,7 +104,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
       : priorityAction.kind === "campaign"
         ? "Abrir campanha"
         : priorityAction.kind === "connect-obsidian"
-          ? "Configurar Base"
+          ? (onOpenSetupWizard ? "Configurar Base" : "Abrir Base")
           : priorityAction.kind === "add-knowledge"
             ? "Adicionar fonte"
             : "Abrir planejamento";
@@ -107,8 +117,6 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
         : priorityAction.kind === "add-knowledge"
           ? Plus
           : ArrowRight;
-
-  const canRunPrimaryAction = priorityAction.kind !== "connect-obsidian" || Boolean(onOpenSetupWizard);
 
   return (
     <div className="w-full h-full min-h-0 overflow-y-auto no-scrollbar text-text-primary">
@@ -169,8 +177,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
           <div className="mt-6 pt-4 border-t border-outline-border/60 flex flex-wrap items-center gap-2">
             <button
               onClick={handlePriorityAction}
-              disabled={!canRunPrimaryAction}
-              className="px-4 py-2.5 bg-primary-container hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed text-white text-xs font-bold rounded-xl transition-all flex items-center gap-1.5"
+              className="px-4 py-2.5 bg-primary-container hover:bg-blue-700 text-white text-xs font-bold rounded-xl transition-all flex items-center gap-1.5"
             >
               <PrimaryActionIcon className="w-3.5 h-3.5" />
               {primaryActionLabel}
@@ -248,11 +255,10 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
                       </div>
                     </div>
                     <button
-                      onClick={() => blocker.destination === "settings" ? onOpenSetupWizard?.() : onNavigateTab("knowledge")}
-                      disabled={blocker.destination === "settings" && !onOpenSetupWizard}
-                      className="mt-3 text-[10px] font-black text-amber-300 hover:underline disabled:opacity-40"
+                      onClick={() => blocker.destination === "settings" ? openBaseConfiguration() : onNavigateTab("knowledge")}
+                      className="mt-3 text-[10px] font-black text-amber-300 hover:underline"
                     >
-                      {blocker.destination === "settings" ? "Configurar Base" : "Adicionar fonte"}
+                      {blocker.destination === "settings" ? (onOpenSetupWizard ? "Configurar Base" : "Abrir Base") : "Adicionar fonte"}
                     </button>
                   </div>
                 ))}
