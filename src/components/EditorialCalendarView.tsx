@@ -11,6 +11,7 @@ import {
   X,
 } from "lucide-react";
 import type { CreativeScript, EditorialItem, MarketingTask, TaskPriority } from "../types";
+import { consumeEditorialPlanningHandoff } from "../services/editorialPlanningHandoff";
 import { localDateKey } from "../utils/reliability";
 import {
   approvedScriptToEditorialDraft,
@@ -64,6 +65,7 @@ export const EditorialCalendarView: React.FC<EditorialCalendarViewProps> = ({
   scripts = [],
 }) => {
   const [items, setItems] = useState<EditorialItem[]>([]);
+  const [itemsLoaded, setItemsLoaded] = useState(false);
   const [currentWeekStart, setCurrentWeekStart] = useState<Date>(() => mondayOf(new Date()));
   const [editorDraft, setEditorDraft] = useState<EditorialDraft | null>(null);
   const [editorError, setEditorError] = useState("");
@@ -72,6 +74,7 @@ export const EditorialCalendarView: React.FC<EditorialCalendarViewProps> = ({
   const loadItems = useCallback(async () => {
     if (!window.electronAPI?.editorialList) {
       setItems([]);
+      setItemsLoaded(true);
       return;
     }
     try {
@@ -80,12 +83,46 @@ export const EditorialCalendarView: React.FC<EditorialCalendarViewProps> = ({
     } catch (error) {
       console.error("Failed to load editorial calendar:", error);
       setItems([]);
+    } finally {
+      setItemsLoaded(true);
     }
   }, []);
 
   useEffect(() => {
     void loadItems();
   }, [loadItems]);
+
+  useEffect(() => {
+    if (!itemsLoaded) return;
+
+    const handoff = consumeEditorialPlanningHandoff();
+    if (!handoff) return;
+
+    const existing = items.find(
+      (item) => item.scriptId === handoff.scriptId && item.status !== "ARCHIVED",
+    );
+    if (existing) {
+      setEditorError("");
+      setEditorDraft(editorialItemToDraft(existing));
+      return;
+    }
+
+    const script = scripts.find(
+      (candidate) => candidate.id === handoff.scriptId && isWorkflowApproved(candidate),
+    );
+    if (!script) {
+      console.warn("Planning handoff ignored because the approved script no longer exists.", handoff.scriptId);
+      return;
+    }
+
+    const draft = approvedScriptToEditorialDraft(script, `ed-${Date.now()}`);
+    setEditorError("");
+    setEditorDraft({
+      ...draft,
+      scheduledDate: handoff.scheduledDate || draft.scheduledDate,
+      scheduledTime: handoff.scheduledTime || draft.scheduledTime,
+    });
+  }, [itemsLoaded, items, scripts]);
 
   const daysOfWeek = useMemo(
     () => Array.from({ length: 7 }).map((_, index) => {
