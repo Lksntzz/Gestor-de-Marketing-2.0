@@ -27,6 +27,8 @@ export interface CreationIdeaRequest {
   theme?: string;
   customInstructions?: string;
   count?: number;
+  /** Legacy caller compatibility only. Generative creation always uses the configured AI provider. */
+  engineMode?: string;
   knowledgeNotes: ObsidianNote[];
 }
 
@@ -36,6 +38,8 @@ export interface CreationScriptRequest {
   platform: string;
   objective: string;
   customInstructions?: string;
+  /** Legacy caller compatibility only. Generative creation always uses the configured AI provider. */
+  engineMode?: string;
   knowledgeNotes: ObsidianNote[];
 }
 
