@@ -1,6 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import { readFile } from "node:fs/promises";
 import {
+  buildCreativeArtifactMarkdown,
   buildExplicitEditorialItem,
   buildScriptBriefFromIdea,
   resolveCreativeScriptType,
@@ -24,6 +25,29 @@ describe("creative workflow", () => {
     expect(brief).toContain("Conceito: Acompanhar uma etapa real da produção");
     expect(brief).not.toContain("Engajamento");
     expect(brief).not.toContain("Vendas");
+  });
+
+  test("salva artefato criativo como hipótese em revisão com origem explícita", () => {
+    const markdown = buildCreativeArtifactMarkdown({
+      kind: "script",
+      objective: "Apresentar produto",
+      format: "Reel",
+      channel: "Instagram",
+      theme: "Bastidores",
+      briefingInstructions: "Não mencionar preço.",
+      sourceIdeaId: "idea-1",
+      sourceIdeaTitle: "Bastidores de produção",
+      now: new Date(2026, 7, 29, 10, 0, 0),
+    }, "# Roteiro\n\nConteúdo em revisão.");
+
+    expect(markdown).toContain('tipo: "Roteiro de Conteúdo"');
+    expect(markdown).toContain('status: "EM REVISÃO"');
+    expect(markdown).toContain('epistemic_status: "HIPÓTESE"');
+    expect(markdown).toContain('source_idea_id: "idea-1"');
+    expect(markdown).toContain('source_idea_title: "Bastidores de produção"');
+    expect(markdown).toContain('briefing_instructions: "Não mencionar preço."');
+    expect(markdown).toContain('created_at: "2026-08-29"');
+    expect(markdown).not.toContain('epistemic_status: "CONFIRMADO"');
   });
 
   test("mapeia tipo do roteiro a partir do formato ou plataforma escolhidos", () => {
@@ -77,6 +101,7 @@ describe("creative workflow", () => {
     expect(source).toContain("creationGenerationClient.generateIdeas");
     expect(source).toContain("creationGenerationClient.generateScript");
     expect(source).toContain("customInstructions: briefingInstructions");
+    expect(source).toContain("buildCreativeArtifactMarkdown");
     expect(source).not.toContain('scheduledDate: new Date().toISOString().split("T")[0]');
     expect(source).not.toContain('platform: "Instagram"');
     expect(source).not.toContain('objective: "Engajamento"');
