@@ -390,12 +390,19 @@ declare global {
         (legacyVaultPath: string, folder: string, title: string, content: string, frontmatter?: any): ElectronWriteResult;
       };
       appendNote: (folder: string, title: string, contentToAppend: string) => Promise<{ success: boolean; path?: string; error?: string }>;
+      upsertNoteSection: (folder: string, title: string, sectionId: string, heading: string, content: string) => Promise<{ success: boolean; path?: string; error?: string }>;
       deleteNote: {
         (relativePath: string): Promise<{ success: boolean; error?: string }>;
+        (folder: string, title: string): Promise<{ success: boolean; error?: string }>;
         (legacyVaultPath: string, relativePath: string): Promise<{ success: boolean; error?: string }>;
       };
       writeAsset: (fileName: string, dataUrl: string) => Promise<{ success: boolean; relativePath?: string; error?: string }>;
       logAudit: (entry: { action: string; entityType: string; entityId: string; details: string }) => Promise<{ success: boolean; error?: string }>;
+      setSecret: (name: string, value: string) => Promise<{ success: boolean }>;
+      getSecret: (name: string) => Promise<string>;
+      deleteSecret: (name: string) => Promise<{ success: boolean }>;
+      setAIConfig: (config: { provider: "gemini" | "openai"; model?: string }) => Promise<{ success: boolean }>;
+      getSystemStatus: () => Promise<any>;
       editorialList: () => Promise<EditorialItem[]>;
       editorialUpsert: (item: EditorialItem) => Promise<{ success: boolean }>;
       editorialDelete: (id: string) => Promise<{ success: boolean }>;
@@ -418,7 +425,7 @@ declare global {
       aiTestConnection: (config?: { provider?: "gemini" | "openai"; model?: string; apiKey?: string }) => Promise<any>;
       getUpdateStatus: () => Promise<UpdateState>;
       checkForUpdates: () => Promise<UpdateState>;
-      installUpdate: () => Promise<UpdateState>;
+      installUpdate: () => Promise<{ success: boolean; error?: string }>;
       onUpdateStatus: (callback: (state: UpdateState) => void) => () => void;
     };
   }
