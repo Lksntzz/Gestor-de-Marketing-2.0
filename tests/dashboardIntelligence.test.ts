@@ -6,6 +6,10 @@ import type {
   ObsidianNote,
 } from "../src/types";
 import {
+  BASE_ONBOARDING_SECTIONS,
+  canonicalBasePath,
+} from "../src/domain/baseOnboarding";
+import {
   buildDashboardActivity,
   buildDashboardBlockers,
   computeDashboardMetrics,
@@ -73,10 +77,22 @@ function note(overrides: Partial<ObsidianNote> = {}): ObsidianNote {
   };
 }
 
+function confirmedBaseNotes(): ObsidianNote[] {
+  return BASE_ONBOARDING_SECTIONS.map((section, index) => ({
+    ...note(),
+    id: `base-${section.id}`,
+    path: canonicalBasePath(section),
+    title: section.fileTitle,
+    folder: "00_Base",
+    frontmatter: { epistemic_status: "CONFIRMADO" },
+    lastModified: `2026-08-2${Math.min(index + 1, 8)} 08:45`,
+  }));
+}
+
 describe("dashboard intelligence", () => {
-  test("prioriza tarefas reais sem inventar horário, canal ou arquivo", () => {
+  test("prioriza tarefas reais somente depois que a Base Inicial está pronta", () => {
     const action = selectPriorityAction(
-      [],
+      confirmedBaseNotes(),
       [],
       [task({ priority: "urgent", channel: undefined, dueDate: "", dueTime: undefined, obsidianFilePath: undefined })],
       connectedConfig,
@@ -94,7 +110,7 @@ describe("dashboard intelligence", () => {
 
   test("bloqueia a recomendação operacional quando o Obsidian não está conectado", () => {
     const action = selectPriorityAction(
-      [note()],
+      confirmedBaseNotes(),
       [],
       [task({ priority: "urgent" })],
       { ...connectedConfig, connectionStatus: "disconnected" },
@@ -105,22 +121,63 @@ describe("dashboard intelligence", () => {
     expect(action.title).toContain("Conecte o Obsidian");
   });
 
-  test("expõe bloqueios estruturais separadamente da fila operacional", () => {
-    expect(buildDashboardBlockers([note()], connectedConfig)).toEqual([]);
+  test("uma nota solta no Vault não substitui a Base Inicial canônica", () => {
+    const blockers = buildDashboardBlockers([note()], connectedConfig);
+    expect(blockers).toHaveLength(1);
+    expect(blockers[0]?.id).toBe("base-not-ready");
+    expect(blockers[0]?.title).toBe("Base Inicial incompleta");
+
+    const action = selectPriorityAction(
+      [note()],
+      [campaign()],
+      [task({ priority: "urgent" })],
+      connectedConfig,
+      new Date("2026-08-27T09:00:00"),
+    );
+    expect(action.kind).toBe("complete-base");
+  });
+
+  test("expõe conexão e prontidão canônica como bloqueios estruturais", () => {
+    expect(buildDashboardBlockers(confirmedBaseNotes(), connectedConfig)).toEqual([]);
 
     const disconnected = buildDashboardBlockers(
-      [note()],
+      confirmedBaseNotes(),
       { ...connectedConfig, connectionStatus: "disconnected" },
     );
     expect(disconnected[0]?.id).toBe("obsidian-disconnected");
 
     const empty = buildDashboardBlockers([], connectedConfig);
-    expect(empty[0]?.id).toBe("knowledge-empty");
+    expect(empty[0]?.id).toBe("base-not-ready");
+    expect(empty[0]?.detail).toContain("9 documentos canônicos");
   });
 
-  test("orienta adicionar conhecimento quando o Vault validado está vazio e não há execução pendente", () => {
-    const action = selectPriorityAction([], [], [], connectedConfig, new Date("2026-08-27T09:00:00"));
-    expect(action.kind).toBe("add-knowledge");
+  test("orienta completar a Base antes de qualquer execução quando faltam documentos canônicos", () => {
+    const action = selectPriorityAction(
+      [],
+      [campaign()],
+      [task({ priority: "urgent" })],
+      connectedConfig,
+      new Date("2026-08-27T09:00:00"),
+    );
+    expect(action.kind).toBe("complete-base");
+    expect(action.badgeLabel).toBe("Base incompleta");
+  });
+
+  test("orienta revisão quando a estrutura existe mas algum documento não está confirmado", () => {
+    const notes = confirmedBaseNotes();
+    notes[0] = {
+      ...notes[0],
+      frontmatter: { epistemic_status: "HIPÓTESE" },
+    };
+
+    const blocker = buildDashboardBlockers(notes, connectedConfig)[0];
+    expect(blocker?.id).toBe("base-not-ready");
+    expect(blocker?.title).toBe("Base Inicial precisa de revisão");
+    expect(blocker?.detail).toContain("1 documento precisa de revisão");
+
+    const action = selectPriorityAction(notes, [], [], connectedConfig, new Date("2026-08-27T09:00:00"));
+    expect(action.kind).toBe("review-base");
+    expect(action.badgeLabel).toBe("Base em revisão");
   });
 
   test("calcula métricas registradas e resumo operacional da semana", () => {
