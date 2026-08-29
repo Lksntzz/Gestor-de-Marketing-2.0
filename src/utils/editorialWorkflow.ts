@@ -1,4 +1,5 @@
 import type {
+  CreativeScript,
   EditorialItem,
   EditorialStatus,
   MarketingTask,
@@ -69,6 +70,22 @@ export function createEmptyEditorialDraft(id: string, now = Date.now()): Editori
     priority: "",
     createdAt: now,
     updatedAt: now,
+  };
+}
+
+export function approvedScriptToEditorialDraft(
+  script: CreativeScript,
+  id: string,
+  now = Date.now(),
+): EditorialDraft {
+  return {
+    ...createEmptyEditorialDraft(id, now),
+    title: script.title.trim(),
+    contentType: script.format?.trim() || "",
+    platform: script.platform?.trim() || "",
+    objective: script.objective.trim(),
+    ideaId: script.sourceIdeaId,
+    scriptId: script.id,
   };
 }
 
