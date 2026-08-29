@@ -39,6 +39,7 @@ async function readEditorialItemsForBackup(): Promise<EditorialItem[]> {
 
 export async function prepareWorkspaceBackup(config: ObsidianApiConfig): Promise<WorkspaceBackupSummary> {
   const editorialItems = await readEditorialItemsForBackup();
+  const validatedEditorialItems = AppStateSchemas.editorialItems.parse(editorialItems);
   const jsonString = serializeWorkspaceBackup({
     version: APP_VERSION,
     notes: loadArrayState(APP_STATE_KEYS.NOTES, AppStateSchemas.notes),
@@ -54,7 +55,7 @@ export async function prepareWorkspaceBackup(config: ObsidianApiConfig): Promise
     learnings: loadArrayState(APP_STATE_KEYS.LEARNINGS, AppStateSchemas.learnings),
     weeklyRoutine: loadArrayState(APP_STATE_KEYS.WEEKLY_ROUTINE, AppStateSchemas.weeklyRoutine),
     engineMode: storage.loadTextState(APP_STATE_KEYS.ENGINE_MODE, "local", AppStateSchemas.engineMode),
-    editorialItems,
+    editorialItems: validatedEditorialItems,
     apiConfig: config,
   });
 
