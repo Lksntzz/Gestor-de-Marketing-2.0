@@ -108,7 +108,7 @@ describe("creative workflow", () => {
     expect(item.createdAt).toBe(1000);
   });
 
-  test("UI de criação mantém fluxo contínuo e biblioteca derivada sem tela paralela", async () => {
+  test("UI de criação mantém fluxo contínuo e entrega o planejamento ao calendário", async () => {
     const source = await readFile(new URL("../src/components/ContentView.tsx", import.meta.url), "utf8");
 
     expect(source).toContain('type CreationStage = "briefing" | "ideas" | "develop"');
@@ -124,11 +124,15 @@ describe("creative workflow", () => {
     expect(source).toContain("creationGenerationClient.generateScript");
     expect(source).toContain("customInstructions: briefingInstructions");
     expect(source).toContain("buildCreativeArtifactMarkdown");
+    expect(source).toContain("storeEditorialPlanningHandoff");
+    expect(source).toContain('button[aria-label="Planejar"]');
+    expect(source).toContain("Abrir este conteúdo no Calendário");
+    expect(source).not.toContain("editorialUpsert");
+    expect(source).not.toContain("buildExplicitEditorialItem");
     expect(source).not.toContain('scheduledDate: new Date().toISOString().split("T")[0]');
     expect(source).not.toContain('platform: "Instagram"');
     expect(source).not.toContain('objective: "Engajamento"');
     expect(source).not.toContain('type: "video_reels"');
     expect(source).toContain("Ideias salvas");
-    expect(source).toContain("Escolha a data de publicação");
   });
 });
