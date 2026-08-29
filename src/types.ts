@@ -139,14 +139,22 @@ export interface ObsidianApiConfig {
 export interface IdeaItem {
   id: string;
   title: string;
-  category: "campanha" | "artigo" | "video" | "redes" | "lead-magnet" | "growth";
-  impact: "alto" | "medio" | "estrategico";
+  category?: "campanha" | "artigo" | "video" | "redes" | "lead-magnet" | "growth";
+  impact?: "alto" | "medio" | "estrategico";
   status: "ideia" | "em-producao" | "validado" | "arquivado";
   targetPersona: string;
   hook: string;
   sourceNoteTitle?: string;
   tags: string[];
   estimatedReach?: string;
+  format?: string;
+  channel?: string;
+  objective?: string;
+  concept?: string;
+  keyMessage?: string;
+  callToAction?: string;
+  suggestedVisual?: string;
+  rationale?: string;
 }
 
 export interface CreativeScript {
@@ -164,6 +172,10 @@ export interface CreativeScript {
   }>;
   callToAction: string;
   tags: string[];
+  platform?: string;
+  format?: string;
+  sourceIdeaId?: string;
+  sourceIdeaTitle?: string;
 }
 
 export interface VisualAsset {
@@ -378,20 +390,38 @@ declare global {
         (legacyVaultPath: string, folder: string, title: string, content: string, frontmatter?: any): ElectronWriteResult;
       };
       appendNote: (folder: string, title: string, contentToAppend: string) => Promise<{ success: boolean; path?: string; error?: string }>;
-      upsertNoteSection: (folder: string, title: string, sectionId: string, heading: string, content: string) => Promise<{ success: boolean; path?: string; error?: string }>;
-      deleteNote: (folder: string, title: string) => Promise<{ success: boolean; error?: string }>;
-      setSecret: (name: string, value: string) => Promise<{ success: boolean }>;
-      getSecret: (name: string) => Promise<string>;
-      deleteSecret: (name: string) => Promise<{ success: boolean }>;
-      setAIConfig: (config: { provider: "gemini" | "openai"; model?: string }) => Promise<{ success: boolean }>;
-      getSystemStatus: () => Promise<any>;
-      getUpdateStatus: () => Promise<UpdateState>;
-      checkForUpdates: () => Promise<UpdateState>;
-      installUpdate: () => Promise<{ success: boolean; error?: string }>;
-      onUpdateStatus: (callback: (state: UpdateState) => void) => () => void;
+      deleteNote: {
+        (relativePath: string): Promise<{ success: boolean; error?: string }>;
+        (legacyVaultPath: string, relativePath: string): Promise<{ success: boolean; error?: string }>;
+      };
+      writeAsset: (fileName: string, dataUrl: string) => Promise<{ success: boolean; relativePath?: string; error?: string }>;
+      logAudit: (entry: { action: string; entityType: string; entityId: string; details: string }) => Promise<{ success: boolean; error?: string }>;
       editorialList: () => Promise<EditorialItem[]>;
       editorialUpsert: (item: EditorialItem) => Promise<{ success: boolean }>;
       editorialDelete: (id: string) => Promise<{ success: boolean }>;
+      editorialPlanWeek: (payload: any) => Promise<any>;
+      safeStorage: {
+        isEncryptionAvailable: () => Promise<boolean>;
+        encryptString: (value: string) => Promise<string>;
+        decryptString: (value: string) => Promise<string>;
+      };
+      knowledge: {
+        query: (input: { query: string; preferredPaths?: string[]; limit?: number }) => Promise<any>;
+      };
+      knowledgeGetStatus: () => Promise<any>;
+      knowledgeRebuild: () => Promise<any>;
+      secretsGet: (name: string) => Promise<string | null>;
+      secretsSet: (name: string, value: string) => Promise<{ success: boolean }>;
+      secretsDelete: (name: string) => Promise<{ success: boolean }>;
+      aiGetConfig: () => Promise<{ provider: "gemini" | "openai"; model: string }>;
+      aiSetConfig: (config: { provider: "gemini" | "openai"; model: string }) => Promise<{ success: boolean }>;
+      aiTestConnection: (config?: { provider?: "gemini" | "openai"; model?: string; apiKey?: string }) => Promise<any>;
+      getUpdateStatus: () => Promise<UpdateState>;
+      checkForUpdates: () => Promise<UpdateState>;
+      installUpdate: () => Promise<UpdateState>;
+      onUpdateStatus: (callback: (state: UpdateState) => void) => () => void;
     };
   }
 }
+
+export {};
