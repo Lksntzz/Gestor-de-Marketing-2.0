@@ -5,6 +5,7 @@ export interface EditorialPlanningHandoff {
 }
 
 const HANDOFF_KEY = "nisti.editorialPlanningHandoff.v1";
+export const EDITORIAL_PLANNING_REQUEST_EVENT = "nisti:editorial-planning-request";
 
 function clean(value: unknown): string | undefined {
   const normalized = typeof value === "string" ? value.trim() : "";
@@ -24,6 +25,9 @@ export function storeEditorialPlanningHandoff(input: EditorialPlanningHandoff): 
   };
 
   window.sessionStorage.setItem(HANDOFF_KEY, JSON.stringify(payload));
+  window.dispatchEvent(new CustomEvent<EditorialPlanningHandoff>(EDITORIAL_PLANNING_REQUEST_EVENT, {
+    detail: payload,
+  }));
 }
 
 export function consumeEditorialPlanningHandoff(): EditorialPlanningHandoff | null {
