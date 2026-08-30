@@ -223,6 +223,51 @@ O tipo da fonte deve ser reconhecido por MIME, assinatura do arquivo e URL valid
 
 O estado, hash e versão do analisador ficam registrados para que reiniciar o aplicativo não duplique trabalhos nem notas.
 
+### Detecção contínua sem sincronização manual
+
+O Vault dedicado deve operar em modo reativo. Enquanto o Nisti estiver aberto, um watcher local observa criação, alteração, renomeação e exclusão de arquivos dentro da estrutura gerenciada. O usuário não precisa clicar em `Sincronizar` ou `Atualizar` para que novas informações apareçam no índice e na fila de curadoria.
+
+O fluxo automático será:
+
+1. receber evento do sistema de arquivos;
+2. aguardar o arquivo estabilizar para não ler uma gravação parcial;
+3. ignorar diretórios internos, temporários e saídas geradas pelo próprio worker;
+4. comparar tamanho, data e SHA-256 com a versão indexada;
+5. atualizar o `KnowledgeIndex` somente quando o conteúdo realmente mudar;
+6. calcular o delta entre a versão anterior e a nova;
+7. encaminhar somente informação nova ou alterada para a curadoria;
+8. atualizar a interface por evento interno, sem recarregar a aplicação;
+9. persistir a fila e o checkpoint do watcher.
+
+Eventos do sistema de arquivos não são uma garantia absoluta em todos os sistemas operacionais. Para recuperar eventos perdidos, o Nisti também executará uma reconciliação incremental leve:
+
+- ao conectar o Vault;
+- ao iniciar o aplicativo;
+- ao voltar de suspensão;
+- periodicamente enquanto estiver aberto.
+
+Essa reconciliação usa metadados e hashes; arquivos inalterados não são enviados novamente para a IA. O botão manual poderá existir apenas em Diagnóstico como recuperação excepcional, não como parte do fluxo normal.
+
+### Identificação de informação nova
+
+O sistema distinguirá alteração de arquivo de nova informação semântica:
+
+- mudança apenas de formatação ou data não dispara nova curadoria;
+- novos parágrafos, fatos, entidades, decisões ou métricas geram um evento de informação;
+- informação que contradiz uma fonte anterior é encaminhada para revisão com as duas referências;
+- alteração em nota gerada pelo Nisti não cria um ciclo de reprocessamento;
+- mudança relevante em projeto anterior atualiza a memória criativa e passa a participar das comparações de novidade.
+
+O worker pode indexar todo o Vault automaticamente, mas a geração de notas derivadas será limitada ao `00_Inbox`, a importações explícitas e a fontes marcadas para curadoria. Isso impede que uma edição comum em uma nota oficial cause reescritas automáticas ou custos inesperados.
+
+### Limites da detecção automática
+
+- quando o aplicativo estiver fechado, nenhum processamento acontece; as diferenças são recuperadas na próxima abertura;
+- arquivos em nuvem só podem ser detectados depois de chegarem ao disco local;
+- o Nisti não substitui Obsidian Sync, Google Drive, OneDrive ou outro sincronizador externo;
+- sem conexão de IA válida, mudanças são indexadas e enfileiradas, mas a análise aguarda a próxima conexão confirmada;
+- limites de orçamento, tamanho e taxa podem pausar a fila sem perder os itens pendentes.
+
 ### Pipeline de curadoria
 
 1. preservar o original em `00_Inbox/Originais` ou manter referência segura ao arquivo já existente;
@@ -304,6 +349,11 @@ O estado, hash e versão do analisador ficam registrados para que reiniciar o ap
 - classificação insegura permanece em `00_Inbox/Para_Revisar`;
 - nenhuma curadoria altera automaticamente `00_Base`;
 - reiniciar o aplicativo preserva a fila e não duplica resultados;
+- criar ou alterar uma fonte local atualiza índice e interface sem ação manual;
+- evento perdido pelo watcher é recuperado automaticamente pela reconciliação incremental;
+- reabrir o aplicativo processa alterações ocorridas enquanto ele estava fechado;
+- edição apenas de formatação não consome uma nova chamada de IA;
+- arquivos que ainda não chegaram ao disco local não são apresentados como detectados;
 - toda nota derivada informa fonte, hash, provedor, modelo e estado epistemológico.
 
 ---
