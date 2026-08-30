@@ -121,6 +121,8 @@ describe("creative workflow", () => {
     expect(source).toContain("Aprovar e salvar");
     expect(source).toContain("creationBriefingBaseStatus");
     expect(source).toContain("creationGenerationClient.generateIdeas");
+    expect(source).toContain("const IDEA_GENERATION_COUNT = 5");
+    expect(source).toContain("count: IDEA_GENERATION_COUNT");
     expect(source).toContain("creationGenerationClient.generateScript");
     expect(source).toContain("customInstructions: briefingInstructions");
     expect(source).toContain("buildCreativeArtifactMarkdown");

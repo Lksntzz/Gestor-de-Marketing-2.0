@@ -28,4 +28,22 @@ describe("Windows release updater artifacts", () => {
     expect(workflow).toContain("if ($process.ExitCode -ne $accessViolationExitCode)");
     expect(workflow).toContain("release bloqueada");
   });
+
+  test("Windows abre o Electron e valida renderer, preload e backend antes de publicar", async () => {
+    const [releaseWorkflow, windowsWorkflow, smoke, desktop] = await Promise.all([
+      read(".github/workflows/release-windows.yml"),
+      read(".github/workflows/windows-v2-test.yml"),
+      read("scripts/windows-electron-smoke.ps1"),
+      read("electron-main.ts"),
+    ]);
+    for (const workflow of [releaseWorkflow, windowsWorkflow]) {
+      expect(workflow).toContain("windows-electron-smoke.ps1");
+    }
+    expect(smoke).toContain("rendererReady");
+    expect(smoke).toContain("preloadReady");
+    expect(smoke).toContain("backendReady");
+    expect(smoke).toContain("CloseMainWindow");
+    expect(desktop).toContain("NISTI_RUNTIME_HEALTH_FILE");
+    expect(desktop).toContain("writeRuntimeHealthProbe");
+  });
 });

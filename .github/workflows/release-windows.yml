@@ -26,7 +26,7 @@ jobs:
       - name: Setup Bun
         uses: oven-sh/setup-bun@v2
         with:
-          bun-version: latest
+          bun-version: 1.2.23
 
       - name: Setup Node.js
         uses: actions/setup-node@v4
@@ -152,6 +152,7 @@ jobs:
                 throw "Instalação silenciosa terminou sem gerar 'Nisti Marketing.exe'. EXEs encontrados: $($found -join '; ')"
               }
 
+              pwsh -NoProfile -ExecutionPolicy Bypass -File scripts/windows-electron-smoke.ps1 -ExecutablePath $appExe
               Write-Host "Smoke test do instalador OK: $appExe"
               $installed = $true
               Remove-Item -Path $installDir -Recurse -Force -ErrorAction SilentlyContinue

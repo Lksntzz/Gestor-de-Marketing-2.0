@@ -31,4 +31,11 @@ describe("creation generation client", () => {
     expect(source).toContain("descartou o fallback sintético");
     expect(source).not.toContain("engineMode: payload.engineMode");
   });
+
+  test("cliente genérico não mantém transportes criativos inseguros ou porta fixa", async () => {
+    const source = await read("src/services/api.ts");
+    expect(source).not.toContain('fetch("http://localhost:3000/api/ai/plan-week"');
+    expect(source).not.toContain("async generateIdeas(payload: any)");
+    expect(source).not.toContain("async generateScript(payload: any)");
+  });
 });

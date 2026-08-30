@@ -122,7 +122,8 @@ describe("onboarding da Base Inicial", () => {
   });
 
   test("fronteira desktop bloqueia duplicação e a UI usa commit canônico com refresh", async () => {
-    const [electron, panel, vault, navigation, types] = await Promise.all([
+    const [app, electron, panel, vault, navigation, types] = await Promise.all([
+      readFile(new URL("../src/App.tsx", import.meta.url), "utf8"),
       readFile(new URL("../electron-main.ts", import.meta.url), "utf8"),
       readFile(new URL("../src/components/BaseOnboardingPanel.tsx", import.meta.url), "utf8"),
       readFile(new URL("../src/components/VaultView.tsx", import.meta.url), "utf8"),
@@ -143,6 +144,7 @@ describe("onboarding da Base Inicial", () => {
     expect(panel).not.toContain("generateIdeas");
 
     expect(vault).toContain("<BaseOnboardingPanel");
+    expect(app).toContain('assessBaseReadiness(notes).complete ? "dashboard" : "vault"');
     expect(navigation).not.toContain('label: "Onboarding"');
     expect(navigation).not.toContain('label: "Base Inicial"');
   });

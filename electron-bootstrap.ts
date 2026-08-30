@@ -6,6 +6,7 @@ import http from "http";
 import net from "net";
 import crypto from "crypto";
 import * as path from "path";
+import { assertTrustedIpcSender } from "./src/electron/security/trustedRenderer";
 
 const STABLE_USER_DATA_NAME = "Nisti Print PKM Marketing Hub";
 const stableUserDataPath = path.join(app.getPath("appData"), STABLE_USER_DATA_NAME);
@@ -38,7 +39,8 @@ async function writeSecretStore(store: Record<string, string>): Promise<void> {
   await fs.writeFile(filePath, JSON.stringify(store, null, 2), { encoding: "utf8", mode: 0o600 });
 }
 
-ipcMain.handle("secret:set", async (_, name: string, value: string) => {
+ipcMain.handle("secret:set", async (event, name: string, value: string) => {
+  assertTrustedIpcSender(event);
   if (!ALLOWED_SECRET_NAMES.has(name)) throw new Error("Secret name not allowed.");
   if (!safeStorage.isEncryptionAvailable()) throw new Error("OS secure storage is unavailable.");
 
@@ -52,7 +54,8 @@ ipcMain.handle("secret:set", async (_, name: string, value: string) => {
   return { success: true };
 });
 
-ipcMain.handle("secret:get", async (_, name: string) => {
+ipcMain.handle("secret:get", async (event, name: string) => {
+  assertTrustedIpcSender(event);
   if (!ALLOWED_SECRET_NAMES.has(name)) throw new Error("Secret name not allowed.");
   if (!safeStorage.isEncryptionAvailable()) return "";
 
@@ -66,7 +69,8 @@ ipcMain.handle("secret:get", async (_, name: string) => {
   }
 });
 
-ipcMain.handle("secret:delete", async (_, name: string) => {
+ipcMain.handle("secret:delete", async (event, name: string) => {
+  assertTrustedIpcSender(event);
   if (!ALLOWED_SECRET_NAMES.has(name)) throw new Error("Secret name not allowed.");
   const store = await readSecretStore();
   delete store[name];

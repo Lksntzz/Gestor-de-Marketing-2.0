@@ -182,6 +182,9 @@ describe("v2 hardening invariants", () => {
     const source = await read("src/utils/crypto.ts");
     expect(source).toContain("enc_v3:");
     expect(source).toContain("AES-GCM");
+    expect(source).toContain("credential persistence was blocked");
+    expect(source).not.toContain("fallback_b64:");
+    expect(source).not.toContain("fallback_plain:");
     expect(source).not.toContain("enc_fallback:");
     expect(source).not.toContain("return plainText");
     expect(source).not.toContain("nisti_vault_secure_client_device_key_v2");
@@ -203,8 +206,10 @@ describe("v2 hardening invariants", () => {
     const reliability = await read("src/utils/reliability.ts");
     const html = await read("index.html");
     const css = await read("src/index.css");
+    const metadata = JSON.parse(await read("metadata.json"));
     expect(reliability).toContain(`APP_VERSION = "${pkg.version}"`);
     expect(html).toContain("<title>Nisti Marketing</title>");
+    expect(metadata.name).toBe("Nisti Marketing");
     expect(html).not.toContain("fonts.googleapis.com");
     expect(css).not.toContain("Plus Jakarta Sans");
     expect(css).not.toContain("JetBrains Mono");

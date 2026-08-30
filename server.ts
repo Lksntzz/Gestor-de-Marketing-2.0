@@ -25,8 +25,21 @@ async function parsePdfBuffer(buffer: Buffer): Promise<string> {
 const app = express();
 const PORT = 3000;
 const SERVER_SESSION_SECRET = process.env.API_SESSION_SECRET || crypto.randomBytes(32).toString("hex");
+const CONTENT_SECURITY_POLICY = [
+  "default-src 'self'",
+  "script-src 'self' https://accounts.google.com",
+  "style-src 'self' 'unsafe-inline'",
+  "img-src 'self' data: blob: https:",
+  "connect-src 'self' http://127.0.0.1:* https://127.0.0.1:* http://localhost:* https://localhost:* https://accounts.google.com https://www.googleapis.com",
+  "frame-src https://accounts.google.com",
+  "worker-src 'self' blob:",
+  "object-src 'none'",
+  "base-uri 'self'",
+  "form-action 'self'",
+].join("; ");
 
 app.use((req, res, next) => {
+  res.setHeader("Content-Security-Policy", CONTENT_SECURITY_POLICY);
   res.setHeader("X-Content-Type-Options", "nosniff");
   res.setHeader("X-Frame-Options", "SAMEORIGIN");
   res.setHeader("Referrer-Policy", "strict-origin-when-cross-origin");

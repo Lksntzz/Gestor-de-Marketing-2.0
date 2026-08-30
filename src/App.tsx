@@ -51,6 +51,7 @@ import { api, normalizeObsidianEndpoint } from "./services/api";
 import { APP_STATE_KEYS, StorageManager } from "./services/storage/StorageManager";
 import { usePersistentState, usePersistentTextState } from "./hooks/usePersistentState";
 import { AppStateSchemas, parseWorkspaceImport } from "./domain/appStateSchemas";
+import { assessBaseReadiness } from "./domain/baseOnboarding";
 import { formatToObsidianTask } from "./utils/obsidianUri";
 import {
   PLANNING_SUBNAVIGATION,
@@ -138,10 +139,6 @@ const SubTabs = ({ activeTab, setActiveTab }: { activeTab: string, setActiveTab:
 };
 
 export default function App() {
-  const [activeTab, setActiveTab] = useState<
-    "dashboard" | "vault" | "campaigns" | "tasks" | "automations" | "routine" | "knowledge" | "content" | "editorial"
-  >("dashboard");
-
   const [engineMode, setEngineMode] = usePersistentTextState<EngineMode>(
     APP_STATE_KEYS.ENGINE_MODE,
     "local",
@@ -153,6 +150,9 @@ export default function App() {
     DEFAULT_OBSIDIAN_NOTES,
     AppStateSchemas.notes
   );
+  const [activeTab, setActiveTab] = useState<
+    "dashboard" | "vault" | "campaigns" | "tasks" | "automations" | "routine" | "knowledge" | "content" | "editorial"
+  >(() => assessBaseReadiness(notes).complete ? "dashboard" : "vault");
   const [campaigns, setCampaigns] = usePersistentState<MarketingCampaign[]>(
     APP_STATE_KEYS.CAMPAIGNS,
     DEFAULT_CAMPAIGNS,
@@ -208,7 +208,6 @@ export default function App() {
     DEFAULT_WEEKLY_ROUTINE,
     AppStateSchemas.weeklyRoutine
   );
-
   const [apiConfig, setApiConfig] = useState<ObsidianApiConfig>({
     endpoint: "https://127.0.0.1:27124",
     apiKey: "",
