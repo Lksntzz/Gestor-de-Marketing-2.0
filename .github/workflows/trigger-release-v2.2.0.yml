@@ -1,0 +1,27 @@
+name: Trigger Official v2.2.0 Release
+
+on:
+  push:
+    branches:
+      - "release/v2.2.0"
+
+permissions:
+  actions: write
+  contents: read
+
+jobs:
+  dispatch-release:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Dispatch official Windows release workflow from main
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh api \
+            --method POST \
+            -H "Accept: application/vnd.github+json" \
+            -H "X-GitHub-Api-Version: 2022-11-28" \
+            "/repos/${{ github.repository }}/actions/workflows/release-windows.yml/dispatches" \
+            -f ref=main \
+            -f 'inputs[version]=v2.2.0'
