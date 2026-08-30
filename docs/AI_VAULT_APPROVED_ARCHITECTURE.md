@@ -354,6 +354,106 @@ A IA é um processador assistido, não uma autoridade autônoma. Ela pode analis
 - mostra fontes, provedor e modelo utilizados;
 - salvar e aprovar são ações separadas da geração.
 
+### Inteligência criativa e memória de ideias
+
+A inteligência do produto é uma combinação de regras determinísticas do Nisti com geração da IA. A IA não decide sozinha se uma ideia é nova. O sistema mantém e consulta o histórico criativo antes e depois de cada geração.
+
+#### Memória criativa
+
+O `CreativeIndex` será um índice derivado e reconstruível a partir das fontes canônicas de:
+
+- ideias salvas;
+- roteiros aprovados;
+- campanhas;
+- itens planejados no Calendário;
+- conteúdos publicados;
+- conteúdos arquivados ou rejeitados com motivo;
+- projetos anteriores presentes no Vault e em backups importados.
+
+O índice não será uma nova fonte de verdade. IDs e vínculos continuam pertencendo às entidades canônicas; o índice existe para busca, comparação e reconstrução.
+
+Cada registro criativo deve preservar:
+
+- `idea_id` e `project_id`;
+- título e conceito central;
+- objetivo, público, canal e formato;
+- gancho, mensagem principal e CTA;
+- fontes utilizadas;
+- roteiro, campanha e publicação vinculados;
+- estado do workflow;
+- data de criação e de uso;
+- motivo de rejeição, quando informado;
+- `derived_from`, quando for reaproveitamento explícito.
+
+#### Comparação de similaridade
+
+O sistema não deve comparar apenas títulos. A análise combina:
+
+- hash normalizado para duplicidade exata;
+- palavras e entidades principais;
+- conceito central;
+- gancho;
+- público e objetivo;
+- mensagem e CTA;
+- formato e canal;
+- similaridade semântica quando a conexão confirmada oferecer essa capacidade.
+
+Trocar palavras mantendo o mesmo conceito não transforma uma ideia usada em ideia nova.
+
+#### Geração em duas barreiras
+
+Antes da geração:
+
+1. pesquisar informações relevantes no Obsidian;
+2. recuperar ideias anteriores semanticamente próximas;
+3. enviar à IA as fontes permitidas e uma lista resumida do que não deve ser repetido;
+4. pedir diversidade de conceito, não apenas variação de redação.
+
+Depois da geração:
+
+1. validar o schema das cinco ideias;
+2. comparar cada candidata com o histórico e com as outras candidatas do mesmo lote;
+3. bloquear duplicidade exata;
+4. rejeitar ou sinalizar similaridade alta;
+5. permitir uma única nova tentativa controlada para substituir candidatas repetidas;
+6. mostrar nível de novidade, referências e diferenças reais da proposta.
+
+Se não houver dados suficientes no Obsidian para propor algo fundamentado e diferente, o sistema deve informar a limitação em vez de preencher a lista com ideias genéricas.
+
+#### Política por estado
+
+- `PUBLICADO`, `PLANEJADO` ou `APROVADO`: forte barreira contra repetição;
+- `IDEIA_SALVA`: comparação obrigatória e alerta de proximidade;
+- `REJEITADO`: evitar pelo motivo registrado, mas permitir revisão consciente;
+- candidato ainda não salvo no lote atual: impedir duplicação dentro das cinco ideias;
+- item arquivado: manter no histórico; arquivar não apaga a memória criativa.
+
+#### Reaproveitamento intencional
+
+Quando o usuário pedir adaptação, o sistema usa um modo explícito `REAPROVEITAR`, não apresenta o resultado como ideia inédita e registra:
+
+- conteúdo de origem;
+- transformação solicitada;
+- novo canal ou formato;
+- vínculo `derived_from`;
+- diferenças em relação ao original.
+
+#### Uso dos resultados
+
+Métricas registradas podem ajudar a priorizar ou evitar padrões, mas não autorizam conclusões causais automáticas. O sistema pode dizer que uma característica está associada a resultados observados; não pode afirmar que ela causou o resultado sem evidência suficiente.
+
+#### Critérios de aceite da memória criativa
+
+- uma ideia idêntica é bloqueada mesmo com título diferente;
+- as cinco candidatas do mesmo lote não repetem o mesmo conceito;
+- ideia publicada em projeto anterior aparece na comparação;
+- diferença apenas de redação não recebe estado de novidade alta;
+- público ou objetivo diferente só libera a proposta quando a mudança for material;
+- reaproveitamento explícito preserva `derived_from` e não se apresenta como inédito;
+- conteúdo arquivado continua protegendo contra repetição;
+- ausência de histórico suficiente impede alegação absoluta de originalidade;
+- cada sugestão mostra quais dados do Obsidian fundamentaram sua criação.
+
 ### Planejar
 
 - pode sugerir campanha, canais e organização editorial;
