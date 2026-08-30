@@ -1,4 +1,4 @@
-import React, { useEffect, useRef, useState } from "react";
+import React, { useEffect, useMemo, useRef, useState } from "react";
 import {
   BarChart3,
   Bell,
@@ -11,7 +11,6 @@ import {
   Lightbulb,
   Menu,
   Plus,
-  Search,
   Settings,
   Sparkles,
   X,
@@ -21,6 +20,7 @@ import {
   PRIMARY_NAVIGATION,
   type PrimaryNavigationIcon,
 } from "../navigation/productNavigation";
+import { EDITORIAL_PLANNING_REQUEST_EVENT } from "../services/editorialPlanningHandoff";
 
 interface NavbarProps {
   activeTab: string;
@@ -63,8 +63,16 @@ export const Navbar: React.FC<NavbarProps> = ({
   const [isNotificationsOpen, setIsNotificationsOpen] = useState(false);
   const [isCreateDropdownOpen, setIsCreateDropdownOpen] = useState(false);
   const createDropdownRef = useRef<HTMLDivElement>(null);
-  const notifications = tasks.filter((task) => task.priority === "urgent" && task.status !== "done");
+
+  const notifications = useMemo(
+    () => tasks.filter((task) => task.priority === "urgent" && task.status !== "done"),
+    [tasks],
+  );
   const isBaseConnected = apiConfig.connectionStatus === "connected";
+  const currentArea = useMemo(
+    () => PRIMARY_NAVIGATION.find((item) => item.matches.includes(activeTab as any)),
+    [activeTab],
+  );
 
   useEffect(() => {
     const handleClickOutside = (event: MouseEvent) => {
@@ -75,6 +83,16 @@ export const Navbar: React.FC<NavbarProps> = ({
     document.addEventListener("mousedown", handleClickOutside);
     return () => document.removeEventListener("mousedown", handleClickOutside);
   }, []);
+
+  useEffect(() => {
+    const openEditorialPlanning = () => {
+      setActiveTab("editorial");
+      setIsMobileMenuOpen(false);
+      setIsCreateDropdownOpen(false);
+    };
+    window.addEventListener(EDITORIAL_PLANNING_REQUEST_EVENT, openEditorialPlanning);
+    return () => window.removeEventListener(EDITORIAL_PLANNING_REQUEST_EVENT, openEditorialPlanning);
+  }, [setActiveTab]);
 
   const handleTabClick = (tabId: string) => {
     setActiveTab(tabId);
@@ -97,7 +115,7 @@ export const Navbar: React.FC<NavbarProps> = ({
     <header className="sticky top-0 z-20 w-full bg-surface border-b border-outline-border select-none">
       <div className="w-full px-4 sm:px-6 lg:px-8">
         <div className="flex items-center justify-between h-16 gap-4">
-          <div className="flex items-center gap-4 flex-1 min-w-0">
+          <div className="flex items-center gap-3 min-w-0">
             <button
               type="button"
               onClick={() => handleTabClick("dashboard")}
@@ -125,13 +143,9 @@ export const Navbar: React.FC<NavbarProps> = ({
               </div>
             </button>
 
-            <div className="hidden lg:flex items-center relative w-full max-w-md">
-              <Search className="w-4 h-4 text-text-secondary absolute left-3.5 pointer-events-none" />
-              <input
-                type="text"
-                placeholder="Buscar conhecimento, campanhas, tarefas, notas... ⌘ K"
-                className="w-full pl-10 pr-4 py-2 bg-surface-container-low hover:bg-surface-variant text-xs font-medium text-text-primary placeholder-text-secondary rounded-2xl border border-outline-border focus:outline-none focus:ring-1 focus:ring-motor-info focus:border-motor-info transition-all"
-              />
+            <div className="hidden lg:block min-w-0">
+              <div className="text-[10px] uppercase tracking-[0.18em] font-bold text-text-secondary">Nisti Marketing</div>
+              <div className="text-sm font-black text-text-primary truncate">{currentArea?.label || "Workspace"}</div>
             </div>
           </div>
 
@@ -329,6 +343,7 @@ export const Navbar: React.FC<NavbarProps> = ({
                   type="button"
                   key={item.id}
                   onClick={() => handleTabClick(item.id)}
+                  aria-label={item.label}
                   className={`p-3 rounded-xl text-left transition-all flex flex-col justify-between cursor-pointer ${
                     isActive
                       ? "bg-pink-500/10 border border-pink-500/25 text-text-primary"
