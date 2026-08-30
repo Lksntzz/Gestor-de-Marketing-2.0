@@ -25,9 +25,12 @@ export function storeEditorialPlanningHandoff(input: EditorialPlanningHandoff): 
   };
 
   window.sessionStorage.setItem(HANDOFF_KEY, JSON.stringify(payload));
-  window.dispatchEvent(new CustomEvent<EditorialPlanningHandoff>(EDITORIAL_PLANNING_REQUEST_EVENT, {
-    detail: payload,
-  }));
+
+  if (typeof window.dispatchEvent === "function" && typeof CustomEvent !== "undefined") {
+    window.dispatchEvent(new CustomEvent<EditorialPlanningHandoff>(EDITORIAL_PLANNING_REQUEST_EVENT, {
+      detail: payload,
+    }));
+  }
 }
 
 export function consumeEditorialPlanningHandoff(): EditorialPlanningHandoff | null {
