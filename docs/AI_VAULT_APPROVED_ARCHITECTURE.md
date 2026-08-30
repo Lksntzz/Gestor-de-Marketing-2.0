@@ -197,6 +197,115 @@ A verificação do Vault deve identificar:
 
 `Reparar estrutura` pode recriar somente elementos gerenciados ausentes. O sistema não pode apagar, mover ou renomear arquivos pessoais automaticamente.
 
+## Motor automático de curadoria do Inbox
+
+Depois que a conexão de IA e o Vault estiverem confirmados, o Nisti poderá iniciar um worker local de curadoria. Esse worker observa somente fontes novas ou alteradas e usa hash de conteúdo para não analisar o mesmo material repetidamente.
+
+### Entradas suportadas
+
+- texto digitado ou arquivo `.txt`/`.md`;
+- PDF;
+- imagem e captura de tela;
+- página pública em HTTP/HTTPS;
+- link de vídeo;
+- arquivos explicitamente importados pelo usuário.
+
+O tipo da fonte deve ser reconhecido por MIME, assinatura do arquivo e URL validada, não apenas pela extensão ou pelo nome.
+
+### Estados do processamento
+
+1. `DESCOBERTO`
+2. `NA_FILA`
+3. `ANALISANDO`
+4. `CURADO`
+5. `AGUARDANDO_REVISAO`
+6. `FALHOU`
+
+O estado, hash e versão do analisador ficam registrados para que reiniciar o aplicativo não duplique trabalhos nem notas.
+
+### Pipeline de curadoria
+
+1. preservar o original em `00_Inbox/Originais` ou manter referência segura ao arquivo já existente;
+2. calcular hash e verificar duplicidade;
+3. extrair texto e metadados disponíveis;
+4. selecionar contexto relevante da Base Inicial;
+5. enviar somente o material necessário ao modelo confirmado;
+6. exigir uma resposta estruturada com resumo, fatos, hipóteses, pendências, tags, fontes e destino sugerido;
+7. validar o resultado contra o schema e a taxonomia do Vault;
+8. criar uma nota derivada na pasta canônica adequada;
+9. marcar a nota como `PENDENTE` ou `HIPÓTESE`, nunca `CONFIRMADO` automaticamente;
+10. registrar vínculo, hash, provedor e modelo usados;
+11. encaminhar classificações ambíguas para `00_Inbox/Para_Revisar`.
+
+### Roteamento por conteúdo
+
+- informações sobre marca, posicionamento e público: `01_Estrategia`;
+- produtos, especificações e ofertas: `02_Produtos`;
+- ideias, referências criativas e roteiros: `03_Conteudos`;
+- planos e materiais de campanha: `04_Campanhas`;
+- atas, decisões e briefings: `05_Reunioes`;
+- influenciadores, parceiros e UGC: `06_Influenciadores_UGC`;
+- pesquisas, concorrência e mercado: `07_Pesquisas`;
+- resultados, evidências e aprendizados: `08_Aprendizados`;
+- conteúdo sem classificação segura: `00_Inbox/Para_Revisar`.
+
+`00_Base` não recebe alterações automáticas vindas da curadoria. O sistema pode sugerir uma atualização da Base, mas a incorporação depende de confirmação explícita. `99_Templates` também não é um destino automático.
+
+### Regras por tipo de fonte
+
+#### Texto e Markdown
+
+- preservar títulos, listas e referências;
+- extrair resumo e pontos importantes;
+- separar afirmações, hipóteses e pendências;
+- preservar links internos e campos desconhecidos.
+
+#### Imagem e captura de tela
+
+- usar visão/OCR somente se o modelo confirmado declarar essa capacidade;
+- preservar a imagem original;
+- registrar texto visível, descrição objetiva e limitações de leitura;
+- nunca inferir preço, identidade ou contexto não visível.
+
+#### Página pública
+
+- aceitar somente HTTP/HTTPS após validação contra SSRF;
+- aplicar limite de tamanho, redirecionamentos e tempo;
+- registrar URL, título, data de captura e hash;
+- distinguir texto da página de interpretações feitas pela IA.
+
+#### Link de vídeo
+
+- registrar URL e metadados públicos disponíveis;
+- analisar descrição ou transcrição somente quando realmente acessível e autorizada;
+- se não houver transcrição, declarar `CONTEUDO_DO_VIDEO_NAO_ANALISADO`;
+- nunca gerar um resumo do vídeo apenas a partir do título ou da miniatura;
+- permitir que o usuário anexe uma transcrição ou arquivo compatível para análise completa.
+
+### Proteções operacionais
+
+- o original nunca é apagado nem movido silenciosamente;
+- a nota curada mantém `source_id`, `source_hash` e localização da origem;
+- a criação é idempotente por hash e versão do analisador;
+- o worker não reprocessa notas geradas por ele próprio;
+- nenhuma tarefa, campanha, publicação ou alteração da Base é criada automaticamente;
+- falha de análise mantém a fonte no Inbox e não produz fallback sintético;
+- operações e custos podem ser pausados pelo usuário;
+- o processamento respeita limites de fila, tamanho, taxa e orçamento configurado;
+- correções de pasta feitas pelo usuário ficam registradas para auditoria, mas não viram regra global sem confirmação.
+
+### Critérios de aceite da curadoria
+
+- texto novo gera uma nota rastreável na pasta correta;
+- imagem ou print preserva o original e registra apenas informações visíveis;
+- página pública registra origem e conteúdo realmente obtido;
+- vídeo sem transcrição não recebe resumo inventado;
+- item duplicado não gera nova análise ou nova nota;
+- classificação insegura permanece em `00_Inbox/Para_Revisar`;
+- nenhuma curadoria altera automaticamente `00_Base`;
+- reiniciar o aplicativo preserva a fila e não duplica resultados;
+- toda nota derivada informa fonte, hash, provedor, modelo e estado epistemológico.
+
 ---
 
 # Como a IA opera dentro do Nisti
@@ -286,5 +395,5 @@ Se conexão, contexto ou resposta não forem válidos:
 7. manifesto e taxonomia única do Vault;
 8. bootstrap de pastas e templates;
 9. consolidação de leitura, escrita e indexação;
-10. auditoria, reparo e homologação ponta a ponta.
-
+10. motor incremental de curadoria do Inbox;
+11. auditoria, reparo e homologação ponta a ponta.
