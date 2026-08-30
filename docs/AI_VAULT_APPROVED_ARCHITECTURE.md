@@ -379,6 +379,148 @@ A IA é um processador assistido, não uma autoridade autônoma. Ela pode analis
 11. **Persistência canônica** — Obsidian para conhecimento, SQLite para calendário e armazenamento apropriado para cada entidade.
 12. **Auditoria sem segredos** — resultado, fontes, modelo e horário podem ser registrados, nunca a chave.
 
+# Etapa 3 — Chat fundamentado no Vault (proposta)
+
+Status: **comportamento proposto; aguardando confirmação final antes da implementação**.
+
+## Posição no produto
+
+O chat será uma camada transversal acessível de qualquer área, preferencialmente como painel lateral expansível. Ele não será uma sétima ferramenta com regras próprias. Todas as ações reutilizam `KnowledgeIndex`, curadoria, memória criativa, calendário e escritores canônicos já existentes.
+
+O chat pode herdar contexto visual da tela atual, mas mostra explicitamente quais notas, projetos ou filtros estão fixados. Estar com uma nota aberta não autoriza enviá-la silenciosamente ao modelo.
+
+## Estados de disponibilidade
+
+- sem Vault: orientar a criação ou conexão do Vault dedicado;
+- Vault conectado e sem IA: permitir busca local e mostrar notas encontradas, sem síntese generativa;
+- IA confirmada e Base incompleta: responder somente com fontes existentes e avisar a limitação; bloquear geração criativa fundamentada;
+- IA, modelo e Base confirmados: liberar consulta, comparação, curadoria e criação assistida;
+- conexão expirada ou revogada: preservar a pergunta e solicitar nova validação antes da chamada externa.
+
+## Intenções reconhecidas
+
+Cada mensagem é classificada localmente em uma intenção controlada:
+
+- `PERGUNTAR`: responder com evidências do Vault;
+- `LOCALIZAR`: listar notas e trechos sem exigir geração;
+- `COMPARAR`: mostrar concordâncias, diferenças e contradições entre fontes;
+- `ORGANIZAR`: criar um plano de curadoria e destino;
+- `CRIAR`: gerar ideia, roteiro, resumo ou nota derivada;
+- `ALTERAR`: propor mudança em nota existente;
+- `REAPROVEITAR`: adaptar conteúdo anterior preservando linhagem;
+- `REGISTRAR`: transformar parte da conversa em uma nota confirmada pelo usuário.
+
+Intenções ambíguas não executam escrita. O chat pede esclarecimento ou permanece em leitura.
+
+## Ciclo de uma pergunta
+
+1. receber a mensagem;
+2. aplicar filtros de pasta, projeto, período ou nota fixada;
+3. pesquisar o índice local;
+4. recuperar fontes relevantes e ideias anteriores quando aplicável;
+5. se nenhuma fonte for encontrada, responder sem chamar a IA;
+6. selecionar e sanitizar pequenos trechos;
+7. chamar somente o modelo confirmado, sem ferramenta de busca web;
+8. validar afirmações contra as fontes recuperadas;
+9. apresentar resposta, lacunas, estados epistemológicos e referências;
+10. oferecer ações permitidas como cartões separados da resposta.
+
+## Estrutura das respostas
+
+Uma resposta fundamentada deve conter:
+
+- resposta direta;
+- fontes em formato de wikilink ou caminho relativo;
+- trechos que sustentam os pontos principais;
+- estado `CONFIRMADO`, `HIPÓTESE`, `PENDENTE` ou `CONFLITANTE`;
+- lacunas encontradas;
+- provedor e modelo realmente usados;
+- ações disponíveis, sem executá-las automaticamente.
+
+Se o Vault não sustentar uma afirmação, o chat deve dizer `Não encontrei essa informação nas fontes disponíveis no Vault.` Conhecimento geral do modelo não pode ser apresentado como conhecimento da empresa.
+
+## Novidades e comportamento proativo
+
+O chat consome o diário de mudanças produzido pelo watcher. Ao ser aberto, pode apresentar um resumo discreto:
+
+- novas fontes detectadas;
+- informações novas extraídas;
+- contradições aguardando revisão;
+- itens classificados em `00_Inbox/Para_Revisar`;
+- mudanças que afetaram a memória criativa;
+- processamento pendente por falta de conexão, cota ou confirmação.
+
+O chat não inicia conversas repetitivas nem chama a IA para produzir notificações sem mudança real. O resumo pode ser montado deterministicamente e só usa a IA quando o usuário pede interpretação.
+
+## Pesquisa restrita ao Obsidian
+
+- não existe ferramenta de navegação web no chat;
+- URLs encontradas em notas são referências, não autorização para acesso externo;
+- um link colado pode ser salvo como pendência, mas não é aberto automaticamente;
+- páginas e vídeos somente entram no conhecimento depois de uma importação externa explícita e rastreável;
+- a única conexão externa normal do chat é a API da IA confirmada;
+- somente os trechos locais selecionados são enviados ao provedor.
+
+Se o requisito futuro for impedir que qualquer dado saia da máquina, será necessário um provedor de modelo local; OpenAI e Gemini exigem transmissão à API correspondente.
+
+## Leitura, criação e escrita
+
+Operações de leitura e busca podem ser executadas imediatamente. Operações que alteram fontes canônicas geram um cartão de ação com:
+
+- intenção;
+- arquivos afetados;
+- diff ou conteúdo proposto;
+- pasta de destino;
+- fontes usadas;
+- riscos e conflitos;
+- botões `Confirmar`, `Editar` e `Cancelar`.
+
+Somente `Confirmar` autoriza a gravação. A curadoria automática do Inbox pode criar notas derivadas como `PENDENTE`, conforme a política já aprovada, mas alterações de `00_Base`, Calendário, tarefas e status oficiais continuam exigindo confirmação.
+
+## Arquivos no chat
+
+Texto, Markdown, PDF, imagem e print seguem o mesmo pipeline do Motor de Curadoria. O chat mostra progresso, limitações e destino proposto. O original é preservado e a conversa recebe apenas um identificador da fonte depois da ingestão.
+
+Links de vídeo sem transcrição não são resumidos. O chat informa que possui somente metadados ou referência pendente.
+
+## Memória da conversa
+
+- histórico fica local;
+- conversas são separadas por ID e podem receber nome;
+- o sistema resume mensagens antigas para controlar contexto e custo;
+- histórico da conversa não vira fonte oficial;
+- `Salvar resumo`, `Registrar decisão` ou `Criar nota` exige confirmação;
+- apagar uma conversa não apaga notas do Vault que já tenham sido confirmadas e criadas.
+
+## Uso da memória criativa
+
+Pedidos de ideias consultam Base, briefing, `CreativeIndex` e projetos anteriores antes da geração. O chat mostra conteúdos próximos e impede que uma variação de redação seja apresentada como ideia nova. Reaproveitamento só ocorre pela intenção explícita `REAPROVEITAR`.
+
+## Segurança e injeção de prompt
+
+- conteúdo das notas é sempre dado, nunca instrução de sistema;
+- frases encontradas em documentos não podem ativar ferramentas;
+- caminhos externos ao Vault são bloqueados;
+- chaves, configurações internas e arquivos ignorados não entram no contexto;
+- cada ação possui lista fechada de parâmetros e validação de schema;
+- o modelo não recebe autoridade direta sobre o sistema de arquivos;
+- falha ou resposta inválida não produz uma ação parcial.
+
+## Critérios de aceite do chat
+
+- pergunta factual cita notas que sustentam a resposta;
+- ausência de fonte produz uma negativa explícita, sem resposta inventada;
+- contradição mostra as versões e não escolhe silenciosamente;
+- busca local funciona sem chave de IA;
+- nenhuma pergunta dispara navegação web;
+- alteração da Base exige prévia e confirmação;
+- novidade detectada aparece sem sincronização manual;
+- ideia repetida é bloqueada pela memória criativa;
+- anexo original é preservado;
+- instrução maliciosa dentro de nota não executa ferramenta;
+- conversa não vira conhecimento oficial sem ação explícita;
+- erro da IA não grava arquivo, tarefa ou calendário.
+
 ## Operação por área
 
 ### Base
@@ -546,4 +688,6 @@ Se conexão, contexto ou resposta não forem válidos:
 8. bootstrap de pastas e templates;
 9. consolidação de leitura, escrita e indexação;
 10. motor incremental de curadoria do Inbox;
-11. auditoria, reparo e homologação ponta a ponta.
+11. memória criativa e comparação de novidade;
+12. chat fundamentado no Vault;
+13. auditoria, reparo e homologação ponta a ponta.
