@@ -39,6 +39,7 @@ describe("Windows release updater artifacts", () => {
     for (const workflow of [releaseWorkflow, windowsWorkflow]) {
       expect(workflow).toContain("windows-electron-smoke.ps1");
     }
+    expect(windowsWorkflow).toContain("pull_request:");
     expect(smoke).toContain("rendererReady");
     expect(smoke).toContain("preloadReady");
     expect(smoke).toContain("backendReady");

@@ -16,6 +16,22 @@ on:
       - "scripts/**"
       - "package.json"
       - ".github/workflows/windows-v2-test.yml"
+  pull_request:
+    branches:
+      - "main"
+      - "master"
+    paths:
+      - "electron-main.ts"
+      - "electron-bootstrap.ts"
+      - "src/electron/**"
+      - "src/services/knowledge/index/**"
+      - "src/domain/baseOnboarding.ts"
+      - "src/components/BaseOnboardingPanel.tsx"
+      - "src/types.ts"
+      - "tests-node/baseOnboardingDesktop.test.ts"
+      - "scripts/**"
+      - "package.json"
+      - ".github/workflows/windows-v2-test.yml"
   workflow_dispatch:
 
 permissions:
