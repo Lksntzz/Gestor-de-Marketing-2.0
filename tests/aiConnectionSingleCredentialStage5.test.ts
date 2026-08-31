@@ -99,28 +99,26 @@ describe("AI connection Stage 5 single credential foundation", () => {
     expect(result.proposal?.state.secretRef).toBe("legacy:geminiApiKey");
   });
 
-  test("provider switch from a legacy active connection uses the canonical credential, not the other legacy slot", async () => {
-    const activeLegacyOpenAI: PersistedAIConnectionState = {
+  test("provider switch on a canonical active connection keeps using the single credential", async () => {
+    const activeCanonicalOpenAI: PersistedAIConnectionState = {
       schemaVersion: 1,
       status: "CONEXAO_ATIVA",
-      connectionId: "legacy-openai-active",
+      connectionId: "canonical-openai-active",
       provider: "openai",
       model: "model-old",
-      secretRef: "legacy:openaiApiKey",
+      secretRef: "active:aiConnectionKey",
       capabilities: ["text_generation"],
       credentialConfirmedAt: "2026-08-31T11:00:00.000Z",
       modelConfirmedAt: "2026-08-31T11:01:00.000Z",
     };
-    const store = createStore(activeLegacyOpenAI);
+    const store = createStore(activeCanonicalOpenAI);
     const reads: AISecretReference[] = [];
 
     const runtime = new AIConnectionTrustedRuntimeService({
       ...store,
       readSecret: async (ref) => {
         reads.push(ref);
-        if (ref === "active:aiConnectionKey") return "new-single-key";
-        if (ref === "legacy:geminiApiKey") return "old-other-provider-key";
-        return "old-openai-key";
+        return ref === "active:aiConnectionKey" ? "single-key" : "legacy-key-must-not-be-read";
       },
       discovery: discovery("conn-new-gemini"),
     });
@@ -129,7 +127,7 @@ describe("AI connection Stage 5 single credential foundation", () => {
 
     expect(result.success).toBe(true);
     expect(reads).toEqual(["active:aiConnectionKey"]);
-    expect(result.state).toEqual(activeLegacyOpenAI);
+    expect(result.state).toEqual(activeCanonicalOpenAI);
     expect(result.proposal?.provider).toBe("gemini");
     expect(result.proposal?.state.secretRef).toBe("active:aiConnectionKey");
   });
