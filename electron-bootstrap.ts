@@ -41,6 +41,29 @@ if (!hasSingleInstanceLock) {
   app.quit();
 }
 
+// Obsidian Local REST API uses a self-signed HTTPS certificate by default.
+// Trust is scoped to the official loopback HTTPS endpoint only; all other
+// certificate decisions remain under Chromium's default verification.
+const TRUSTED_OBSIDIAN_TLS_ENDPOINTS = new Set([
+  "127.0.0.1:27124",
+  "localhost:27124",
+  "[::1]:27124",
+]);
+
+app.on("certificate-error", (event, _webContents, requestUrl, _error, _certificate, callback) => {
+  try {
+    const target = new URL(requestUrl);
+    if (target.protocol === "https:" && TRUSTED_OBSIDIAN_TLS_ENDPOINTS.has(target.host)) {
+      event.preventDefault();
+      callback(true);
+      return;
+    }
+  } catch {
+    // Invalid certificate URL: keep Electron's secure default behavior.
+  }
+  callback(false);
+});
+
 function getSecretsFilePath(): string {
   return path.join(app.getPath("userData"), "nisti_secure_secrets.json");
 }
