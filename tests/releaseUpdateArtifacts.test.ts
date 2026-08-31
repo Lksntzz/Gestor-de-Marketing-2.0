@@ -47,4 +47,21 @@ describe("Windows release updater artifacts", () => {
     expect(desktop).toContain("NISTI_RUNTIME_HEALTH_FILE");
     expect(desktop).toContain("writeRuntimeHealthProbe");
   });
+
+  test("release validates installer upgrade from the previous stable version before publishing", async () => {
+    const [workflow, upgradeSmoke] = await Promise.all([
+      read(".github/workflows/release-windows.yml"),
+      read("scripts/windows-upgrade-smoke.ps1"),
+    ]);
+
+    expect(workflow).toContain("Resolve Previous Stable Windows Release");
+    expect(workflow).toContain("Smoke Test Upgrade from Previous Stable Release");
+    expect(workflow).toContain("windows-upgrade-smoke.ps1");
+    expect(workflow.indexOf("Smoke Test Upgrade from Previous Stable Release"))
+      .toBeLessThan(workflow.indexOf("Publish Release to This Public Repository"));
+    expect(upgradeSmoke).toContain("resources\\app\\package.json");
+    expect(upgradeSmoke).toContain("userData foi removido durante o upgrade");
+    expect(upgradeSmoke).toContain("windows-electron-smoke.ps1");
+    expect(upgradeSmoke).toContain("ExpectedVersion");
+  });
 });
