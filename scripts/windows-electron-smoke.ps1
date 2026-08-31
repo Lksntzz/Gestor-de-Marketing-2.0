@@ -25,6 +25,8 @@ using System;
 using System.Runtime.InteropServices;
 
 public static class NistiWindowCapture {
+    public delegate bool EnumWindowsProc(IntPtr hWnd, IntPtr lParam);
+
     [StructLayout(LayoutKind.Sequential)]
     public struct RECT {
         public int Left;
@@ -33,25 +35,57 @@ public static class NistiWindowCapture {
         public int Bottom;
     }
 
-    [DllImport("user32.dll", CharSet = CharSet.Unicode)]
-    public static extern IntPtr FindWindow(string lpClassName, string lpWindowName);
+    [DllImport("user32.dll")]
+    public static extern bool EnumWindows(EnumWindowsProc lpEnumFunc, IntPtr lParam);
+
+    [DllImport("user32.dll")]
+    public static extern uint GetWindowThreadProcessId(IntPtr hWnd, out uint lpdwProcessId);
+
+    [DllImport("user32.dll")]
+    public static extern bool IsWindowVisible(IntPtr hWnd);
 
     [DllImport("user32.dll")]
     public static extern bool GetWindowRect(IntPtr hWnd, out RECT lpRect);
 
     [DllImport("user32.dll")]
     public static extern bool PrintWindow(IntPtr hWnd, IntPtr hdcBlt, uint nFlags);
+
+    public static IntPtr FindLargestWindowForProcess(int processId) {
+        IntPtr bestHandle = IntPtr.Zero;
+        long bestArea = 0;
+
+        EnumWindows(delegate(IntPtr hWnd, IntPtr lParam) {
+            uint windowProcessId;
+            GetWindowThreadProcessId(hWnd, out windowProcessId);
+            if (windowProcessId != (uint)processId || !IsWindowVisible(hWnd)) {
+                return true;
+            }
+
+            RECT rect;
+            if (!GetWindowRect(hWnd, out rect)) {
+                return true;
+            }
+
+            long width = Math.Max(0, rect.Right - rect.Left);
+            long height = Math.Max(0, rect.Bottom - rect.Top);
+            long area = width * height;
+            if (area > bestArea) {
+                bestArea = area;
+                bestHandle = hWnd;
+            }
+            return true;
+        }, IntPtr.Zero);
+
+        return bestHandle;
+    }
 }
 "@
   }
 
   $TargetProcess.Refresh()
-  $handle = [NistiWindowCapture]::FindWindow($null, "Nisti Marketing")
+  $handle = [NistiWindowCapture]::FindLargestWindowForProcess($TargetProcess.Id)
   if ($handle -eq [IntPtr]::Zero) {
-    $handle = $TargetProcess.MainWindowHandle
-  }
-  if ($handle -eq [IntPtr]::Zero) {
-    throw "Não foi possível obter o handle da janela Nisti Marketing para a captura visual."
+    throw "Não foi possível localizar uma janela visível do processo Nisti Marketing para a captura visual."
   }
 
   $rect = New-Object NistiWindowCapture+RECT
