@@ -18,6 +18,7 @@ describe("AI connection Stage 4 trusted bridge contract", () => {
     expect(bridge).toContain("JSON.stringify(parsed, null, 2)");
     expect(bridge).toContain("parsePersistedAIConnection(input)");
     expect(bridge).toContain("if (persisted.exists) return createEmptyAIConnection();");
+    expect(bridge).toContain("fs.rm(connectionFilePath(), { force: true })");
     expect(bridge).not.toContain("stripSecretFields");
     expect(bridge).not.toContain("ipcMain.handle");
   });
@@ -31,6 +32,7 @@ describe("AI connection Stage 4 trusted bridge contract", () => {
 
     const block = preload.slice(start, end);
     expect(block).toContain('ipcRenderer.invoke("ai-connection:get-state")');
+    expect(block).toContain('ipcRenderer.invoke("ai-connection:reset")');
     expect(block).toContain('ipcRenderer.invoke("ai-connection:confirm-provider", { provider })');
     expect(block).toContain('ipcRenderer.invoke("ai-connection:validate-model", { provider, model })');
     expect(block).not.toContain("apiKey");
@@ -47,11 +49,12 @@ describe("AI connection Stage 4 trusted bridge contract", () => {
     expect(bridge).toContain("hasOnlyKeys(input, ALLOWED_MODEL_KEYS)");
   });
 
-  test("all three new IPC handlers are registered at the audited bootstrap boundary and validate the sender", () => {
+  test("all new AI IPC handlers are registered at the audited bootstrap boundary and validate the sender", () => {
     const bootstrap = source("electron-bootstrap.ts");
 
     for (const channel of [
       "ai-connection:get-state",
+      "ai-connection:reset",
       "ai-connection:confirm-provider",
       "ai-connection:validate-model",
     ]) {
@@ -61,5 +64,27 @@ describe("AI connection Stage 4 trusted bridge contract", () => {
       const handler = bootstrap.slice(handlerStart, handlerEnd);
       expect(handler).toContain("assertTrustedIpcSender(event)");
     }
+  });
+
+  test("secret mutation revokes dependent AI metadata before the secure-store write", () => {
+    const bootstrap = source("electron-bootstrap.ts");
+
+    const setStart = bootstrap.indexOf('ipcMain.handle("secret:set"');
+    const setEnd = bootstrap.indexOf('ipcMain.handle("secret:get"', setStart);
+    const setBlock = bootstrap.slice(setStart, setEnd);
+    const idempotentGuard = setBlock.indexOf("previousValue === nextValue");
+    const setRevoke = setBlock.indexOf("await revokeAIConnectionSecretStoreKey(name)");
+    const setWrite = setBlock.indexOf("await writeSecretStore(store)");
+    expect(idempotentGuard).toBeGreaterThanOrEqual(0);
+    expect(setRevoke).toBeGreaterThan(idempotentGuard);
+    expect(setWrite).toBeGreaterThan(setRevoke);
+
+    const deleteStart = bootstrap.indexOf('ipcMain.handle("secret:delete"');
+    const deleteEnd = bootstrap.indexOf('ipcMain.handle("ai-connection:get-state"', deleteStart);
+    const deleteBlock = bootstrap.slice(deleteStart, deleteEnd);
+    const deleteRevoke = deleteBlock.indexOf("await revokeAIConnectionSecretStoreKey(name)");
+    const deleteWrite = deleteBlock.indexOf("await writeSecretStore(store)");
+    expect(deleteRevoke).toBeGreaterThanOrEqual(0);
+    expect(deleteWrite).toBeGreaterThan(deleteRevoke);
   });
 });
