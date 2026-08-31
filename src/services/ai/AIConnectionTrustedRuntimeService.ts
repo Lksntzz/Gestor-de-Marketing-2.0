@@ -131,8 +131,8 @@ function isValidationFailure(result: AIModelValidationResult): result is AIModel
  * The renderer supplies only provider/model choices. Credentials and the
  * discovered-model set are resolved inside the trusted runtime. An existing
  * active connection is kept transactionally until a replacement is fully
- * validated. Reset operations use the same exclusive queue so stale proposals
- * cannot race with deletion of canonical connection metadata.
+ * validated. Reset and secret-revocation operations use the same exclusive
+ * queue so stale proposals cannot race with canonical metadata changes.
  */
 export class AIConnectionTrustedRuntimeService {
   private readonly loadState: RuntimeOptions["loadState"];
@@ -174,6 +174,30 @@ export class AIConnectionTrustedRuntimeService {
       return {
         success: true,
         state: createEmptyAIConnection(),
+      };
+    });
+  }
+
+  async revokeSecret(secretRef: AISecretReference): Promise<AIConnectionRuntimeSnapshot> {
+    return this.exclusive(async () => {
+      const current = await this.loadValidatedState();
+      if (this.proposal?.state.secretRef === secretRef) {
+        this.proposal = null;
+      }
+
+      if (current.secretRef === secretRef) {
+        if (!this.resetState) {
+          throw new Error("Trusted AI connection reset is not configured.");
+        }
+        await this.resetState();
+        this.proposal = null;
+        return { state: createEmptyAIConnection() };
+      }
+
+      const proposal = cloneProposal(this.proposal);
+      return {
+        state: current,
+        ...(proposal ? { proposal } : {}),
       };
     });
   }
