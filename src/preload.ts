@@ -30,7 +30,7 @@ contextBridge.exposeInMainWorld("electronAPI", {
   deleteSecret: (name: string) => ipcRenderer.invoke("secret:delete", name),
   setAIConfig: (config: { provider: "gemini" | "openai"; model?: string }) => ipcRenderer.invoke("ai:config:set", config),
 
-  // Single-connection bridge. The active credential is write-only from the
+  // New single-connection bridge. The active credential is write-only from the
   // renderer: there is deliberately no getter for aiConnectionKey.
   setAIConnectionCredential: (apiKey: string) =>
     ipcRenderer.invoke("ai-connection:set-credential", apiKey),
