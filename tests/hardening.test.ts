@@ -63,19 +63,24 @@ describe("v2 hardening invariants", () => {
     expect(source).not.toContain('localStorage.getItem("obsidian_api_config")');
   });
 
-  test("Obsidian runtime fails closed until REST and physical Vault are validated", async () => {
+  test("Obsidian runtime fails closed until REST is validated and Nisti structure is prepared", async () => {
     const desktop = await read("electron-main.ts");
     const apiSource = await read("src/services/api.ts");
+    const automation = await read("src/services/obsidianKnowledgeAutomation.ts");
     const runtime = await read("src/services/obsidianRuntimeState.ts");
     const main = await read("src/main.tsx");
 
     expect(desktop).toContain("obsidianConnectionAuthorized = false");
     expect(desktop).toContain("requireObsidianConnection");
     expect(desktop).toContain('ipcMain.handle("vault:connection-state"');
+    expect(apiSource).toContain("requestObsidianConnectionTest");
+    expect(apiSource).toContain("ensureNistiRemoteStructure");
     expect(apiSource).toContain("setDesktopObsidianAuthorization(true)");
     expect(apiSource).toContain("setDesktopObsidianAuthorization(false)");
     expect(apiSource).toContain("markObsidianRuntimeConnected");
     expect(apiSource).toContain("markObsidianRuntimeDisconnected");
+    expect(apiSource).not.toContain("inspectDesktopVault");
+    expect(automation).toContain('NISTI_VAULT_ROOT = "Nisti Marketing"');
     expect(runtime).toContain("let connected = false");
     expect(main).toContain("ObsidianRuntimeGate");
     expect(main).toContain("OBSIDIAN_DISCONNECTED_EVENT");
