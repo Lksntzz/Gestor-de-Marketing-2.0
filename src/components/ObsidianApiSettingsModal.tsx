@@ -884,7 +884,7 @@ export const ObsidianApiSettingsModal: React.FC<ObsidianApiSettingsModalProps> =
                   <span>Conexão com o Obsidian</span>
                 </h3>
                 <p className="text-xs text-text-secondary leading-normal">
-                  Configure os parâmetros do Obsidian. O status conectado só é liberado depois que a API e o Vault físico são validados.
+                  Informe o endpoint e a API Key do Local REST API. Após validar a conexão, o Nisti cria e mantém automaticamente a pasta “Nisti Marketing” dentro do Vault ativo.
                 </p>
               </div>
 
@@ -975,7 +975,7 @@ export const ObsidianApiSettingsModal: React.FC<ObsidianApiSettingsModalProps> =
                   <button
                     type="button"
                     onClick={handleTestObsidian}
-                    disabled={isTesting || (!window.electronAPI && (!(formData.endpoint || "").trim() || !(formData.apiKey || "").trim()))}
+                    disabled={isTesting || !(formData.endpoint || "").trim() || !(formData.apiKey || "").trim()}
                     className="w-full py-2.5 bg-[#0f131c] hover:bg-[#334155] disabled:opacity-50 disabled:cursor-not-allowed text-text-primary text-xs font-semibold rounded-lg border border-outline-border transition-colors flex items-center justify-center gap-2 cursor-pointer"
                   >
                     <RefreshCw className={`w-3.5 h-3.5 ${isTesting ? "animate-spin text-pink-500" : ""}`} />
@@ -1002,14 +1002,21 @@ export const ObsidianApiSettingsModal: React.FC<ObsidianApiSettingsModalProps> =
                   {testResult && !testResult.success && (
                     <div className="mt-3 p-3 bg-pink-500/10 border border-pink-500/30 rounded-xl text-left">
                       <p className="text-[11px] text-text-primary leading-relaxed font-medium">
-                        A conexão não foi liberada. No desktop, confirme que o Obsidian está aberto, o plugin Local REST API está ativo, o token está correto e a pasta física do Vault foi selecionada.
+                        A conexão não foi liberada. Confirme que o Obsidian está aberto, o plugin Local REST API está ativo, o endpoint está correto e a API Key corresponde ao Vault ativo.
                       </p>
                     </div>
                   )}
                 </div>
 
-                {/* Seção de Integridade e Reparo do Vault Local */}
-                {window.electronAPI && (
+                <div className="mt-4 pt-4 border-t border-outline-border">
+                  <div className="p-3 rounded-xl border border-emerald-500/25 bg-emerald-500/5 text-[11px] text-text-secondary leading-relaxed">
+                    <span className="font-bold text-emerald-300 block mb-1">Estrutura automática do Nisti</span>
+                    Depois da autenticação, o Nisti prepara <strong>Nisti Marketing/00_Inbox</strong> e as pastas de Estratégia, Produtos, Conteúdos, Campanhas, Reuniões, Influenciadores, Pesquisas, Aprendizados e Templates diretamente no Vault ativo. Nenhuma seleção manual de pasta é necessária no fluxo padrão.
+                  </div>
+                </div>
+
+                {/* Manutenção física legada mantida no código apenas para compatibilidade; não faz parte do fluxo REST-first. */}
+                {false && (
                   <div className="mt-4 pt-4 border-t border-outline-border space-y-3">
                     <div className="space-y-1">
                       <h4 className="text-xs font-bold text-text-primary uppercase tracking-wider flex items-center gap-1.5">
