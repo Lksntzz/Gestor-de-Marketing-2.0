@@ -184,4 +184,5 @@ app.on("before-quit", () => {
 
 process.env.NODE_ENV = "production";
 
+void import("./src/electron/ai/registerAIConnectionRuntimeIpc.ts");
 void import("./electron-main.ts");
