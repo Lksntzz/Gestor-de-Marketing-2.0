@@ -16,32 +16,39 @@ Esta etapa cria a ponte segura entre o contrato de domínio das Etapas 1–3 e o
 4. descoberta de modelos e teste de modelo executam no processo principal;
 5. todo IPC novo exige renderer confiável por `assertTrustedIpcSender`;
 6. o retorno IPC contém somente estado validado, modelos sanitizados e mensagens públicas;
-7. a metadata canônica da nova conexão é persistida no arquivo local protegido do aplicativo, não em `localStorage` do renderer;
-8. nenhuma chave entra em `nisti_config.json`;
+7. a metadata canônica da nova conexão é persistida em arquivo local dedicado e protegido, não em `localStorage` do renderer nem no arquivo legado compartilhado;
+8. nenhuma chave entra em `nisti_config.json` ou no arquivo canônico de metadata;
 9. a lista de modelos usada para validação é a descoberta mantida em memória pelo runtime, não uma lista recebida da UI;
 10. uma conexão ativa permanece intacta durante tentativa de troca de modelo ou provedor;
 11. uma nova conexão somente substitui a ativa quando o modelo selecionado passa no teste real;
 12. rejeição explícita da mesma credencial que sustenta a conexão ativa invalida essa conexão;
-13. rejeição de uma credencial candidata de outro provedor não destrói a conexão ativa anterior;
-14. falha transitória, cota, permissão ou modelo inválido não destroem conexão ativa anterior;
-15. não existe fallback automático entre providers nem entre modelos;
-16. os slots legados `geminiApiKey` e `openaiApiKey` permanecem nesta etapa;
-17. `active:aiConnectionKey` continua somente como referência de domínio; a migração física do segredo fica fora desta etapa;
-18. nenhuma release é publicada nesta etapa.
+13. ausência temporária/indisponibilidade de leitura do armazenamento seguro não é tratada como rejeição explícita e não revoga conexão ativa;
+14. rejeição de uma credencial candidata de outro provedor não destrói a conexão ativa anterior;
+15. falha transitória, cota, permissão ou modelo inválido não destroem conexão ativa anterior;
+16. não existe fallback automático entre providers nem entre modelos;
+17. os slots legados `geminiApiKey` e `openaiApiKey` permanecem nesta etapa;
+18. `active:aiConnectionKey` continua somente como referência de domínio; a migração física do segredo fica fora desta etapa;
+19. nenhuma release é publicada nesta etapa.
 
 ## Persistência confiável
 
-O processo principal passa a manter `aiConnection` dentro de `nisti_config.json`.
+O processo principal mantém a metadata canônica em `nisti_ai_connection.json`, separado de `nisti_config.json`.
 
-A escrita deve:
+Essa separação é obrigatória porque o arquivo legado continua tendo seu próprio writer durante a fase de compatibilidade. Compartilhar o mesmo arquivo criaria uma janela de `read-modify-write` concorrente capaz de perder atualizações.
+
+A escrita do arquivo canônico deve:
 
 - passar pelo `PersistedAIConnectionSchema` estrito;
-- preservar o restante da configuração;
-- remover campos com nomes de segredo antes da escrita;
+- conter somente o objeto de metadata da conexão;
+- nunca conter chave bruta, token ou autorização;
 - usar permissão de arquivo `0600` quando suportada;
 - falhar explicitamente quando a persistência não puder ser concluída.
 
-Se `aiConnection` ainda não existir no arquivo, o runtime pode migrar apenas sinais legados já existentes (`aiProvider`, `aiModel` e presença dos slots seguros). A chave bruta nunca participa da metadata.
+`nisti_config.json` é somente fonte de migração legada (`aiProvider`, `aiModel` e, temporariamente, um `aiConnection` V1 que possa ter sido gravado por builds de desenvolvimento anteriores). O novo runtime não escreve nesse arquivo.
+
+Se `nisti_ai_connection.json` existir mas estiver corrompido ou possuir schema que esta versão não entende, uma leitura passiva falha fechada para `SEM_CHAVE` sem sobrescrever o arquivo desconhecido. Uma reconfiguração explícita bem-sucedida pode substituí-lo posteriormente.
+
+Quando ainda não existe arquivo canônico, o runtime pode migrar sinais legados existentes e presença dos slots seguros. A chave bruta nunca participa da metadata.
 
 ## Sessão efêmera de proposta
 
@@ -78,6 +85,8 @@ Entradas permitidas:
 
 Campos inesperados como `apiKey`, `secretRef`, `models` ou `discoveredModels` devem ser rejeitados.
 
+Os handlers concretos ficam no composition root auditado (`electron-bootstrap.ts`); parsing, persistência e orquestração permanecem em módulos dedicados.
+
 ## Casos mínimos de teste
 
 1. confirmação lê a chave por `secretRef` internamente;
@@ -90,13 +99,15 @@ Campos inesperados como `apiKey`, `secretRef`, `models` ou `discoveredModels` de
 8. troca de modelo inválida preserva conexão ativa;
 9. troca de provedor com credencial inválida preserva conexão ativa anterior;
 10. rejeição da mesma credencial da conexão ativa invalida a confiança;
-11. sucesso de troca substitui a conexão ativa somente após teste real;
-12. mesma conexão/provedor preserva `connectionId`;
-13. nenhum fallback multi-provider/multi-model ocorre;
-14. metadata persistida passa pelo schema estrito;
-15. bridge IPC não aceita `apiKey` nem lista de modelos;
-16. TypeScript, Bun, Node, build e backend smoke verdes;
-17. Windows Desktop Runtime Test verde no head final.
+11. indisponibilidade de leitura do segredo não revoga uma conexão ativa;
+12. sucesso de troca substitui a conexão ativa somente após teste real;
+13. mesma conexão/provedor preserva `connectionId`;
+14. nenhum fallback multi-provider/multi-model ocorre;
+15. metadata persistida passa pelo schema estrito e usa arquivo dedicado;
+16. bridge IPC não aceita `apiKey` nem lista de modelos;
+17. handlers IPC permanecem únicos e validam o sender;
+18. TypeScript, Bun, Node, build e backend smoke verdes;
+19. Windows Desktop Runtime Test verde no head final.
 
 ## Fora de escopo
 
@@ -115,7 +126,9 @@ A Etapa 4 runtime só pode ser integrada quando:
 - a chave não cruza a nova bridge renderer → main;
 - a descoberta usada na validação não é controlada pelo renderer;
 - troca de provedor/modelo é transacional em relação à conexão ativa;
-- persistência canônica ocorre no processo principal e é secret-free;
+- ausência de leitura do segredo não é confundida com rejeição explícita;
+- persistência canônica ocorre no processo principal, em arquivo dedicado e secret-free;
+- o writer novo não disputa `nisti_config.json` com o caminho legado;
 - todos os testes automatizados passam;
 - Quality Gate passa no head final;
 - Windows Desktop Runtime Test passa no head final;
