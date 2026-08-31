@@ -158,6 +158,30 @@ describe("AI connection Stage 2 provider discovery", () => {
     expect(JSON.stringify(result)).not.toContain(secret);
   });
 
+  test("a successful response without usable models fails closed", async () => {
+    const openaiService = new AIConnectionDiscoveryService({
+      fetchImpl: (async () => jsonResponse({ data: [] })) as typeof fetch,
+    });
+    const openaiResult = await openaiService.confirmProviderAndDiscoverModels({
+      provider: "openai",
+      apiKey: "sk-proj-empty-models-123456789",
+    });
+    expect(openaiResult.success).toBe(false);
+    expect(openaiResult.state.status).toBe("SEM_PERMISSAO");
+
+    const geminiService = new AIConnectionDiscoveryService({
+      fetchImpl: (async () => jsonResponse({
+        models: [{ name: "models/embed", supportedGenerationMethods: ["embedContent"] }],
+      })) as typeof fetch,
+    });
+    const geminiResult = await geminiService.confirmProviderAndDiscoverModels({
+      provider: "gemini",
+      apiKey: "AIzaEmptyGenerationModels_123456789",
+    });
+    expect(geminiResult.success).toBe(false);
+    expect(geminiResult.state.status).toBe("SEM_PERMISSAO");
+  });
+
   test("provider rejection states are normalized without leaking the credential", async () => {
     const secret = "sk-proj-never-leak-this-secret-123456";
     const scenarios = [
@@ -208,7 +232,7 @@ describe("AI connection Stage 2 provider discovery", () => {
     expect(result.message).not.toContain(secret);
   });
 
-  test("explicit provider choice is the only routing input even when current metadata has another candidate", async () => {
+  test("explicit provider choice is the only routing input and mismatched legacy secret refs are corrected", async () => {
     const calls: string[] = [];
     const fetchImpl = (async (input: RequestInfo | URL) => {
       calls.push(String(input));
@@ -223,11 +247,14 @@ describe("AI connection Stage 2 provider discovery", () => {
         schemaVersion: 1,
         status: "PROVEDOR_POSSIVEL",
         providerCandidate: "gemini",
+        secretRef: "legacy:geminiApiKey",
       },
     });
 
     expect(result.success).toBe(true);
     expect(calls).toEqual([OPENAI_MODELS_ENDPOINT]);
-    if (result.success) expect(result.state.provider).toBe("openai");
+    if (!result.success) throw new Error("Expected successful explicit provider discovery");
+    expect(result.state.provider).toBe("openai");
+    expect(result.state.secretRef).toBe("legacy:openaiApiKey");
   });
 });
