@@ -13,9 +13,20 @@ import {
   knowledgeContextService,
   type KnowledgeContextSource,
 } from "./knowledge/KnowledgeContextService";
+import {
+  AUTO_TRIAGE_CONFIDENCE,
+  NISTI_INBOX_FOLDER,
+  NISTI_KNOWLEDGE_FOLDERS,
+  NISTI_RELATIVE_FOLDERS,
+  NISTI_VAULT_ROOT,
+  classifyKnowledgeForVault,
+  encodeVaultRelativePath,
+  qualifyNistiKnowledgePath,
+} from "./obsidianKnowledgeAutomation";
 
 let cachedSessionToken: string | null = null;
 let obsidianHeartbeat: ReturnType<typeof setInterval> | null = null;
+let obsidianHeartbeatBusy = false;
 let useDirectClientSideFetch = true;
 const storage = StorageManager.getInstance();
 
@@ -57,6 +68,22 @@ const DEFAULT_API_CONFIG: ObsidianApiConfig = {
   connectionStatus: "disconnected",
   allowSelfSignedCerts: true,
 };
+
+function serializeApiFrontmatter(frontmatter?: Record<string, unknown>): string {
+  if (!frontmatter || Object.keys(frontmatter).length === 0) return "";
+  const lines = ["---"];
+  for (const [key, value] of Object.entries(frontmatter)) {
+    if (value === undefined || value === null || value === "") continue;
+    if (Array.isArray(value)) {
+      if (value.length === 0) continue;
+      lines.push(`${key}:`);
+      for (const item of value) lines.push(`  - "${String(item).replace(/"/g, "'")}"`);
+    } else {
+      lines.push(`${key}: "${String(value).replace(/"/g, "'")}"`);
+    }
+  }
+  return `${lines.join("\n")}\n---\n\n`;
+}
 
 export interface ObsidianConnectionResult {
   success: boolean;
@@ -188,48 +215,6 @@ async function requestObsidianConnectionTest(config: { endpoint: string; apiKey:
     message: `Obsidian retornou HTTP ${res.status}.`,
   }));
   return { res, data };
-}
-
-async function inspectDesktopVault(selectVault: boolean): Promise<ObsidianConnectionResult> {
-  if (!window.electronAPI) {
-    return {
-      success: true,
-      message: "REST API do Obsidian conectada.",
-    };
-  }
-
-  let vaultPath = await window.electronAPI.getVaultPath();
-
-  if (selectVault || !vaultPath) {
-    const selection = await window.electronAPI.selectVault();
-    if (selection?.vaultPath) {
-      vaultPath = selection.vaultPath;
-    }
-  }
-
-  if (!vaultPath) {
-    return {
-      success: false,
-      message: "Falta selecionar a pasta física do Vault do Obsidian.",
-    };
-  }
-
-  const notes = await window.electronAPI.readNotes();
-  const folders = await window.electronAPI.listVaultFolders();
-
-  // Extract vault name from vaultPath
-  const pathSegments = vaultPath.replace(/\\/g, '/').split('/');
-  const detectedVaultName = pathSegments.filter(Boolean).pop() || "MarketingVault";
-
-  return {
-    success: true,
-    localVaultPath: vaultPath,
-    detectedVaultName,
-    localNotesFound: Array.isArray(notes) ? notes.length : 0,
-    localFoldersFound: Array.isArray(folders) ? folders.length : 0,
-    localFolders: Array.isArray(folders) ? folders : [],
-    message: `Vault local confirmado: ${vaultPath}. ${Array.isArray(notes) ? notes.length : 0} itens indexados em ${Array.isArray(folders) ? folders.length : 0} pastas.`,
-  };
 }
 
 export async function syncWebObsidianNotes(config: ObsidianApiConfig): Promise<ObsidianNote[]> {
@@ -379,37 +364,128 @@ export async function syncWebObsidianNotes(config: ObsidianApiConfig): Promise<O
     }
   }
 
-  await crawl("");
+  await crawl(NISTI_VAULT_ROOT);
   const resultNotes = Array.from(notesMap.values());
   console.log(`[Obsidian Crawl] Sincronização concluída. Total de notas encontradas: ${resultNotes.length}`);
   return resultNotes;
 }
 
-async function publishCurrentDesktopVaultSnapshot(folders?: string[]): Promise<{ notes: number; folders: number }> {
-  if (!window.electronAPI) {
-    try {
-      const config = await storage.loadApiConfig(DEFAULT_API_CONFIG);
-      if (config.connectionStatus === "connected") {
-        const webNotes = await syncWebObsidianNotes(config);
-        const folderList = folders || Array.from(new Set(webNotes.map((n) => n.folder)));
-        if (folderList.length === 0) folderList.push("00_Inbox");
-        publishObsidianSnapshot(webNotes, folderList);
-        return { notes: webNotes.length, folders: folderList.length };
-      }
-    } catch (e) {
-      console.warn("Could not publish web vault snapshot:", e);
-    }
+async function publishCurrentDesktopVaultSnapshot(
+  folders?: string[],
+  configOverride?: ObsidianApiConfig,
+): Promise<{ notes: number; folders: number }> {
+  try {
+    const config = configOverride || await storage.loadApiConfig(DEFAULT_API_CONFIG);
+    if (!isObsidianRuntimeConnected() || !config.apiKey.trim()) return { notes: 0, folders: 0 };
+    const notes = await syncWebObsidianNotes(config);
+    const folderList = folders?.length ? folders : [...NISTI_KNOWLEDGE_FOLDERS];
+    publishObsidianSnapshot(notes, folderList);
+    return { notes: notes.length, folders: folderList.length };
+  } catch (error) {
+    console.warn("Could not publish REST-first Obsidian snapshot:", error);
     return { notes: 0, folders: 0 };
   }
+}
 
-  const [desktopNotes, liveFolders] = await Promise.all([
-    storage.readDesktopNotesForApp(),
-    folders ? Promise.resolve(folders) : window.electronAPI.listVaultFolders(),
-  ]);
-  const notes = desktopNotes || [];
-  const normalizedFolders = Array.isArray(liveFolders) ? liveFolders : [];
-  publishObsidianSnapshot(notes, normalizedFolders);
-  return { notes: notes.length, folders: normalizedFolders.length };
+async function ensureNistiRemoteStructure(config: ObsidianApiConfig): Promise<{ createdFolders: string[] }> {
+  const createdFolders: string[] = [];
+  for (const relativeFolder of NISTI_RELATIVE_FOLDERS) {
+    const folder = `${NISTI_VAULT_ROOT}/${relativeFolder}`;
+    const encodedFolder = encodeVaultRelativePath(folder);
+    const probe = await obsidianProxyRequest(config, "GET", `/vault/${encodedFolder}/`);
+    if (probe.response.ok && probe.data?.success) continue;
+
+    const marker = await obsidianProxyRequest(
+      config,
+      "PUT",
+      `/vault/${encodedFolder}/.nisti-folder`,
+      `managed-by: nisti-marketing\nfolder: ${relativeFolder}\n`,
+    );
+    if (!marker.response.ok || !marker.data?.success) {
+      throw new Error(`Não foi possível criar a pasta ${folder} no Obsidian.`);
+    }
+    createdFolders.push(folder);
+  }
+
+  const manifestPath = encodeVaultRelativePath(`${NISTI_VAULT_ROOT}/.nisti/structure.json`);
+  const manifest = JSON.stringify({
+    managedBy: "nisti-marketing",
+    schemaVersion: "3.1-smart-inbox-v1",
+    root: NISTI_VAULT_ROOT,
+    folders: NISTI_RELATIVE_FOLDERS,
+    updatedAt: new Date().toISOString(),
+  }, null, 2);
+  const manifestResult = await obsidianProxyRequest(config, "PUT", `/vault/${manifestPath}`, manifest);
+  if (!manifestResult.response.ok || !manifestResult.data?.success) {
+    throw new Error("A estrutura foi criada, mas o manifesto do Nisti não pôde ser gravado.");
+  }
+
+  return { createdFolders };
+}
+
+interface InboxTriageResult {
+  moved: Array<{ from: string; to: string; confidence: number }>;
+  pending: Array<{ path: string; confidence: number; suggestion: string; reason: string }>;
+  failed: Array<{ path: string; error: string }>;
+}
+
+async function triageNistiInbox(config: ObsidianApiConfig): Promise<InboxTriageResult> {
+  const result: InboxTriageResult = { moved: [], pending: [], failed: [] };
+  const notes = await syncWebObsidianNotes(config);
+  const inboxPrefix = `${NISTI_INBOX_FOLDER}/`.toLowerCase();
+  const inboxNotes = notes.filter((note) => {
+    const folder = String(note.folder || "").replace(/\\/g, "/").toLowerCase();
+    if (!(folder === NISTI_INBOX_FOLDER.toLowerCase() || folder.startsWith(inboxPrefix))) return false;
+    const triageMode = String(note.frontmatter?.triage_mode || "").toLowerCase();
+    return triageMode !== "manual" && note.frontmatter?.nisti_keep_in_inbox !== true;
+  });
+
+  for (const note of inboxNotes) {
+    const classification = classifyKnowledgeForVault(note);
+    if (classification.folder === NISTI_INBOX_FOLDER || classification.confidence < AUTO_TRIAGE_CONFIDENCE) {
+      result.pending.push({
+        path: note.path,
+        confidence: classification.confidence,
+        suggestion: classification.folder,
+        reason: classification.reason,
+      });
+      continue;
+    }
+
+    const filename = note.path.replace(/\\/g, "/").split("/").pop() || `${note.title}.md`;
+    const targetPath = `${classification.folder}/${filename}`;
+    try {
+      const targetProbe = await obsidianProxyRequest(config, "GET", `/vault/${encodeVaultRelativePath(targetPath)}`);
+      if (targetProbe.response.ok && targetProbe.data?.success) {
+        result.pending.push({
+          path: note.path,
+          confidence: classification.confidence,
+          suggestion: classification.folder,
+          reason: "Já existe uma nota com o mesmo nome no destino; revisão humana necessária.",
+        });
+        continue;
+      }
+
+      const source = await obsidianProxyRequest(config, "GET", `/vault/${encodeVaultRelativePath(note.path)}`);
+      const rawMarkdown = typeof source.data?.data === "string" ? source.data.data : "";
+      if (!source.response.ok || !source.data?.success || !rawMarkdown) throw new Error("Não foi possível ler a nota original.");
+
+      const write = await obsidianProxyRequest(config, "PUT", `/vault/${encodeVaultRelativePath(targetPath)}`, rawMarkdown);
+      if (!write.response.ok || !write.data?.success) throw new Error("O Obsidian não confirmou a gravação no destino.");
+
+      const remove = await obsidianProxyRequest(config, "DELETE", `/vault/${encodeVaultRelativePath(note.path)}`);
+      if (!remove.response.ok || !remove.data?.success) {
+        await obsidianProxyRequest(config, "DELETE", `/vault/${encodeVaultRelativePath(targetPath)}`).catch(() => undefined);
+        throw new Error("A nota foi copiada, mas a remoção da Inbox falhou; a cópia foi revertida.");
+      }
+
+      result.moved.push({ from: note.path, to: targetPath, confidence: classification.confidence });
+    } catch (error: any) {
+      result.failed.push({ path: note.path, error: error?.message || String(error) });
+    }
+  }
+
+  return result;
 }
 
 function stopObsidianHeartbeat(): void {
@@ -422,142 +498,119 @@ function stopObsidianHeartbeat(): void {
 function startObsidianHeartbeat(config: { endpoint: string; apiKey: string }): void {
   stopObsidianHeartbeat();
   if (typeof window === "undefined") return;
-  if (!window.electronAPI) {
-    console.log("Web mode detected: skipping physical local REST API heartbeat.");
-    return;
-  }
 
-  const liveConfig = {
+  const liveConfig: ObsidianApiConfig = {
+    ...DEFAULT_API_CONFIG,
     endpoint: config.endpoint,
     apiKey: config.apiKey,
+    connectionStatus: "connected",
   };
 
   obsidianHeartbeat = setInterval(async () => {
+    if (obsidianHeartbeatBusy) return;
+    obsidianHeartbeatBusy = true;
     try {
       const { res, data } = await requestObsidianConnectionTest(liveConfig);
-      const vaultPath = window.electronAPI ? await window.electronAPI.getVaultPath() : "web";
-      if (!res.ok || !data?.success || !vaultPath) {
+      if (!res.ok || !data?.success) {
         stopObsidianHeartbeat();
         await setDesktopObsidianAuthorization(false);
         markObsidianRuntimeDisconnected(
-          data?.message || "A conexão com o Obsidian foi perdida. Reconecte para acessar o banco de conhecimento."
+          data?.message || "A conexão com o Obsidian foi perdida. Reconecte para acessar o banco de conhecimento.",
         );
+        return;
+      }
+
+      try {
+        await triageNistiInbox(liveConfig);
+        await publishCurrentDesktopVaultSnapshot([...NISTI_KNOWLEDGE_FOLDERS], liveConfig);
+      } catch (automationError) {
+        console.warn("Obsidian connected, but automatic knowledge triage failed:", automationError);
       }
     } catch (err: any) {
       stopObsidianHeartbeat();
       await setDesktopObsidianAuthorization(false);
       markObsidianRuntimeDisconnected(
-        err.message || "A conexão com o Obsidian foi perdida. Reconecte para acessar o banco de conhecimento."
+        err.message || "A conexão com o Obsidian foi perdida. Reconecte para acessar o banco de conhecimento.",
       );
+    } finally {
+      obsidianHeartbeatBusy = false;
     }
-  }, 15_000);
+  }, 20_000);
 }
 
 async function verifyObsidianConnection(
   config: { endpoint: string; apiKey: string },
-  selectVault: boolean
+  _selectVault: boolean,
 ): Promise<ObsidianConnectionResult> {
-  if (window.electronAPI) {
-    stopObsidianHeartbeat(); // Heartbeat not needed for direct filesystem
-    await setDesktopObsidianAuthorization(true);
-    
-    try {
-      const desktop = await inspectDesktopVault(selectVault);
-      if (!desktop.success) {
-        await setDesktopObsidianAuthorization(false);
-        markObsidianRuntimeDisconnected(desktop.message);
-        return desktop;
-      }
-      
-      markObsidianRuntimeConnected();
-      const snapshot = await publishCurrentDesktopVaultSnapshot(desktop.localFolders);
-      
-      return {
-        ...desktop,
-        success: true,
-        localNotesFound: snapshot.notes || desktop.localNotesFound,
-        localFoldersFound: snapshot.folders || desktop.localFoldersFound,
-        message: `${desktop.message} Base sincronizada automaticamente.`.trim(),
-      };
-    } catch (err: any) {
-      await setDesktopObsidianAuthorization(false);
-      const message = err.message || "Não foi possível confirmar o acesso ao Vault.";
-      markObsidianRuntimeDisconnected(message);
-      return { success: false, message };
-    }
-  }
-
-  // Web flow (uses Local REST API)
   if (!config.endpoint.trim() || !config.apiKey.trim()) {
     stopObsidianHeartbeat();
     await setDesktopObsidianAuthorization(false);
     markObsidianRuntimeDisconnected("Endpoint ou token do Obsidian não configurado.");
-    return {
-      success: false,
-      message: "Informe o endpoint e o token do Obsidian Local REST API.",
-    };
+    return { success: false, message: "Informe o endpoint e o token do Obsidian Local REST API." };
   }
 
+  const liveConfig: ObsidianApiConfig = {
+    ...DEFAULT_API_CONFIG,
+    endpoint: normalizeObsidianEndpoint(config.endpoint),
+    apiKey: config.apiKey.trim(),
+    connectionStatus: "connected",
+  };
+
   try {
-    const { res, data } = await requestObsidianConnectionTest(config);
-    if (res.ok && data?.success) {
-      useDirectClientSideFetch = true;
-      await setDesktopObsidianAuthorization(true);
-      markObsidianRuntimeConnected();
-
-      const detectedVault = data.vault || "MarketingVault";
-      let folders: string[] = ["00_Inbox"];
-      try {
-        const listRes = await obsidianProxyRequest(config as any, "GET", "/vault/");
-        if (listRes.response.ok && listRes.data?.success) {
-          const filesList = listRes.data?.data?.files || listRes.data?.files || [];
-          if (Array.isArray(filesList)) {
-            const detectedFolders = filesList
-              .map((item: any) => {
-                const relativePath = typeof item === "string" ? item : (item?.path || "");
-                return relativePath.replace(/^\//, "");
-              })
-              .filter((p: string) => p.endsWith("/"))
-              .map((p: string) => p.replace(/\/$/, ""));
-            if (detectedFolders.length > 0) {
-              folders = detectedFolders;
-            }
-          }
-        }
-      } catch (e) {
-        console.warn("Could not list folders during web verification:", e);
-      }
-
-      return {
-        success: true,
-        detectedVaultName: detectedVault,
-        localFoldersFound: folders.length,
-        localFolders: folders,
-        message: `Conectado com sucesso ao Obsidian físico local (${detectedVault}) diretamente pelo seu navegador!`,
-      };
-    } else {
-      const errorMsg = data?.message || "Conexão rejeitada.";
+    const { res, data } = await requestObsidianConnectionTest(liveConfig);
+    if (!res.ok || !data?.success) {
       const targetEndpoint = normalizeObsidianEndpoint(config.endpoint);
+      const errorMsg = data?.message || "Conexão rejeitada.";
+      await setDesktopObsidianAuthorization(false);
+      markObsidianRuntimeDisconnected(errorMsg);
       return {
         success: false,
-        message: errorMsg.includes("Avançado")
-          ? errorMsg
-          : `Não foi possível conectar ao Obsidian local (${targetEndpoint}).\n\n👉 Para liberar o acesso no navegador, abra o link: ${targetEndpoint}/\nClique em "Avançado" -> "Prosseguir para 127.0.0.1 (não seguro)". Depois, retorne e clique em Testar Conexão novamente.\n\nDetalhes: ${errorMsg}`,
+        message: `Não foi possível conectar ao Obsidian local (${targetEndpoint}). Verifique se o Obsidian está aberto, o Local REST API está ativo e a API Key está correta. Detalhes: ${errorMsg}`,
       };
     }
-  } catch (err: any) {
-    const targetEndpoint = normalizeObsidianEndpoint(config.endpoint);
+
+    await setDesktopObsidianAuthorization(true);
+    markObsidianRuntimeConnected();
+
+    const structure = await ensureNistiRemoteStructure(liveConfig);
+    const triage = await triageNistiInbox(liveConfig);
+    const snapshot = await publishCurrentDesktopVaultSnapshot([...NISTI_KNOWLEDGE_FOLDERS], liveConfig);
+    startObsidianHeartbeat(liveConfig);
+
+    const detectedVault = String(data.vault || data.name || "Vault ativo");
+    const createdText = structure.createdFolders.length
+      ? ` ${structure.createdFolders.length} pastas foram criadas automaticamente.`
+      : " Estrutura Nisti já estava pronta.";
+    const triageText = triage.moved.length ? ` ${triage.moved.length} nova(s) nota(s) foram classificadas.` : "";
     return {
-      success: false,
-      message: `Não foi possível conectar ao Obsidian local (${targetEndpoint}).\n\n👉 Abra este link no navegador para autorizar o certificado: ${targetEndpoint}/\nSelecione "Avançado" -> "Prosseguir para 127.0.0.1".\n\nDetalhes do erro: ${err.message || err}`,
+      success: true,
+      detectedVaultName: detectedVault,
+      localNotesFound: snapshot.notes,
+      localFoldersFound: NISTI_KNOWLEDGE_FOLDERS.length,
+      localFolders: [...NISTI_KNOWLEDGE_FOLDERS],
+      message: `Obsidian conectado. A pasta “${NISTI_VAULT_ROOT}” está pronta dentro do Vault ativo.${createdText}${triageText}`,
     };
+  } catch (err: any) {
+    stopObsidianHeartbeat();
+    await setDesktopObsidianAuthorization(false);
+    const message = err?.message || "Não foi possível preparar a Base de Conhecimento no Obsidian.";
+    markObsidianRuntimeDisconnected(message);
+    return { success: false, message };
   }
 }
 
 async function requireVerifiedObsidian(config: ObsidianApiConfig): Promise<ObsidianConnectionResult> {
+  if (isObsidianRuntimeConnected()) {
+    return {
+      success: true,
+      message: "Obsidian já validado nesta sessão.",
+      localFolders: [...NISTI_KNOWLEDGE_FOLDERS],
+      localFoldersFound: NISTI_KNOWLEDGE_FOLDERS.length,
+    };
+  }
   return await verifyObsidianConnection(
     { endpoint: config.endpoint, apiKey: config.apiKey },
-    false
+    false,
   );
 }
 
@@ -919,15 +972,12 @@ export const api = {
       }
     }
 
-    const cleanPath = filePath.startsWith("/") ? filePath : `/vault/${filePath}`;
-    const encodedPath = cleanPath
-      .split("/")
-      .map((segment, index) => {
-        if (segment === "" || (index === 1 && segment === "vault")) return segment;
-        return encodeURIComponent(segment);
-      })
-      .join("/");
-    const { data } = await obsidianProxyRequest(config, "PUT", encodedPath, markdownContent);
+    const qualifiedPath = qualifyNistiKnowledgePath(filePath);
+    const encodedPath = `/vault/${encodeVaultRelativePath(qualifiedPath)}`;
+    const payloadMarkdown = markdownContent.trimStart().startsWith("---")
+      ? markdownContent
+      : `${serializeApiFrontmatter(frontmatter)}${markdownContent}`;
+    const { data } = await obsidianProxyRequest(config, "PUT", encodedPath, payloadMarkdown);
     if (data?.success) await publishCurrentDesktopVaultSnapshot();
     return data;
   },
@@ -950,7 +1000,7 @@ export const api = {
         const vaultPath = await window.electronAPI.getVaultPath();
         if (vaultPath) {
           const result = await window.electronAPI.upsertNoteSection(
-            "00_Inbox",
+            NISTI_INBOX_FOLDER,
             `Daily-${today}`,
             sectionId,
             heading,
@@ -967,7 +1017,7 @@ export const api = {
       }
     }
 
-    const targetPath = `/vault/00_Inbox/Daily-${today}.md`;
+    const targetPath = `/vault/${encodeVaultRelativePath(`${NISTI_INBOX_FOLDER}/Daily-${today}.md`)}`;
     const getResult = await obsidianProxyRequest(config, "GET", targetPath);
 
     let existingContent = "";
@@ -1001,7 +1051,7 @@ export const api = {
         if (vaultPath) {
           const today = localDateKey();
           const appendRes = await window.electronAPI.appendNote(
-            "00_Inbox",
+            NISTI_INBOX_FOLDER,
             `Daily-${today}`,
             `\n${contentToAppend}`
           );

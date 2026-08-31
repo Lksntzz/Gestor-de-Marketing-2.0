@@ -15,6 +15,11 @@ import {
 } from "lucide-react";
 import type { EngineMode, KnowledgeStatus, ObsidianApiConfig, ObsidianNote } from "../types";
 import { api } from "../services/api";
+import {
+  NISTI_INBOX_FOLDER,
+  NISTI_KNOWLEDGE_FOLDERS,
+  qualifyNistiKnowledgeFolder,
+} from "../services/obsidianKnowledgeAutomation";
 import { buildObsidianOpenUri } from "../utils/obsidianUri";
 import {
   detectKnowledgeFileType,
@@ -79,13 +84,13 @@ function stripLeadingFrontmatter(value: string): string {
 
 function chooseLiveFolder(suggestedFolder: string, liveFolders: string[]): string {
   const folders = Array.from(new Set(liveFolders.filter(Boolean))).sort((a, b) => a.localeCompare(b, "pt-BR"));
-  if (folders.includes(suggestedFolder)) return suggestedFolder;
-  if (folders.includes("00_Inbox")) return "00_Inbox";
-  return folders[0] || "00_Inbox";
+  const qualified = qualifyNistiKnowledgeFolder(suggestedFolder);
+  if (folders.includes(qualified)) return qualified;
+  if (folders.includes(NISTI_INBOX_FOLDER)) return NISTI_INBOX_FOLDER;
+  return folders[0] || NISTI_INBOX_FOLDER;
 }
 
 export const AddKnowledgeView: React.FC<AddKnowledgeViewProps> = ({
-  notes,
   onAddNote,
   apiConfig,
   onNavigateTab,
@@ -117,30 +122,13 @@ export const AddKnowledgeView: React.FC<AddKnowledgeViewProps> = ({
         : "text";
 
   useEffect(() => {
-    let active = true;
-    if (!isConnected || !window.electronAPI?.listVaultFolders) {
-      setVaultFolders([]);
-      return () => { active = false; };
-    }
-
-    void window.electronAPI.listVaultFolders()
-      .then((folders) => {
-        if (!active) return;
-        setVaultFolders(Array.isArray(folders) ? folders.filter(Boolean) : []);
-      })
-      .catch((err) => {
-        if (!active) return;
-        setVaultFolders([]);
-        setError(err?.message || "Não foi possível carregar as pastas reais do Vault.");
-      });
-
-    return () => { active = false; };
-  }, [isConnected, notes.length]);
+    setVaultFolders(isConnected ? [...NISTI_KNOWLEDGE_FOLDERS] : []);
+  }, [isConnected]);
 
   const sourceDescription = useMemo(() => {
     if (sourceMode === "file") {
-      if (binaryType === "pdf") return "PDF detectado. O original será preservado junto da síntese após sua aprovação.";
-      if (binaryType === "image") return "Imagem detectada. A análise visual e o arquivo original serão preservados após sua aprovação.";
+      if (binaryType === "pdf") return "PDF detectado. O Nisti analisa e classifica a fonte; a síntese será gravada no Obsidian após sua aprovação.";
+      if (binaryType === "image") return "Imagem detectada. O Nisti analisa, classifica e grava a síntese no Obsidian após sua aprovação.";
       return "Selecione um PDF, PNG, JPG/JPEG ou WEBP. O Nisti identifica o tipo automaticamente.";
     }
     if (sourceMode === "link") {
@@ -266,7 +254,7 @@ export const AddKnowledgeView: React.FC<AddKnowledgeViewProps> = ({
       setProposal({
         title,
         folder,
-        status: folder === "00_Inbox" ? "NOVO" : "EM REVISÃO",
+        status: folder === NISTI_INBOX_FOLDER ? "NOVO" : "EM REVISÃO",
         epistemicStatus,
         tipo: type === "pdf" ? "Documento PDF" : type === "image" ? "Ativo Visual" : type === "youtube" ? "Referência YouTube" : type === "site" ? "Artigo Web" : "Texto",
         category: String(data.category || "Não classificado"),
@@ -307,8 +295,8 @@ export const AddKnowledgeView: React.FC<AddKnowledgeViewProps> = ({
       return;
     }
 
-    const folder = forceInbox ? "00_Inbox" : proposal.folder;
-    if (window.electronAPI && !vaultFolders.includes(folder)) {
+    const folder = forceInbox ? NISTI_INBOX_FOLDER : proposal.folder;
+    if (!vaultFolders.includes(folder)) {
       setError("A pasta selecionada não existe mais no Vault. Sincronize o Cofre e selecione uma pasta real.");
       return;
     }
@@ -320,7 +308,7 @@ export const AddKnowledgeView: React.FC<AddKnowledgeViewProps> = ({
       const timestamp = now.toISOString().replace("T", " ").slice(0, 16);
       const date = now.toISOString().slice(0, 10);
       const noteId = `knowledge-${now.getTime().toString(36)}`;
-      const status: KnowledgeStatus = folder === "00_Inbox" ? "NOVO" : "EM REVISÃO";
+      const status: KnowledgeStatus = folder === NISTI_INBOX_FOLDER ? "NOVO" : "EM REVISÃO";
       const tags = proposal.keywords;
       const baseFrontmatter: Record<string, unknown> = {
         id: noteId,
@@ -347,7 +335,11 @@ export const AddKnowledgeView: React.FC<AddKnowledgeViewProps> = ({
       let notePath = `${folder}/${sanitizeTitle(proposal.title)}.md`;
       let committedFrontmatter = { ...baseFrontmatter };
 
-      if (window.electronAPI?.commitKnowledge) {
+      const physicalVaultPath = window.electronAPI?.getVaultPath
+        ? await window.electronAPI.getVaultPath().catch(() => null)
+        : null;
+
+      if (window.electronAPI?.commitKnowledge && physicalVaultPath) {
         const commitResult = await window.electronAPI.commitKnowledge({
           folder,
           title: sanitizeTitle(proposal.title),
@@ -382,9 +374,13 @@ export const AddKnowledgeView: React.FC<AddKnowledgeViewProps> = ({
         }
       } else {
         if (isBinarySource) {
-          throw new Error("A preservação do arquivo original exige o runtime desktop. A gravação foi bloqueada para não criar uma síntese sem a fonte física.");
+          committedFrontmatter = {
+            ...committedFrontmatter,
+            source_type: "analyzed_binary_source",
+            source_preservation: "analysis_only_rest_stage1",
+          };
         }
-        const writeResult = await api.pushNoteToObsidian(apiConfig, notePath, curatedContent, baseFrontmatter);
+        const writeResult = await api.pushNoteToObsidian(apiConfig, notePath, curatedContent, committedFrontmatter);
         if (!writeResult?.success) throw new Error(writeResult?.message || "O Obsidian não confirmou a gravação.");
       }
 
@@ -581,7 +577,7 @@ export const AddKnowledgeView: React.FC<AddKnowledgeViewProps> = ({
                     <FolderOpen className="w-3.5 h-3.5 text-text-secondary" />
                     <select value={proposal.folder} onChange={(event) => {
                       const folder = event.target.value;
-                      setProposal((current) => current ? { ...current, folder, status: folder === "00_Inbox" ? "NOVO" : "EM REVISÃO" } : current);
+                      setProposal((current) => current ? { ...current, folder, status: folder === NISTI_INBOX_FOLDER ? "NOVO" : "EM REVISÃO" } : current);
                     }} className="w-full bg-transparent text-text-primary text-xs outline-none">
                       {vaultFolders.map((folder) => <option key={folder} value={folder}>{folder}</option>)}
                     </select>
@@ -590,7 +586,7 @@ export const AddKnowledgeView: React.FC<AddKnowledgeViewProps> = ({
                 <div className="p-3 rounded-xl bg-surface-container-low border border-outline-border"><span className="text-text-secondary block text-[10px] uppercase">Categoria</span><strong className="text-text-primary mt-1 block">{proposal.category}</strong></div>
               </div>
 
-              {proposal.fileName && <div className="p-3 rounded-xl border border-emerald-500/20 bg-emerald-500/5 text-xs text-emerald-200"><strong>Fonte física:</strong> {proposal.fileName}. Ela será preservada somente quando você aprovar a gravação.</div>}
+              {proposal.fileName && <div className="p-3 rounded-xl border border-emerald-500/20 bg-emerald-500/5 text-xs text-emerald-200"><strong>Fonte física:</strong> {proposal.fileName}. A análise será preservada no Obsidian quando você aprovar a gravação.</div>}
               {proposal.summary && <div><h3 className="text-xs font-bold uppercase tracking-wider text-text-secondary mb-2">Resumo</h3><p className="text-sm leading-relaxed text-text-primary">{proposal.summary}</p></div>}
               {proposal.evidence.length > 0 && <div><h3 className="text-xs font-bold uppercase tracking-wider text-text-secondary mb-2">Evidências extraídas</h3><ul className="space-y-2">{proposal.evidence.map((item, index) => <li key={index} className="text-xs text-text-primary flex gap-2"><Check className="w-3.5 h-3.5 text-emerald-400 shrink-0 mt-0.5" />{item}</li>)}</ul></div>}
               {proposal.hypotheses.length > 0 && <div><h3 className="text-xs font-bold uppercase tracking-wider text-text-secondary mb-2">Hipóteses</h3><ul className="space-y-2">{proposal.hypotheses.map((item, index) => <li key={index} className="text-xs text-text-primary">• {item}</li>)}</ul></div>}
@@ -598,7 +594,7 @@ export const AddKnowledgeView: React.FC<AddKnowledgeViewProps> = ({
 
               <div className="flex flex-wrap justify-end gap-2 pt-4 border-t border-outline-border">
                 <button onClick={() => setProposal(null)} className="px-4 py-2 rounded-xl bg-surface-container-low border border-outline-border text-xs font-bold text-text-primary">Descartar</button>
-                {vaultFolders.includes("00_Inbox") && proposal.folder !== "00_Inbox" && <button disabled={isSaving} onClick={() => handleSave(true)} className="px-4 py-2 rounded-xl bg-surface-container-low border border-outline-border text-xs font-bold text-text-primary disabled:opacity-50">Salvar em 00_Inbox</button>}
+                {vaultFolders.includes(NISTI_INBOX_FOLDER) && proposal.folder !== NISTI_INBOX_FOLDER && <button disabled={isSaving} onClick={() => handleSave(true)} className="px-4 py-2 rounded-xl bg-surface-container-low border border-outline-border text-xs font-bold text-text-primary disabled:opacity-50">Salvar na Inbox</button>}
                 <button disabled={isSaving || vaultFolders.length === 0} onClick={() => handleSave(false)} className="px-4 py-2 rounded-xl bg-pink-600 hover:bg-pink-500 text-white text-xs font-black flex items-center gap-2 disabled:opacity-50">{isSaving ? <Loader2 className="w-4 h-4 animate-spin" /> : <ShieldCheck className="w-4 h-4" />}Aprovar e gravar no Obsidian</button>
               </div>
             </div>
