@@ -13,6 +13,15 @@ $healthPath = Join-Path $env:RUNNER_TEMP ("nisti-ui-gallery-health-{0}-{1}.json"
 $previousHealthPath = $env:NISTI_RUNTIME_HEALTH_FILE
 $process = $null
 
+# Pré-configura um Vault temporário vazio apenas para homologação visual.
+# Isso evita o seletor nativo de pasta sem simular REST API ou dados do usuário.
+$previewVault = Join-Path $env:RUNNER_TEMP ("nisti-ui-gallery-vault-{0}-{1}" -f $PID, (Get-Random))
+[System.IO.Directory]::CreateDirectory($previewVault) | Out-Null
+$stableUserData = Join-Path $env:APPDATA "Nisti Print PKM Marketing Hub"
+[System.IO.Directory]::CreateDirectory($stableUserData) | Out-Null
+$configPath = Join-Path $stableUserData "nisti_config.json"
+@{ vaultPath = $previewVault } | ConvertTo-Json | Set-Content -Path $configPath -Encoding UTF8
+
 Add-Type -AssemblyName System.Drawing
 Add-Type -AssemblyName System.Windows.Forms
 
@@ -77,10 +86,11 @@ function Get-MainWindowHandle {
 
 function Close-ModalIfPresent {
   param([IntPtr]$Handle)
+  # Primeiro envia ESC para qualquer diálogo ativo; depois devolve foco à janela principal.
+  try { [System.Windows.Forms.SendKeys]::SendWait("{ESC}") } catch {}
+  Start-Sleep -Milliseconds 200
   [void][NistiUiGalleryNative]::SetForegroundWindow($Handle)
-  Start-Sleep -Milliseconds 250
-  [System.Windows.Forms.SendKeys]::SendWait("{ESC}")
-  Start-Sleep -Milliseconds 500
+  Start-Sleep -Milliseconds 300
 }
 
 function Click-ClientPoint {
@@ -192,4 +202,5 @@ finally {
     $env:NISTI_RUNTIME_HEALTH_FILE = $previousHealthPath
   }
   Remove-Item $healthPath -Force -ErrorAction SilentlyContinue
+  Remove-Item $previewVault -Recurse -Force -ErrorAction SilentlyContinue
 }
