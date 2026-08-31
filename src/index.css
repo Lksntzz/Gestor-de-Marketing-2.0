@@ -1,85 +1,233 @@
 @import "tailwindcss";
 
+/*
+ * Nisti Brand Theme v1
+ * Paleta oficial 2023:
+ *   Lilás     #ECCEF0
+ *   Rosa      #FF95BA
+ *   Turquesa  #7FD0D1
+ *   Azul      #C7EAFE
+ *   Amarelo   #FFF9BA
+ *
+ * A aplicação continua dark-first para preservar contraste e densidade de
+ * informação. As cores pastéis da marca entram como linguagem semântica de
+ * ação, estado e contexto — nunca como fundo dominante de toda a interface.
+ */
 @theme {
-  --color-surface: #0f131c;
-  --color-primary-fixed-dim: #b4c5ff;
-  --color-tertiary-fixed: #c9e6ff;
-  --color-outline-border: #334155;
-  --color-error-sober: #EF4444;
-  --color-on-primary: #002a78;
-  --color-primary-container: #2563eb;
-  --color-surface-bright: #353942;
-  --color-on-surface-variant: #c3c6d7;
-  --color-error: #ffb4ab;
-  --color-tertiary: #89ceff;
-  --color-text-secondary: #94A3B8;
-  --color-on-tertiary: #00344d;
-  --color-surface-container: #1c2028;
-  --color-surface-variant: #31353e;
-  --color-surface-container-lowest: #0a0e16;
-  --color-on-error: #690005;
-  --color-outline: #8d90a0;
-  --color-error-container: #93000a;
-  --color-surface-tint: #b4c5ff;
-  --color-background: #0f131c;
-  --color-on-error-container: #ffdad6;
-  --color-surface-container-highest: #31353e;
-  --color-on-tertiary-fixed-variant: #004c6e;
-  --color-primary: #b4c5ff;
-  --color-surface-elevated: #1E293B;
-  --color-on-primary-container: #eeefff;
-  --color-tertiary-fixed-dim: #89ceff;
-  --color-on-secondary: #3c0091;
-  --color-tertiary-container: #0074a6;
+  /* Marca */
+  --color-brand-lilac: #ECCEF0;
+  --color-brand-pink: #FF95BA;
+  --color-brand-turquoise: #7FD0D1;
+  --color-brand-blue: #C7EAFE;
+  --color-brand-yellow: #FFF9BA;
+  --color-brand-ink: #111B29;
+
+  /* Superfícies */
+  --color-surface: #0D1420;
+  --color-background: #0D1420;
+  --color-surface-dim: #0D1420;
+  --color-surface-container-lowest: #08101A;
+  --color-surface-container-low: #101A28;
+  --color-surface-container: #142132;
+  --color-surface-card: #172638;
+  --color-surface-elevated: #1B2C40;
+  --color-surface-container-high: #203247;
+  --color-surface-container-highest: #25384D;
+  --color-surface-variant: #25384D;
+  --color-surface-bright: #29405A;
+
+  /* Texto e contornos */
   --color-text-primary: #F8FAFC;
-  --color-on-surface: #dfe2ee;
-  --color-inverse-on-surface: #2c3039;
-  --color-on-secondary-container: #c4abff;
-  --color-secondary-container: #571bc1;
-  --color-inverse-surface: #dfe2ee;
-  --color-surface-card: #182234;
-  --color-on-secondary-fixed-variant: #5516be;
-  --color-secondary: #d0bcff;
-  --color-on-primary-fixed: #00174b;
-  --color-outline-variant: #434655;
-  --color-secondary-fixed-dim: #d0bcff;
-  --color-on-secondary-fixed: #23005c;
-  --color-success-sober: #10B981;
-  --color-primary-fixed: #dbe1ff;
-  --color-surface-dim: #0f131c;
-  --color-on-primary-fixed-variant: #003ea8;
-  --color-motor-info: #38BDF8;
-  --color-surface-container-low: #181c24;
-  --color-on-tertiary-container: #e4f2ff;
-  --color-warning-sober: #F59E0B;
-  --color-secondary-fixed: #e9ddff;
-  --color-on-tertiary-fixed: #001e2f;
-  --color-surface-container-high: #262a33;
-  --color-inverse-primary: #0053db;
-  --color-on-background: #dfe2ee;
+  --color-text-secondary: #B7C5D6;
+  --color-on-background: #E8EEF5;
+  --color-on-surface: #E8EEF5;
+  --color-on-surface-variant: #C5D0DB;
+  --color-outline-border: #38506A;
+  --color-outline: #7F93A8;
+  --color-outline-variant: #425A72;
+
+  /* Primária = rosa Nisti */
+  --color-primary: #FF95BA;
+  --color-primary-container: #7E304E;
+  --color-on-primary: #35121F;
+  --color-on-primary-container: #FFE6EF;
+  --color-primary-fixed: #FFD6E4;
+  --color-primary-fixed-dim: #FFABC7;
+  --color-on-primary-fixed: #35121F;
+  --color-on-primary-fixed-variant: #772B49;
+  --color-surface-tint: #FF95BA;
+  --color-inverse-primary: #C54573;
+
+  /* Secundária = lilás Nisti */
+  --color-secondary: #ECCEF0;
+  --color-secondary-container: #5A3D61;
+  --color-on-secondary: #321B36;
+  --color-on-secondary-container: #F8E8FA;
+  --color-secondary-fixed: #F6E3F8;
+  --color-secondary-fixed-dim: #DDB9E4;
+  --color-on-secondary-fixed: #321B36;
+  --color-on-secondary-fixed-variant: #68466F;
+
+  /* Terciária = turquesa Nisti */
+  --color-tertiary: #7FD0D1;
+  --color-tertiary-container: #245E60;
+  --color-on-tertiary: #0B3031;
+  --color-on-tertiary-container: #DCF9F9;
+  --color-tertiary-fixed: #C8F1F1;
+  --color-tertiary-fixed-dim: #91DCDD;
+  --color-on-tertiary-fixed: #0B3031;
+  --color-on-tertiary-fixed-variant: #285F61;
+
+  /* Semântica */
+  --color-success-sober: #4FAEB0;
+  --color-warning-sober: #E5C94F;
+  --color-motor-info: #9DD8F7;
+  --color-error-sober: #EF4444;
+  --color-error: #FFB4AB;
+  --color-error-container: #93000A;
+  --color-on-error: #690005;
+  --color-on-error-container: #FFDAD6;
+
+  --color-inverse-surface: #E8EEF5;
+  --color-inverse-on-surface: #223044;
+
+  /*
+   * Escalas compatíveis com utilitários existentes.
+   * Mantemos os nomes Tailwind para que telas antigas e novas recebam o tema
+   * sem uma refatoração visual arriscada em centenas de classes.
+   */
+  --color-pink-50: #FFF1F6;
+  --color-pink-100: #FFE4EE;
+  --color-pink-200: #FFD0DF;
+  --color-pink-300: #FFB7CE;
+  --color-pink-400: #FFA4C2;
+  --color-pink-500: #FF95BA;
+  --color-pink-600: #C54573;
+  --color-pink-700: #A93660;
+  --color-pink-800: #872B4D;
+  --color-pink-900: #672039;
+  --color-pink-950: #40121F;
+
+  --color-rose-400: #FFA4C2;
+  --color-rose-500: #FF95BA;
+  --color-rose-600: #C54573;
+  --color-rose-700: #A93660;
+
+  --color-purple-50: #FBF3FC;
+  --color-purple-100: #F6E5F8;
+  --color-purple-200: #ECCEF0;
+  --color-purple-300: #DDB9E4;
+  --color-purple-400: #C99CD2;
+  --color-purple-500: #B47CBE;
+  --color-purple-600: #8A5A94;
+  --color-purple-700: #68466F;
+  --color-purple-800: #4E3554;
+  --color-purple-900: #38263D;
+  --color-purple-950: #241829;
+
+  --color-teal-50: #EFFCFC;
+  --color-teal-100: #DDF7F7;
+  --color-teal-200: #BDEBEC;
+  --color-teal-300: #9ADFE0;
+  --color-teal-400: #7FD0D1;
+  --color-teal-500: #60BFC1;
+  --color-teal-600: #317F81;
+  --color-teal-700: #2B6F71;
+  --color-teal-800: #245E60;
+  --color-teal-900: #1B4749;
+  --color-teal-950: #102D2E;
+
+  --color-cyan-300: #9ADFE0;
+  --color-cyan-400: #7FD0D1;
+  --color-cyan-500: #60BFC1;
+  --color-cyan-600: #317F81;
+  --color-cyan-700: #2B6F71;
+
+  --color-emerald-300: #9ADFE0;
+  --color-emerald-400: #7FD0D1;
+  --color-emerald-500: #4FAEB0;
+  --color-emerald-600: #2D7779;
+  --color-emerald-700: #245E60;
+
+  --color-blue-50: #F4FBFF;
+  --color-blue-100: #E7F6FF;
+  --color-blue-200: #D8F0FF;
+  --color-blue-300: #C7EAFE;
+  --color-blue-400: #A9DCF8;
+  --color-blue-500: #7DC5EA;
+  --color-blue-600: #397FA5;
+  --color-blue-700: #326C8B;
+  --color-blue-800: #295A74;
+  --color-blue-900: #20465A;
+
+  --color-sky-300: #C7EAFE;
+  --color-sky-400: #A9DCF8;
+  --color-sky-500: #7DC5EA;
+  --color-sky-600: #397FA5;
+  --color-sky-700: #326C8B;
+
+  --color-yellow-50: #FFFEF1;
+  --color-yellow-100: #FFFCD9;
+  --color-yellow-200: #FFF9BA;
+  --color-yellow-300: #F8E982;
+  --color-yellow-400: #EAD45E;
+  --color-yellow-500: #D2B83D;
+  --color-yellow-600: #987D16;
+  --color-yellow-700: #765F12;
+  --color-yellow-800: #5D4B13;
+  --color-yellow-900: #493B13;
+
+  --color-amber-100: #FFFCD9;
+  --color-amber-200: #FFF9BA;
+  --color-amber-300: #F8E982;
+  --color-amber-400: #EAD45E;
+  --color-amber-500: #D2B83D;
+  --color-amber-600: #987D16;
+  --color-amber-700: #765F12;
 }
 
 html.dark {
-  --color-white: #182234;
-  --color-stone-50: #0f131c;
-  --color-stone-100: #1c2028;
-  --color-stone-200: #334155;
-  --color-stone-300: #475569;
+  /* Compatibilidade das telas antigas que usam bg-white/bg-stone-* em dark mode. */
+  --color-white: #172638;
+  --color-stone-50: #0D1420;
+  --color-stone-100: #142132;
+  --color-stone-200: #38506A;
+  --color-stone-300: #4B647D;
   --color-stone-900: #F8FAFC;
   --color-stone-850: #F1F5F9;
-  --color-stone-800: #dfe2ee;
-  --color-stone-700: #c3c6d7;
-  --color-stone-600: #94A3B8;
-  --color-stone-500: #94A3B8;
-  --color-stone-400: #64748B;
+  --color-stone-800: #E8EEF5;
+  --color-stone-700: #C5D0DB;
+  --color-stone-600: #AAB9C9;
+  --color-stone-500: #91A3B6;
+  --color-stone-400: #74889D;
 
-  --color-purple-50: rgba(168, 85, 247, 0.15);
-  --color-purple-100: rgba(168, 85, 247, 0.25);
-  --color-purple-200: rgba(168, 85, 247, 0.35);
-  --color-purple-600: #c084fc;
-  --color-purple-700: #e9d5ff;
-  --color-purple-900: #faf5ff;
-  --color-purple-950: #ffffff;
+  /* Tons translúcidos usados por cards/contextos de conhecimento. */
+  --color-purple-50: rgba(236, 206, 240, 0.10);
+  --color-purple-100: rgba(236, 206, 240, 0.16);
+  --color-purple-200: rgba(236, 206, 240, 0.24);
+}
+
+html,
+body,
+#root {
+  min-height: 100%;
+  background: #0D1420;
+}
+
+body {
+  background-image:
+    radial-gradient(circle at 85% 8%, rgba(127, 208, 209, 0.055), transparent 28rem),
+    radial-gradient(circle at 12% 92%, rgba(255, 149, 186, 0.045), transparent 30rem);
+  color: var(--color-text-primary);
+}
+
+::selection {
+  background: rgba(255, 149, 186, 0.32);
+  color: #F8FAFC;
+}
+
+:focus-visible {
+  outline-color: #FF95BA;
 }
 
 *::-webkit-scrollbar {
