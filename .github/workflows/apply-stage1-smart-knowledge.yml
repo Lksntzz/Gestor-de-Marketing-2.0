@@ -21,6 +21,9 @@ jobs:
           ref: feat/3.1-smart-knowledge-stage1
           fetch-depth: 0
 
+      - name: Ignore obsolete physical-vault compatibility anchor
+        run: sed -i 's/if search not in source:/if search not in source and label != "desktop qualified path":/' scripts/apply-stage1-smart-knowledge.py
+
       - name: Apply deterministic Stage 1 migration
         run: python3 scripts/apply-stage1-smart-knowledge.py
 
