@@ -1,6 +1,7 @@
 import { ObsidianApiConfig, ObsidianNote } from "../types";
 import { generateFastHash } from "../utils/crypto";
 import { localDateKey, upsertManagedSection } from "../utils/reliability";
+import { normalizeFrontmatterTags, parseMarkdownDocument } from "../utils/markdownFrontmatter";
 import {
   isObsidianRuntimeConnected,
   markObsidianRuntimeConnected,
@@ -303,11 +304,25 @@ export async function syncWebObsidianNotes(config: ObsidianApiConfig): Promise<O
           // Normalização adicional de redundância de barras (ex: "folder//file.md" -> "folder/file.md")
           itemRelativePath = itemRelativePath.replace(/\/+/g, "/");
 
-          const isFolder = itemRelativePath.endsWith("/") || 
-                           item?.type === "directory" || 
-                           item?.type === "folder" ||
-                           (typeof item === "object" && item?.isFolder === true) ||
-                           (typeof item === "string" && !item.toLowerCase().endsWith(".md") && !item.includes("."));
+          const isMarkdown = itemRelativePath.toLowerCase().endsWith(".md");
+          let isFolder = itemRelativePath.endsWith("/") ||
+                         item?.type === "directory" ||
+                         item?.type === "folder" ||
+                         (typeof item === "object" && item?.isFolder === true);
+
+          // Some Local REST API versions return directory entries as bare strings
+          // without a trailing slash. Probe ambiguous non-Markdown paths instead of
+          // guessing from the presence of a dot (valid folder names may contain one).
+          if (!isFolder && typeof item === "string" && !isMarkdown) {
+            const probeRelativePath = itemRelativePath.replace(/\/$/, "");
+            const probeEncodedPath = probeRelativePath.split("/").map(encodeURIComponent).join("/");
+            try {
+              const probe = await obsidianProxyRequest(config, "GET", `/vault/${probeEncodedPath}/`);
+              isFolder = Boolean(probe.response.ok && probe.data?.success);
+            } catch {
+              isFolder = false;
+            }
+          }
 
           if (isFolder) {
             // Remove a barra final antes de passar para crawl se necessário, o crawl tratará
@@ -326,27 +341,10 @@ export async function syncWebObsidianNotes(config: ObsidianApiConfig): Promise<O
                 const title = filename.replace(/\.md$/i, "");
                 const folder = pathParts.join("/") || "00_Inbox";
 
-                let frontmatter: Record<string, any> = {};
-                let body = content;
-                const fmMatch = content.match(/^---\r?\n([\s\S]*?)\r?\n---/);
-                if (fmMatch) {
-                  body = content.slice(fmMatch[0].length).trim();
-                  const fmLines = fmMatch[1].split("\n");
-                  for (const line of fmLines) {
-                    const colonIndex = line.indexOf(":");
-                    if (colonIndex > -1) {
-                      const key = line.slice(0, colonIndex).trim();
-                      const value = line.slice(colonIndex + 1).trim().replace(/^['"]|['"]$/g, "");
-                      frontmatter[key] = value;
-                    }
-                  }
-                }
-
-                const tags = Array.isArray(frontmatter.tags)
-                  ? frontmatter.tags
-                  : typeof frontmatter.tags === "string"
-                  ? frontmatter.tags.split(",").map((t: string) => t.trim()).filter(Boolean)
-                  : [];
+                const parsed = parseMarkdownDocument(content);
+                const frontmatter = parsed.frontmatter;
+                const body = parsed.body;
+                const tags = normalizeFrontmatterTags(frontmatter.tags);
 
                 notesMap.set(itemRelativePath, {
                   id: `web-${generateFastHash("n", `${folder}/${title}`)}`,

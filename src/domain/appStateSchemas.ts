@@ -192,8 +192,8 @@ export const PersistedPostHistorySchema = z.object({
 export const PersistedLearningSchema = z.object({
   id: z.string().min(1),
   title: z.string(),
-  category: z.enum(["formato", "horario", "nicho", "emocao", "copywriting"]),
-  verdict: z.enum(["VENCEDOR", "ALTO_IMPACTO", "A_EVITAR", "EM_TESTE"]),
+  category: z.enum(["formato", "horario", "nicho", "emocao", "copywriting", "canal", "oferta", "audiência"]),
+  verdict: z.enum(["VENCEDOR", "ALTO_IMPACTO", "A_EVITAR", "EM_TESTE", "CONFIRMADO", "REFUTADO"]),
   ruleOfThumb: z.string(),
   evidenceData: z.string(),
   suggestedAction: z.string(),

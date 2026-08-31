@@ -4,6 +4,7 @@ import * as fs from "fs/promises";
 import { existsSync } from "fs";
 import crypto from "crypto";
 import { pathToFileURL } from "url";
+import { normalizeFrontmatterTags, parseMarkdownDocument } from "./src/utils/markdownFrontmatter";
 import { DEFAULT_AI_MODELS, executeWithModelFallback } from "./src/services/ai/AIProviderFactory";
 import type { AIProviderName } from "./src/services/ai/AIProvider";
 import { KnowledgeIndex } from "./src/services/knowledge/index/KnowledgeIndex";
@@ -490,21 +491,9 @@ async function scanVaultKnowledge(): Promise<any[]> {
 
       if (ext === ".md") {
         const content = await fs.readFile(fullPath, "utf8");
-        let frontmatter: any = {};
-        let body = content;
-        const fmMatch = content.match(/^---\r?\n([\s\S]*?)\r?\n---/);
-        if (fmMatch) {
-          body = content.slice(fmMatch[0].length).trim();
-          const fmLines = fmMatch[1].split("\n");
-          for (const line of fmLines) {
-            const colonIndex = line.indexOf(":");
-            if (colonIndex > -1) {
-              const key = line.slice(0, colonIndex).trim();
-              const value = line.slice(colonIndex + 1).trim().replace(/^['"]|['"]$/g, "");
-              frontmatter[key] = value;
-            }
-          }
-        }
+        const parsed = parseMarkdownDocument(content);
+        const frontmatter = parsed.frontmatter;
+        const body = parsed.body;
         notes.push({
           title: entry.name.replace(/\.md$/i, ""),
           folder: (relativeDir || "00_Inbox").replace(/\\/g, "/"),
@@ -735,18 +724,34 @@ ipcMain.handle("knowledge:query", async (event, query: string, preferredPaths?: 
   const index = requireKnowledgeIndex();
   const docs = index.getDocumentsByVault(vaultId);
   
-  const notes = docs.map(doc => ({
-    id: doc.id,
-    path: doc.relative_path,
-    title: doc.title,
-    folder: path.dirname(doc.relative_path).replace(/\\/g, "/"),
-    content: doc.content,
-    frontmatter: JSON.parse(doc.metadata_json || "{}"),
-    tags: [],
-    wikilinks: [],
-    lastModified: new Date(doc.modified_at).toISOString(),
-    sizeBytes: doc.size,
-  }));
+  const notes = docs.map((doc) => {
+    let metadata: Record<string, unknown> = {};
+    try {
+      const parsed = JSON.parse(doc.metadata_json || "{}");
+      if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) metadata = parsed;
+    } catch {
+      metadata = {};
+    }
+    const directory = path.dirname(doc.relative_path).replace(/\\/g, "/");
+    const summary = String(doc.summary || "").trim();
+    const indexedContent = String(doc.content || "").trim();
+    const content = [summary ? `## Resumo\n${summary}` : "", indexedContent]
+      .filter(Boolean)
+      .join("\n\n");
+    return {
+      id: doc.id,
+      path: doc.relative_path.replace(/\\/g, "/"),
+      title: doc.title,
+      folder: directory === "." ? "00_Inbox" : directory,
+      content,
+      frontmatter: metadata,
+      tags: normalizeFrontmatterTags(metadata.tags ?? metadata.keywords),
+      wikilinks: [],
+      lastModified: new Date(doc.modified_at).toISOString(),
+      sizeBytes: doc.size,
+      syncedWithApi: true,
+    };
+  });
 
   const selection = knowledgeContextService.select({
     query,
