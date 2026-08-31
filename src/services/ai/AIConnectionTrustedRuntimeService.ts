@@ -44,6 +44,7 @@ type RuntimeOptions = {
   loadState: () => Promise<PersistedAIConnectionState>;
   persistState: (state: PersistedAIConnectionState) => Promise<PersistedAIConnectionState>;
   readSecret: (secretRef: AISecretReference) => Promise<string>;
+  resetState?: () => Promise<void>;
   discovery?: Discovery;
   validator?: Validator;
 };
@@ -130,12 +131,14 @@ function isValidationFailure(result: AIModelValidationResult): result is AIModel
  * The renderer supplies only provider/model choices. Credentials and the
  * discovered-model set are resolved inside the trusted runtime. An existing
  * active connection is kept transactionally until a replacement is fully
- * validated.
+ * validated. Reset operations use the same exclusive queue so stale proposals
+ * cannot race with deletion of canonical connection metadata.
  */
 export class AIConnectionTrustedRuntimeService {
   private readonly loadState: RuntimeOptions["loadState"];
   private readonly persistState: RuntimeOptions["persistState"];
   private readonly readSecret: RuntimeOptions["readSecret"];
+  private readonly resetState?: RuntimeOptions["resetState"];
   private readonly discovery: Discovery;
   private readonly validator: Validator;
   private proposal: AIConnectionRuntimeProposal | null = null;
@@ -145,6 +148,7 @@ export class AIConnectionTrustedRuntimeService {
     this.loadState = options.loadState;
     this.persistState = options.persistState;
     this.readSecret = options.readSecret;
+    this.resetState = options.resetState;
     this.discovery = options.discovery || new AIConnectionDiscoveryService();
     this.validator = options.validator || new AIConnectionModelValidationService();
   }
@@ -156,6 +160,20 @@ export class AIConnectionTrustedRuntimeService {
       return {
         state,
         ...(proposal ? { proposal } : {}),
+      };
+    });
+  }
+
+  async resetConnection(): Promise<AIConnectionRuntimeOperationResult> {
+    return this.exclusive(async () => {
+      if (!this.resetState) {
+        throw new Error("Trusted AI connection reset is not configured.");
+      }
+      await this.resetState();
+      this.proposal = null;
+      return {
+        success: true,
+        state: createEmptyAIConnection(),
       };
     });
   }
@@ -328,7 +346,7 @@ export class AIConnectionTrustedRuntimeService {
           };
         }
 
-        if (failure.code === "CHAVE_INVALIDA") {
+        if (failure.code === "CHAVE_INVALIDA" || failure.code === "INVALID_STATE") {
           this.proposal = null;
         } else {
           this.proposal = {
