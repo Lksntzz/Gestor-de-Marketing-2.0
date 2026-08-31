@@ -2,6 +2,7 @@ import {
   AIProvider,
   AIProviderConfig,
   AIProviderError,
+  AudioTranscriptionRequest,
   ConnectionTestResult,
   GenerationRequest,
   GenerationResult,
@@ -126,6 +127,51 @@ export class OpenAIProvider implements AIProvider {
 
   async analyzeDocument<T>(request: GenerationRequest): Promise<GenerationResult<T>> {
     return this.generateJson<T>(request);
+  }
+
+  async transcribeAudio(request: AudioTranscriptionRequest): Promise<GenerationResult<string>> {
+    if (!request.mimeType.startsWith("audio/")) {
+      throw new AIProviderError("INVALID_RESPONSE", "O arquivo informado não é um áudio suportado.", this.name);
+    }
+
+    try {
+      const binary = Buffer.from(request.data, "base64");
+      const form = new FormData();
+      form.append("model", "gpt-4o-mini-transcribe");
+      form.append("response_format", "json");
+      if (request.prompt?.trim()) form.append("prompt", request.prompt.trim());
+      form.append(
+        "file",
+        new Blob([binary], { type: request.mimeType }),
+        request.fileName || "audio.mp3",
+      );
+
+      const response = await this.fetchImpl("https://api.openai.com/v1/audio/transcriptions", {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${this.config.apiKey.trim()}`,
+          "User-Agent": "nisti-marketing-3.1",
+        },
+        body: form,
+        signal: AbortSignal.timeout(90_000),
+      });
+      const payload = await response.json().catch(() => ({})) as any;
+      if (!response.ok) {
+        const apiError = new Error(payload?.error?.message || `OpenAI HTTP ${response.status}`) as Error & { status?: number };
+        apiError.status = response.status;
+        throw apiError;
+      }
+      const text = String(payload?.text || "").trim();
+      if (!text) throw new AIProviderError("INVALID_RESPONSE", "A OpenAI retornou uma transcrição vazia.", this.name);
+      return {
+        provider: this.name,
+        model: String(payload?.model || "gpt-4o-mini-transcribe"),
+        text,
+        data: text,
+      };
+    } catch (error) {
+      throw normalizeAIError(error, this.name);
+    }
   }
 
   async testConnection(): Promise<ConnectionTestResult> {
