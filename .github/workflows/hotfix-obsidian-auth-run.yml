@@ -1,0 +1,27 @@
+name: Run Obsidian Auth Hotfix
+
+on:
+  push:
+    branches:
+      - hotfix/3.1.1-obsidian-tls
+
+permissions:
+  contents: write
+
+jobs:
+  apply:
+    runs-on: ubuntu-latest
+    if: ${{ github.actor != 'github-actions[bot]' }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Apply transformer
+        run: node scripts/apply-obsidian-auth-hotfix.mjs
+      - name: Commit changes
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add src/services/api.ts server.ts tests/obsidianConnectionAuthContract.test.ts
+          git commit -m "fix: require authenticated Obsidian REST session"
+          git push origin HEAD:hotfix/3.1.1-obsidian-tls
