@@ -65,8 +65,17 @@ function resolveSecretRef(
   state: PersistedAIConnectionState,
 ): AISecretReference {
   const stateProvider = state.provider ?? state.providerCandidate;
+
+  // Explicit matching references are authoritative. Canonical connections and
+  // states without a secret reference use the single active slot. A workspace
+  // that still carries an explicit legacy reference remains on the legacy
+  // compatibility path until the user provisions the new single credential;
+  // that operation resets the old trust chain before writing aiConnectionKey.
   if (stateProvider === provider && secretRefMatchesProvider(provider, state.secretRef)) {
     return state.secretRef as AISecretReference;
+  }
+  if (state.secretRef === "active:aiConnectionKey" || !state.secretRef) {
+    return "active:aiConnectionKey";
   }
   return legacySecretRef(provider);
 }

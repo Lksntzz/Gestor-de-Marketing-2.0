@@ -30,8 +30,15 @@ contextBridge.exposeInMainWorld("electronAPI", {
   deleteSecret: (name: string) => ipcRenderer.invoke("secret:delete", name),
   setAIConfig: (config: { provider: "gemini" | "openai"; model?: string }) => ipcRenderer.invoke("ai:config:set", config),
 
+  // Credential provisioning is intentionally separate from the operational
+  // single-connection bridge below. The active key is write-only to renderer.
+  setAIConnectionCredential: (credential: string) =>
+    ipcRenderer.invoke("ai-connection:set-credential", credential),
+  clearAIConnectionCredential: () =>
+    ipcRenderer.invoke("ai-connection:clear-credential"),
+
   // New single-connection bridge. Credentials and discovered model lists never
-  // cross from the renderer into these IPC calls.
+  // cross from the renderer into these operational IPC calls.
   getAIConnectionState: () => ipcRenderer.invoke("ai-connection:get-state"),
   resetAIConnectionState: () => ipcRenderer.invoke("ai-connection:reset"),
   confirmAIProvider: (provider: "gemini" | "openai") =>
