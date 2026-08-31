@@ -1,0 +1,72 @@
+name: UI Preview Windows
+
+on:
+  pull_request:
+    branches:
+      - main
+    paths:
+      - "src/index.css"
+      - "src/components/**"
+      - "src/App.tsx"
+      - "src/main.tsx"
+      - "scripts/windows-electron-smoke.ps1"
+      - ".github/workflows/ui-preview.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ui-preview-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  render-real-electron-ui:
+    runs-on: windows-latest
+    timeout-minutes: 30
+
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: 1.2.23
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Install Dependencies
+        run: bun install --frozen-lockfile
+
+      - name: TypeScript
+        run: bun run lint
+
+      - name: UI and Domain Tests
+        run: bun run test
+
+      - name: Build Application
+        run: bun run build
+
+      - name: Smoke Production Backend
+        run: bun run smoke:backend
+
+      - name: Build Windows Runtime For Preview
+        env:
+          CSC_IDENTITY_AUTO_DISCOVERY: "false"
+        run: bunx electron-builder@26.0.12 --win --x64 --publish never
+
+      - name: Launch Real Electron And Capture Preview
+        shell: pwsh
+        run: pwsh -NoProfile -ExecutionPolicy Bypass -File scripts/windows-electron-smoke.ps1 -ExecutablePath "dist-electron/win-unpacked/Nisti Marketing.exe" -ScreenshotPath "artifacts/nisti-ui-preview.png"
+
+      - name: Upload Real UI Preview
+        uses: actions/upload-artifact@v4
+        with:
+          name: nisti-ui-preview-${{ github.run_number }}
+          path: artifacts/nisti-ui-preview.png
+          retention-days: 3
+          if-no-files-found: error
