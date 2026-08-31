@@ -105,6 +105,16 @@ let hasBoundMainServer = false;
     return writeJson(res, 200, { success: true, token: SESSION_TOKEN });
   }
 
+  if (url === "/api/internal/update-secrets") {
+    const internalToken = req.headers["x-nisti-internal-sync-token"];
+    const expectedSyncToken = process.env.NISTI_INTERNAL_SYNC_TOKEN;
+    if (!expectedSyncToken || internalToken !== expectedSyncToken) {
+      return writeJson(res, 403, { success: false, error: "Acesso não autorizado." });
+    }
+    req.headers["sec-fetch-site"] = "same-origin";
+    return originalEmit.call(this, event, ...args);
+  }
+
   const providedToken = String(req.headers["x-app-session-token"] || "");
   if (providedToken !== SESSION_TOKEN) {
     return writeJson(res, 401, { success: false, error: "Sessão local inválida." });

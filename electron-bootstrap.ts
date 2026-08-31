@@ -27,6 +27,7 @@ const AI_CONNECTION_SECRET_NAME = "aiConnectionKey";
 let backendProcess: ChildProcess | null = null;
 let appUrl = "";
 let backendInstanceId = "";
+let internalSyncToken = "";
 
 function getSecretsFilePath(): string {
   return path.join(app.getPath("userData"), "nisti_secure_secrets.json");
@@ -87,10 +88,13 @@ async function syncAllSecretsWithBackend(): Promise<void> {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
-          "x-nisti-instance-id": backendInstanceId,
+          "x-nisti-internal-sync-token": internalSyncToken,
         },
       },
       (res) => {
+        if (res.statusCode !== 200) {
+          console.error(`Sincronização de segredos local falhou com status: ${res.statusCode}`);
+        }
         res.resume();
       }
     );
@@ -149,11 +153,23 @@ ipcMain.handle("secret:get", async (event, name: string) => {
     if (!encrypted) return "";
     
     // SECURE CREDENTIAL ISOLATION: Never expose plaintext keys to the renderer!
-    // Returning "********" ensures that even if the renderer is compromised,
-    // it can never leak real credentials.
-    return "********";
+    // Returning "saved-in-secure-storage" ensures that the renderer can only know
+    // whether the secret exists, but can never leak real credentials.
+    return "saved-in-secure-storage";
   } catch {
     return "";
+  }
+});
+
+ipcMain.handle("secret:has", async (event, name: string) => {
+  assertTrustedIpcSender(event);
+  if (!ALLOWED_SECRET_NAMES.has(name)) throw new Error("Secret name not allowed.");
+  try {
+    const store = await readSecretStore();
+    const encrypted = store[name];
+    return !!encrypted;
+  } catch {
+    return false;
   }
 });
 
@@ -335,6 +351,7 @@ async function startBackend(): Promise<void> {
     console.warn("Could not decrypt initial backend secrets:", err);
   }
 
+  internalSyncToken = crypto.randomBytes(32).toString("hex");
   const serverPath = path.join(__dirname, "server.cjs");
   backendProcess = spawn(process.execPath, [serverPath], {
     cwd: path.resolve(__dirname, ".."),
@@ -344,6 +361,7 @@ async function startBackend(): Promise<void> {
       ELECTRON_RUN_AS_NODE: "1",
       NISTI_APP_PORT: String(port),
       NISTI_INSTANCE_ID: backendInstanceId,
+      NISTI_INTERNAL_SYNC_TOKEN: internalSyncToken,
       OBSIDIAN_API_KEY: obsidianKey,
       GEMINI_API_KEY: geminiKey,
       OPENAI_API_KEY: openaiKey,

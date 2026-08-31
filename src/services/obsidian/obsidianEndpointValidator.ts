@@ -12,10 +12,8 @@ const ALLOWED_LOOPBACK_HOSTS = new Set([
   "[::1]",
 ]);
 
-// Lista de portas locais de serviços sensíveis que não devem ser acessadas como Obsidian
-const BLOCKED_SENSITIVE_PORTS = new Set([
-  21, 22, 23, 25, 53, 80, 110, 143, 443, 3000, 3306, 5432, 6379, 8080, 9200, 11211, 27017, 28017
-]);
+// Lista de portas locais estritamente permitidas para o Obsidian Local REST API
+const ALLOWED_OBSIDIAN_PORTS = new Set([27123, 27124]);
 
 const ALLOWED_HTTP_METHODS = new Set(["GET", "POST", "PUT", "PATCH", "DELETE", "HEAD"]);
 
@@ -72,16 +70,12 @@ export function parseLoopbackEndpoint(endpoint: string): URL {
     );
   }
 
-  // 4. Validação de Porta
+  // 4. Validação de Porta (Strict Allowlist para o plugin Obsidian Local REST API)
   const portStr = parsedUrl.port || (parsedUrl.protocol === "https:" ? "443" : "80");
   const portNum = parseInt(portStr, 10);
 
-  if (Number.isNaN(portNum) || portNum < 1024 || portNum > 65535) {
-    throw new Error(`Porta '${portStr}' inválida. A porta do Obsidian Local REST API deve ser um número entre 1024 e 65535.`);
-  }
-
-  if (BLOCKED_SENSITIVE_PORTS.has(portNum)) {
-    throw new Error(`Porta ${portNum} bloqueada por segurança para evitar acesso a serviços locais sensíveis.`);
+  if (Number.isNaN(portNum) || !ALLOWED_OBSIDIAN_PORTS.has(portNum)) {
+    throw new Error(`SSRF Bloqueado: A porta '${portStr}' não é autorizada. Apenas as portas padrão do Obsidian Local REST API (27123 ou 27124) são permitidas.`);
   }
 
   return parsedUrl;

@@ -86,8 +86,8 @@ app.get("/api/auth/session", (_req, res) => {
 });
 
 app.post("/api/internal/update-secrets", express.json(), (req, res) => {
-  const instanceId = req.headers["x-nisti-instance-id"];
-  if (!instanceId || instanceId !== process.env.NISTI_INSTANCE_ID) {
+  const syncToken = req.headers["x-nisti-internal-sync-token"];
+  if (!syncToken || syncToken !== process.env.NISTI_INTERNAL_SYNC_TOKEN) {
     return res.status(403).json({ success: false, error: "Acesso não autorizado." });
   }
   const { obsidianApiKey, geminiApiKey, openaiApiKey } = req.body || {};

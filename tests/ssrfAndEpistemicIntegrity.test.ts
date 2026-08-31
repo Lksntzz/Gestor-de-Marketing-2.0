@@ -43,12 +43,12 @@ describe("P0 Security & Epistemic Integrity Invariants", () => {
     });
 
     test("blocks sensitive local services and privileged ports", () => {
-      expect(() => parseLoopbackEndpoint("http://127.0.0.1:3000")).toThrow(/bloqueada por segurança/);
-      expect(() => parseLoopbackEndpoint("http://127.0.0.1:3306")).toThrow(/bloqueada por segurança/);
-      expect(() => parseLoopbackEndpoint("http://127.0.0.1:5432")).toThrow(/bloqueada por segurança/);
-      expect(() => parseLoopbackEndpoint("http://127.0.0.1:6379")).toThrow(/bloqueada por segurança/);
-      expect(() => parseLoopbackEndpoint("http://127.0.0.1:22")).toThrow(/Porta/);
-      expect(() => parseLoopbackEndpoint("http://127.0.0.1:80")).toThrow(/Porta/);
+      expect(() => parseLoopbackEndpoint("http://127.0.0.1:3000")).toThrow(/SSRF Bloqueado/);
+      expect(() => parseLoopbackEndpoint("http://127.0.0.1:3306")).toThrow(/SSRF Bloqueado/);
+      expect(() => parseLoopbackEndpoint("http://127.0.0.1:5432")).toThrow(/SSRF Bloqueado/);
+      expect(() => parseLoopbackEndpoint("http://127.0.0.1:6379")).toThrow(/SSRF Bloqueado/);
+      expect(() => parseLoopbackEndpoint("http://127.0.0.1:22")).toThrow(/SSRF Bloqueado/);
+      expect(() => parseLoopbackEndpoint("http://127.0.0.1:80")).toThrow(/SSRF Bloqueado/);
     });
 
     test("sanitizes proxy paths and prevents path traversal", () => {

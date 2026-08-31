@@ -29,6 +29,7 @@ contextBridge.exposeInMainWorld("electronAPI", {
 
   setSecret: (name: string, value: string) => ipcRenderer.invoke("secret:set", name, value),
   getSecret: (name: string) => ipcRenderer.invoke("secret:get", name),
+  hasSecret: (name: string) => ipcRenderer.invoke("secret:has", name),
   deleteSecret: (name: string) => ipcRenderer.invoke("secret:delete", name),
   setAIConfig: (config: { provider: "gemini" | "openai"; model?: string }) => ipcRenderer.invoke("ai:config:set", config),
 

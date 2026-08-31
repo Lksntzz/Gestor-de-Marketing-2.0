@@ -436,22 +436,36 @@ export class StorageManager implements IStorageService {
       errorMessage: undefined,
     };
 
-    this.volatileSecrets = {
-      obsidianApiKey: apiKey || "",
-      geminiApiKey: geminiApiKey || "",
-      openaiApiKey: openaiApiKey || "",
-    };
+    const isSentinel = (val?: string) => val === "saved-in-secure-storage" || val === "********";
+
+    if (!isSentinel(apiKey)) {
+      this.volatileSecrets.obsidianApiKey = apiKey || "";
+    }
+    if (!isSentinel(geminiApiKey)) {
+      this.volatileSecrets.geminiApiKey = geminiApiKey || "";
+    }
+    if (!isSentinel(openaiApiKey)) {
+      this.volatileSecrets.openaiApiKey = openaiApiKey || "";
+    }
 
     if (this.isDesktopRuntime() && window.electronAPI?.setSecret) {
-      await Promise.all([
-        window.electronAPI.setSecret("obsidianApiKey", apiKey || ""),
-        window.electronAPI.setSecret("geminiApiKey", geminiApiKey || ""),
-        window.electronAPI.setSecret("openaiApiKey", openaiApiKey || ""),
+      const promises: Promise<any>[] = [];
+      if (!isSentinel(apiKey)) {
+        promises.push(window.electronAPI.setSecret("obsidianApiKey", apiKey || ""));
+      }
+      if (!isSentinel(geminiApiKey)) {
+        promises.push(window.electronAPI.setSecret("geminiApiKey", geminiApiKey || ""));
+      }
+      if (!isSentinel(openaiApiKey)) {
+        promises.push(window.electronAPI.setSecret("openaiApiKey", openaiApiKey || ""));
+      }
+      promises.push(
         window.electronAPI.setAIConfig?.({
           provider: persistedConfig.aiProvider,
           model: persistedConfig.aiModel,
-        }),
-      ]);
+        })
+      );
+      await Promise.all(promises);
     }
 
     // Only non-secret settings are persisted. Browser sessions keep credentials in memory.

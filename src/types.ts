@@ -413,6 +413,7 @@ declare global {
       logAudit: (entry: { action: string; entityType: string; entityId: string; details: string }) => Promise<{ success: boolean; error?: string }>;
       setSecret: (name: string, value: string) => Promise<{ success: boolean }>;
       getSecret: (name: string) => Promise<string>;
+      hasSecret: (name: string) => Promise<boolean>;
       deleteSecret: (name: string) => Promise<{ success: boolean }>;
       setAIConfig: (config: { provider: "gemini" | "openai"; model?: string }) => Promise<{ success: boolean }>;
       setAIConnectionCredential?: (credential: string) => Promise<{ success: boolean; changed?: boolean }>;
