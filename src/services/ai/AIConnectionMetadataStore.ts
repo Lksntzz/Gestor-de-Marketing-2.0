@@ -1,6 +1,7 @@
 import type { ObsidianApiConfig } from "../../types";
 import {
   createEmptyAIConnection,
+  downgradeImportedAIConnection,
   migrateAIConnectionConfig,
   parsePersistedAIConnection,
   type PersistedAIConnectionState,
@@ -39,6 +40,26 @@ export function readAIConnectionMetadata(): PersistedAIConnectionState | null {
 }
 
 /**
+ * Persists only a schema-valid, secret-free connection state. Callers cannot
+ * use this boundary to smuggle raw credentials or unknown fields into common
+ * application storage because the domain parser is strict.
+ */
+export function writeAIConnectionMetadata(
+  input: unknown,
+): PersistedAIConnectionState {
+  const parsed = parsePersistedAIConnection(input);
+  if (!parsed) {
+    throw new Error("Metadados da conexão de IA inválidos; persistência bloqueada.");
+  }
+
+  if (canUseLocalStorage()) {
+    localStorage.setItem(AI_CONNECTION_METADATA_STORAGE_KEY, JSON.stringify(parsed));
+  }
+
+  return parsed;
+}
+
+/**
  * Converts the legacy provider/model + presence of provider-specific secrets
  * into a V1 unconfirmed connection state. Raw credentials are reduced to
  * booleans before they reach the domain migration and are never serialized.
@@ -70,15 +91,24 @@ export function ensureAIConnectionMetadataMigration(
     },
   );
 
-  if (canUseLocalStorage()) {
-    try {
-      localStorage.setItem(AI_CONNECTION_METADATA_STORAGE_KEY, JSON.stringify(migrated));
-    } catch (error) {
-      console.warn("Could not persist AI connection migration metadata:", error);
-    }
+  try {
+    return writeAIConnectionMetadata(migrated);
+  } catch (error) {
+    console.warn("Could not persist AI connection migration metadata:", error);
+    return migrated;
   }
+}
 
-  return migrated;
+/**
+ * Backup metadata is never trusted as a locally validated connection. The
+ * imported state is downgraded before persistence, removing secret references,
+ * connection identifiers and validation timestamps from another machine.
+ */
+export function importAIConnectionMetadata(
+  input: unknown,
+): PersistedAIConnectionState {
+  const downgraded = downgradeImportedAIConnection(input) || createEmptyAIConnection();
+  return writeAIConnectionMetadata(downgraded);
 }
 
 export function clearAIConnectionMetadata(): void {
