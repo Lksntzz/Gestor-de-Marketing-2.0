@@ -98,6 +98,13 @@ async function loadConnectionState(): Promise<PersistedAIConnectionState> {
   const existing = parsePersistedAIConnection(config.aiConnection);
   if (existing) return existing;
 
+  // Preserve unknown/corrupted/future metadata on passive reads. Opening the
+  // connection UI must not destructively downgrade a state this binary cannot
+  // understand. An explicit successful reconfiguration may replace it later.
+  if (config.aiConnection !== undefined) {
+    return createEmptyAIConnection();
+  }
+
   const [geminiSecret, openaiSecret] = await Promise.all([
     readEncryptedSecretByStoreKey("geminiApiKey"),
     readEncryptedSecretByStoreKey("openaiApiKey"),
