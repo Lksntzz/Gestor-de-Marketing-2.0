@@ -3,6 +3,7 @@ import {
   AIProvider,
   AIProviderConfig,
   AIProviderError,
+  AudioTranscriptionRequest,
   ConnectionTestResult,
   GenerationRequest,
   GenerationResult,
@@ -38,7 +39,7 @@ export class GeminiProvider implements AIProvider {
     private readonly config: AIProviderConfig,
     clientFactory: GeminiClientFactory = (apiKey) => new GoogleGenAI({
       apiKey,
-      httpOptions: { headers: { "User-Agent": "nisti-marketing-2.0" } },
+      httpOptions: { headers: { "User-Agent": "nisti-marketing-3.1" } },
     }) as unknown as GeminiClient
   ) {
     if (!config.apiKey.trim()) {
@@ -94,6 +95,18 @@ export class GeminiProvider implements AIProvider {
 
   async analyzeDocument<T>(request: GenerationRequest): Promise<GenerationResult<T>> {
     return this.generateJson<T>(request);
+  }
+
+  async transcribeAudio(request: AudioTranscriptionRequest): Promise<GenerationResult<string>> {
+    if (!request.mimeType.startsWith("audio/")) {
+      throw new AIProviderError("INVALID_RESPONSE", "O arquivo informado não é um áudio suportado.", this.name);
+    }
+    const result = await this.generateText({
+      prompt: request.prompt || "Transcreva fielmente este áudio. Preserve nomes, números e decisões. Não resuma e não acrescente informações que não estejam audíveis.",
+      temperature: 0,
+      attachments: [{ mimeType: request.mimeType, data: request.data, fileName: request.fileName }],
+    });
+    return result;
   }
 
   async testConnection(): Promise<ConnectionTestResult> {
