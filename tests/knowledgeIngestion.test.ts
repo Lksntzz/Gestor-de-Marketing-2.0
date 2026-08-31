@@ -6,7 +6,7 @@ async function read(path: string): Promise<string> {
 }
 
 describe("knowledge ingestion v2 etapa 3", () => {
-  test("commit de conhecimento é fail-closed, transacional e não sobrescreve arquivos existentes", async () => {
+  test("commit físico de conhecimento continua fail-closed, transacional e sem sobrescrita", async () => {
     const desktop = await read("electron-main.ts");
     const preload = await read("src/preload.ts");
     const types = await read("src/types.ts");
@@ -21,7 +21,7 @@ describe("knowledge ingestion v2 etapa 3", () => {
     expect(types).toContain("commitKnowledge:");
   });
 
-  test("PDF e imagem preservam a fonte física e a análise referencia o asset real", async () => {
+  test("PDF e imagem preservam o asset quando há Vault físico e não fingem preservação no fluxo REST", async () => {
     const desktop = await read("electron-main.ts");
     const knowledge = await read("src/components/AddKnowledgeView.tsx");
 
@@ -31,7 +31,9 @@ describe("knowledge ingestion v2 etapa 3", () => {
     expect(desktop).toContain("## Fonte original");
     expect(knowledge).toContain("asset: isBinarySource");
     expect(knowledge).toContain("Fonte original preservada");
-    expect(knowledge).toContain("A preservação do arquivo original exige o runtime desktop");
+    expect(knowledge).toContain("physicalVaultPath");
+    expect(knowledge).toContain('source_preservation: "analysis_only_rest_stage1"');
+    expect(knowledge).not.toContain("A preservação do arquivo original exige o runtime desktop");
   });
 
   test("curadoria manual evita duplicar o mesmo asset no índice automático enquanto a versão não mudou", async () => {
@@ -42,22 +44,30 @@ describe("knowledge ingestion v2 etapa 3", () => {
     expect(desktop).toContain("Math.abs(curatedMtime - asset.mtimeMs) < 1");
   });
 
-  test("destino de gravação vem das pastas reais do Obsidian e não de uma lista estática na tela", async () => {
+  test("destino de gravação usa a taxonomia criada pelo Nisti no Vault ativo sem seletor físico", async () => {
     const knowledge = await read("src/components/AddKnowledgeView.tsx");
+    const automation = await read("src/services/obsidianKnowledgeAutomation.ts");
+    const api = await read("src/services/api.ts");
 
-    expect(knowledge).toContain("listVaultFolders");
+    expect(knowledge).toContain("NISTI_KNOWLEDGE_FOLDERS");
     expect(knowledge).toContain("vaultFolders.includes(folder)");
     expect(knowledge).toContain("Pasta real do Obsidian");
+    expect(automation).toContain('NISTI_VAULT_ROOT = "Nisti Marketing"');
+    expect(api).toContain("ensureNistiRemoteStructure");
+    expect(api).not.toContain("inspectDesktopVault");
+    expect(knowledge).not.toContain("listVaultFolders");
     expect(knowledge).not.toContain("STANDARD_VAULT_FOLDERS");
   });
 
-  test("UI só recebe a nova nota depois do commit confirmado", async () => {
+  test("UI só recebe a nova nota depois da gravação confirmada", async () => {
     const knowledge = await read("src/components/AddKnowledgeView.tsx");
-    const commitIndex = knowledge.indexOf("window.electronAPI.commitKnowledge");
+    const physicalCommitIndex = knowledge.indexOf("window.electronAPI.commitKnowledge");
+    const restCommitIndex = knowledge.indexOf("api.pushNoteToObsidian");
     const addIndex = knowledge.indexOf("onAddNote(newNote)");
 
-    expect(commitIndex).toBeGreaterThan(-1);
-    expect(addIndex).toBeGreaterThan(commitIndex);
+    expect(physicalCommitIndex).toBeGreaterThan(-1);
+    expect(restCommitIndex).toBeGreaterThan(physicalCommitIndex);
+    expect(addIndex).toBeGreaterThan(restCommitIndex);
     expect(knowledge).toContain("api.syncObsidianSnapshot");
   });
 });
