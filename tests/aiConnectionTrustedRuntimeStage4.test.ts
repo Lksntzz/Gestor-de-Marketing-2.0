@@ -146,6 +146,60 @@ describe("AI connection Stage 4 trusted runtime", () => {
     expect(result.proposal?.state.status).toBe("AGUARDANDO_MODELO");
   });
 
+  test("temporary secure-storage unavailability does not revoke an active connection", async () => {
+    const store = createStore(activeOpenAI);
+    let discoveryCalls = 0;
+    const runtime = new AIConnectionTrustedRuntimeService({
+      ...store,
+      readSecret: async () => "",
+      discovery: {
+        async confirmProviderAndDiscoverModels() {
+          discoveryCalls += 1;
+          throw new Error("must not execute without a credential");
+        },
+      },
+    });
+
+    const result = await runtime.confirmProvider("openai");
+
+    expect(result.success).toBe(false);
+    expect(result.code).toBe("MISSING_KEY");
+    expect(result.state).toEqual(activeOpenAI);
+    expect(store.current()).toEqual(activeOpenAI);
+    expect(store.writes).toHaveLength(0);
+    expect(discoveryCalls).toBe(0);
+  });
+
+  test("credential becoming unavailable after discovery preserves the active connection", async () => {
+    const store = createStore(activeOpenAI);
+    let reads = 0;
+    let validatorCalls = 0;
+    const runtime = new AIConnectionTrustedRuntimeService({
+      ...store,
+      readSecret: async () => {
+        reads += 1;
+        return reads === 1 ? "sk-active" : "";
+      },
+      discovery: successfulDiscovery("ignored-id"),
+      validator: {
+        async validateAndActivate() {
+          validatorCalls += 1;
+          throw new Error("must not execute without a credential");
+        },
+      },
+    });
+
+    await runtime.confirmProvider("openai");
+    const result = await runtime.validateModel("openai", "model-a");
+
+    expect(result.success).toBe(false);
+    expect(result.code).toBe("MISSING_KEY");
+    expect(result.state).toEqual(activeOpenAI);
+    expect(store.current()).toEqual(activeOpenAI);
+    expect(store.writes).toHaveLength(0);
+    expect(validatorCalls).toBe(0);
+  });
+
   test("invalid replacement model preserves the previous active connection transactionally", async () => {
     const store = createStore(activeOpenAI);
     const runtime = new AIConnectionTrustedRuntimeService({
