@@ -24,13 +24,154 @@ app.setName("Nisti Marketing");
 const LOOPBACK_HOST = "127.0.0.1";
 const ALLOWED_SECRET_NAMES = new Set(["obsidianApiKey", "geminiApiKey", "openaiApiKey"]);
 const AI_CONNECTION_SECRET_NAME = "aiConnectionKey";
+const STARTUP_LOG_MAX_BYTES = 512 * 1024;
+const hasSingleInstanceLock = app.requestSingleInstanceLock();
+
 let backendProcess: ChildProcess | null = null;
 let appUrl = "";
 let backendInstanceId = "";
 let internalSyncToken = "";
+let startupWindow: BrowserWindow | null = null;
+let startupTitle = "Iniciando Nisti Marketing";
+let startupMessage = "Preparando o backend local e carregando suas configurações...";
+let startupError = false;
+
+if (!hasSingleInstanceLock) {
+  app.quit();
+}
 
 function getSecretsFilePath(): string {
   return path.join(app.getPath("userData"), "nisti_secure_secrets.json");
+}
+
+function getStartupLogPath(): string {
+  return path.join(app.getPath("userData"), "startup.log");
+}
+
+async function appendStartupLog(message: string): Promise<void> {
+  try {
+    const logPath = getStartupLogPath();
+    await fs.mkdir(path.dirname(logPath), { recursive: true });
+    try {
+      const stat = await fs.stat(logPath);
+      if (stat.size > STARTUP_LOG_MAX_BYTES) {
+        await fs.writeFile(logPath, "", "utf8");
+      }
+    } catch {
+      // First run: log file does not exist yet.
+    }
+    const safeMessage = String(message || "").replace(/[\r\n]+/g, " ").slice(0, 4000);
+    await fs.appendFile(logPath, `[${new Date().toISOString()}] ${safeMessage}\n`, "utf8");
+  } catch {
+    // Startup diagnostics must never prevent the app from opening.
+  }
+}
+
+function escapeHtml(value: string): string {
+  return value
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&#039;");
+}
+
+function startupDataUrl(): string {
+  const accent = startupError ? "#b91c1c" : "#111827";
+  const statusLabel = startupError ? "Falha na inicialização" : "Inicializando";
+  const html = `<!doctype html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Nisti Marketing</title>
+<style>
+  html,body{height:100%;margin:0;font-family:Segoe UI,Arial,sans-serif;background:#f5f5f4;color:#1c1917}
+  body{display:flex;align-items:center;justify-content:center}
+  .card{width:min(520px,calc(100vw - 48px));background:#fff;border:1px solid #e7e5e4;border-radius:18px;padding:30px;box-shadow:0 18px 50px rgba(28,25,23,.12)}
+  .eyebrow{font-size:12px;font-weight:700;letter-spacing:.12em;text-transform:uppercase;color:${accent};margin-bottom:10px}
+  h1{font-size:25px;line-height:1.2;margin:0 0 12px}
+  p{font-size:14px;line-height:1.55;color:#57534e;margin:0}
+  .bar{height:4px;background:#e7e5e4;border-radius:99px;overflow:hidden;margin-top:24px}
+  .bar::after{content:"";display:block;width:38%;height:100%;background:${accent};border-radius:99px;animation:move 1.2s ease-in-out infinite}
+  .path{font-size:11px;color:#78716c;margin-top:18px;word-break:break-all}
+  @keyframes move{0%{transform:translateX(-110%)}100%{transform:translateX(300%)}}
+</style>
+</head>
+<body>
+  <main class="card">
+    <div class="eyebrow">${statusLabel}</div>
+    <h1>${escapeHtml(startupTitle)}</h1>
+    <p>${escapeHtml(startupMessage)}</p>
+    ${startupError ? `<div class="path">Log de diagnóstico: ${escapeHtml(getStartupLogPath())}</div>` : `<div class="bar"></div>`}
+  </main>
+</body>
+</html>`;
+  return `data:text/html;charset=utf-8,${encodeURIComponent(html)}`;
+}
+
+async function renderStartupStatus(): Promise<void> {
+  if (!startupWindow || startupWindow.isDestroyed()) return;
+  try {
+    await startupWindow.loadURL(startupDataUrl());
+  } catch {
+    // The main application window may already be taking over.
+  }
+}
+
+async function setStartupStatus(title: string, message: string, isError = false): Promise<void> {
+  startupTitle = title;
+  startupMessage = message;
+  startupError = isError;
+  await renderStartupStatus();
+}
+
+function createStartupWindow(): void {
+  if (startupWindow && !startupWindow.isDestroyed()) return;
+  startupWindow = new BrowserWindow({
+    width: 600,
+    height: 360,
+    minWidth: 520,
+    minHeight: 320,
+    resizable: false,
+    maximizable: false,
+    autoHideMenuBar: true,
+    backgroundColor: "#f5f5f4",
+    title: "Nisti Marketing",
+    webPreferences: {
+      contextIsolation: true,
+      nodeIntegration: false,
+      sandbox: true,
+    },
+  });
+  startupWindow.setMenuBarVisibility(false);
+  startupWindow.on("closed", () => {
+    startupWindow = null;
+  });
+  void renderStartupStatus();
+}
+
+function closeStartupWindow(): void {
+  if (startupWindow && !startupWindow.isDestroyed()) {
+    startupWindow.close();
+  }
+  startupWindow = null;
+}
+
+if (hasSingleInstanceLock) {
+  app.on("second-instance", () => {
+    const windows = BrowserWindow.getAllWindows().filter((window) => !window.isDestroyed());
+    const target = windows.find((window) => window !== startupWindow) || startupWindow || windows[0];
+    if (!target) return;
+    if (target.isMinimized()) target.restore();
+    target.show();
+    target.focus();
+  });
+
+  app.whenReady().then(() => {
+    createStartupWindow();
+    void appendStartupLog("Electron ready; startup window displayed.");
+  });
 }
 
 async function readSecretStore(): Promise<Record<string, string>> {
@@ -69,7 +210,6 @@ async function syncAllSecretsWithBackend(): Promise<void> {
     let geminiKey = readStoredSecretValue(store, "geminiApiKey") || "";
     let openaiKey = readStoredSecretValue(store, "openaiApiKey") || "";
 
-    // Resolve unified single active credential based on active provider
     const stateSnapshot = await getAIConnectionRuntimeState();
     const activeProvider = stateSnapshot?.state?.provider;
     const aiConnKey = readStoredSecretValue(store, AI_CONNECTION_SECRET_NAME) || "";
@@ -121,13 +261,8 @@ ipcMain.handle("secret:set", async (event, name: string, value: string) => {
   const previousValue = readStoredSecretValue(store, name);
   const nextValue = value || "";
 
-  // Re-saving the exact same secret is idempotent. This matters while legacy
-  // settings code still persists configuration more than once.
   if (previousValue === nextValue) return { success: true };
 
-  // Revoke metadata/proposals before changing the credential. If revocation
-  // fails, the secret is left untouched; if the subsequent write fails, the
-  // runtime remains safely disconnected rather than trusting stale metadata.
   await revokeAIConnectionSecretStoreKey(name);
 
   if (!nextValue) {
@@ -136,8 +271,6 @@ ipcMain.handle("secret:set", async (event, name: string, value: string) => {
     store[name] = safeStorage.encryptString(nextValue).toString("base64");
   }
   await writeSecretStore(store);
-  
-  // Dynamically sync secrets with background server
   void syncAllSecretsWithBackend();
   return { success: true };
 });
@@ -151,10 +284,6 @@ ipcMain.handle("secret:get", async (event, name: string) => {
     const store = await readSecretStore();
     const encrypted = store[name];
     if (!encrypted) return "";
-    
-    // SECURE CREDENTIAL ISOLATION: Never expose plaintext keys to the renderer!
-    // Returning "saved-in-secure-storage" ensures that the renderer can only know
-    // whether the secret exists, but can never leak real credentials.
     return "saved-in-secure-storage";
   } catch {
     return "";
@@ -177,15 +306,11 @@ ipcMain.handle("secret:delete", async (event, name: string) => {
   assertTrustedIpcSender(event);
   if (!ALLOWED_SECRET_NAMES.has(name)) throw new Error("Secret name not allowed.");
 
-  // Always revoke first: metadata may still reference a key even when the
-  // encrypted slot is already absent or unreadable.
   await revokeAIConnectionSecretStoreKey(name);
 
   const store = await readSecretStore();
   delete store[name];
   await writeSecretStore(store);
-  
-  // Dynamically sync secrets with background server
   void syncAllSecretsWithBackend();
   return { success: true };
 });
@@ -201,19 +326,13 @@ ipcMain.handle("ai-connection:set-credential", async (event, value: unknown) => 
   const store = await readSecretStore();
   const previousValue = readStoredSecretValue(store, AI_CONNECTION_SECRET_NAME);
 
-  // Re-saving the same active credential must not destroy a validated
-  // connection. This makes Save/close/reopen cycles idempotent.
   if (previousValue === nextValue) return { success: true, changed: false };
 
-  // A new single credential starts a new trust chain. Clear canonical metadata
-  // before persisting the secret so a write failure cannot leave stale trust.
   const reset = await resetAIConnectionRuntimeState();
   if (!reset.success) throw new Error(reset.message || "Could not reset AI connection metadata.");
 
   store[AI_CONNECTION_SECRET_NAME] = safeStorage.encryptString(nextValue).toString("base64");
   await writeSecretStore(store);
-  
-  // Dynamically sync secrets with background server
   void syncAllSecretsWithBackend();
   return { success: true, changed: true };
 });
@@ -227,8 +346,6 @@ ipcMain.handle("ai-connection:clear-credential", async (event) => {
   const store = await readSecretStore();
   delete store[AI_CONNECTION_SECRET_NAME];
   await writeSecretStore(store);
-  
-  // Dynamically sync secrets with background server
   void syncAllSecretsWithBackend();
   return { success: true };
 });
@@ -253,7 +370,6 @@ ipcMain.handle("ai-connection:validate-model", async (event, input: unknown) => 
   return validateAIConnectionModel(input);
 });
 
-// Register Vault and Notes direct filesystem IPC handlers
 registerVaultIpcHandlers(ipcMain);
 
 async function reserveEphemeralPort(): Promise<number> {
@@ -278,6 +394,10 @@ function waitForBackend(timeoutMs = 12000): Promise<void> {
 
   return new Promise((resolve, reject) => {
     const retry = () => {
+      if (!backendProcess) {
+        reject(new Error("O processo do backend local encerrou antes de ficar pronto."));
+        return;
+      }
       if (Date.now() - started >= timeoutMs) {
         reject(new Error("Backend local não iniciou dentro do tempo esperado."));
         return;
@@ -286,6 +406,10 @@ function waitForBackend(timeoutMs = 12000): Promise<void> {
     };
 
     const probe = () => {
+      if (!backendProcess) {
+        reject(new Error("O processo do backend local não está em execução."));
+        return;
+      }
       const req = http.get(`${appUrl}/api/health`, (res) => {
         let body = "";
         res.setEncoding("utf8");
@@ -320,12 +444,28 @@ function waitForBackend(timeoutMs = 12000): Promise<void> {
   });
 }
 
+function attachBackendDiagnostics(processRef: ChildProcess): void {
+  processRef.stdout?.on("data", (chunk) => {
+    void appendStartupLog(`[backend stdout] ${String(chunk).trim()}`);
+  });
+  processRef.stderr?.on("data", (chunk) => {
+    void appendStartupLog(`[backend stderr] ${String(chunk).trim()}`);
+  });
+  processRef.once("error", (error) => {
+    void appendStartupLog(`Backend spawn error: ${error.message}`);
+  });
+  processRef.once("exit", (code, signal) => {
+    void appendStartupLog(`Backend exited. code=${String(code)} signal=${String(signal)}`);
+    if (backendProcess === processRef) backendProcess = null;
+  });
+}
+
 async function startBackend(): Promise<void> {
   const port = await reserveEphemeralPort();
   backendInstanceId = crypto.randomBytes(16).toString("hex");
   appUrl = `http://${LOOPBACK_HOST}:${port}`;
+  await appendStartupLog(`Starting backend on ${appUrl}.`);
 
-  // Read and decrypt secure secrets to seed backend environment
   let obsidianKey = "";
   let geminiKey = "";
   let openaiKey = "";
@@ -335,7 +475,6 @@ async function startBackend(): Promise<void> {
     geminiKey = readStoredSecretValue(store, "geminiApiKey") || "";
     openaiKey = readStoredSecretValue(store, "openaiApiKey") || "";
 
-    // Resolve unified single active credential based on active provider
     const stateSnapshot = await getAIConnectionRuntimeState();
     const activeProvider = stateSnapshot?.state?.provider;
     const aiConnKey = readStoredSecretValue(store, AI_CONNECTION_SECRET_NAME) || "";
@@ -348,12 +487,12 @@ async function startBackend(): Promise<void> {
       }
     }
   } catch (err) {
-    console.warn("Could not decrypt initial backend secrets:", err);
+    await appendStartupLog(`Could not decrypt initial backend secrets: ${err instanceof Error ? err.message : String(err)}`);
   }
 
   internalSyncToken = crypto.randomBytes(32).toString("hex");
   const serverPath = path.join(__dirname, "server.cjs");
-  backendProcess = spawn(process.execPath, [serverPath], {
+  const spawned = spawn(process.execPath, [serverPath], {
     cwd: path.resolve(__dirname, ".."),
     env: {
       ...process.env,
@@ -366,23 +505,41 @@ async function startBackend(): Promise<void> {
       GEMINI_API_KEY: geminiKey,
       OPENAI_API_KEY: openaiKey,
     },
-    stdio: "ignore",
+    stdio: ["ignore", "pipe", "pipe"],
     windowsHide: true,
   });
-
-  backendProcess.on("exit", () => {
-    backendProcess = null;
-  });
+  backendProcess = spawned;
+  attachBackendDiagnostics(spawned);
 }
 
-const backendStartup = startBackend();
+const backendStartup = hasSingleInstanceLock
+  ? startBackend()
+  : Promise.reject(new Error("Secondary instance blocked."));
 const originalLoadFile = BrowserWindow.prototype.loadFile;
 
 BrowserWindow.prototype.loadFile = function (..._args: any[]) {
+  const targetWindow = this;
+  void setStartupStatus("Iniciando Nisti Marketing", "Conectando ao backend local seguro...");
+
   return backendStartup
     .then(() => waitForBackend())
-    .then(() => this.loadURL(appUrl))
-    .catch(async () => originalLoadFile.call(this, path.join(__dirname, "index.html")));
+    .then(async () => {
+      await appendStartupLog("Backend health check succeeded; loading renderer.");
+      const result = await targetWindow.loadURL(appUrl);
+      closeStartupWindow();
+      return result;
+    })
+    .catch(async (error) => {
+      const message = error instanceof Error ? error.message : "Falha desconhecida ao iniciar o backend local.";
+      await appendStartupLog(`Startup failed: ${message}`);
+      if (!targetWindow.isDestroyed()) targetWindow.hide();
+      await setStartupStatus(
+        "Não foi possível iniciar o Nisti Marketing",
+        `${message} Feche o aplicativo e tente novamente. Se o problema persistir, consulte o startup.log.`,
+        true,
+      );
+      throw error;
+    });
 };
 
 app.on("before-quit", () => {
@@ -393,4 +550,6 @@ app.on("before-quit", () => {
 
 process.env.NODE_ENV = "production";
 
-void import("./electron-main.ts");
+if (hasSingleInstanceLock) {
+  void import("./electron-main.ts");
+}
