@@ -27,11 +27,13 @@ export function extractTasksFromMarkdown(content: string, sourcePath: string, so
     let body = match[2].trim();
 
     // Priority detection
-    let priority: TaskPriority = "medium";
-    if (body.includes("🔺") || body.includes("🔼") || body.toLowerCase().includes("#urgente")) {
+    let priority: TaskPriority = "unspecified";
+    if (body.includes("🔺") || body.toLowerCase().includes("#urgente")) {
       priority = "urgent";
     } else if (body.includes("⏫") || body.toLowerCase().includes("#alta")) {
       priority = "high";
+    } else if (body.includes("🔼") || body.toLowerCase().includes("#media") || body.toLowerCase().includes("#média")) {
+      priority = "medium";
     } else if (body.includes("🔽") || body.toLowerCase().includes("#baixa")) {
       priority = "low";
     }

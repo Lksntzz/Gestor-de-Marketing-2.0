@@ -53,6 +53,7 @@ interface ExecutionTasksViewProps {
 }
 
 const priorityLabels: Record<TaskPriority, string> = {
+  unspecified: "Não definida",
   urgent: "Urgente",
   high: "Alta",
   medium: "Média",
@@ -60,6 +61,7 @@ const priorityLabels: Record<TaskPriority, string> = {
 };
 
 const priorityClasses: Record<TaskPriority, string> = {
+  unspecified: "border-outline-border bg-surface-elevated text-text-secondary",
   urgent: "border-error-sober/40 bg-error-sober/10 text-error-sober",
   high: "border-warning-sober/40 bg-warning-sober/10 text-warning-sober",
   medium: "border-primary-container/30 bg-primary-container/10 text-primary-fixed-dim",

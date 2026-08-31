@@ -123,7 +123,7 @@ export function evaluateEpistemicWeight(
   // Rigor epistêmico: Nenhuma pasta gera CONFIRMADO / isOfficialFact: true automaticamente
   // sem evidência explícita (status: "OFICIAL" ou epistemic_status: "CONFIRMADO").
   const normalizedFolder = String(folder || "").replace(/\\/g, "/");
-  if (normalizedFolder.includes("01_Estrategia") || normalizedFolder.includes("02_Produtos") || normalizedFolder.includes("08_Aprendizados")) {
+  if (normalizedFolder.includes("00_Base") || normalizedFolder.includes("01_Estrategia") || normalizedFolder.includes("02_Produtos") || normalizedFolder.includes("08_Aprendizados")) {
     return {
       normalizedEpistemicStatus: "HIPÓTESE",
       canonicalStatus: "work_in_progress",

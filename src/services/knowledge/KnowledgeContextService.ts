@@ -134,7 +134,7 @@ function hashText(value: string): string {
 
 export function relativeVaultPath(input: unknown): string {
   const clean = String(input ?? "").replace(/\\/g, "/").replace(/\/{2,}/g, "/").trim();
-  const taxonomy = clean.match(/(?:^|\/)((?:00_Inbox|01_Estrategia|02_Produtos|03_Conteudos|04_Campanhas|05_Reunioes|06_Influenciadores_UGC|07_Pesquisas|08_Aprendizados|99_Templates)\/.*)$/i);
+  const taxonomy = clean.match(/(?:^|\/)((?:00_Inbox|00_Base|01_Estrategia|02_Produtos|03_Conteudos|04_Campanhas|05_Reunioes|06_Influenciadores_UGC|07_Pesquisas|08_Aprendizados|99_Templates)\/.*)$/i);
   if (taxonomy?.[1]) return taxonomy[1].replace(/^\/+/, "");
   if (/^(?:[A-Za-z]:\/|\/)/.test(clean)) return clean.split("/").filter(Boolean).pop() || "nota.md";
   return clean.replace(/^(?:\.\/)+/, "").replace(/^\.\.\/(?:\.\.\/)*?/g, "").replace(/^\/+/, "") || "nota.md";

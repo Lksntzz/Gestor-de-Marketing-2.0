@@ -2,6 +2,7 @@ import * as fs from "node:fs/promises";
 import * as path from "node:path";
 import * as crypto from "node:crypto";
 import type { KnowledgeIndex } from "./KnowledgeIndex";
+import { parseMarkdownDocument } from "../../../utils/markdownFrontmatter";
 
 export interface SyncMetrics {
   scanned: number;
@@ -14,8 +15,15 @@ export interface SyncMetrics {
 }
 
 const IGNORED_DIRS = new Set([".obsidian", ".git", "node_modules", "dist", ".Trash"]);
-const MAX_MD_SIZE = 5 * 1024 * 1024; // 5MB limit for text files
+const MAX_MD_SIZE = 5 * 1024 * 1024;
 const SUPPORTED_EXTS = new Set([".md", ".txt", ".pdf", ".png", ".jpg", ".jpeg", ".webp"]);
+
+function metadataText(value: unknown): string {
+  if (value === undefined || value === null) return "";
+  if (Array.isArray(value)) return value.map(String).join(", ");
+  if (typeof value === "object") return JSON.stringify(value);
+  return String(value);
+}
 
 export class VaultIndexer {
   private isSyncing = false;
@@ -108,7 +116,6 @@ export class VaultIndexer {
           const hash = crypto.createHash("sha256").update(content).digest("hex");
 
           if (existing && existing.content_hash === hash) {
-            // Update the record with the new mtime if content hash is same but mtime changed (e.g. touch)
             if (existing.modified_at !== stats.mtimeMs) {
               this.db.updateDocumentMtime(this.vaultId, normalizedPath, stats.mtimeMs);
             }
@@ -116,7 +123,9 @@ export class VaultIndexer {
             continue;
           }
 
-          const parsed = ext === ".md" ? this.parseMarkdown(content) : { frontmatter: {}, body: content };
+          const parsed = ext === ".md"
+            ? parseMarkdownDocument(content)
+            : { frontmatter: {}, body: content, hasFrontmatter: false };
           const docId = crypto.createHash("sha256").update(`${this.vaultId}:${normalizedPath}`).digest("hex");
 
           this.db.upsertDocument({
@@ -129,31 +138,29 @@ export class VaultIndexer {
             modified_at: stats.mtimeMs,
             size: stats.size,
             content: parsed.body,
-            summary: "",
-            category: parsed.frontmatter.category || "",
-            epistemic_status: parsed.frontmatter.epistemic_status || parsed.frontmatter.status || "",
+            summary: metadataText(parsed.frontmatter.summary || parsed.frontmatter.resumo),
+            category: metadataText(parsed.frontmatter.category || parsed.frontmatter.categoria),
+            epistemic_status: metadataText(parsed.frontmatter.epistemic_status || parsed.frontmatter.status),
             metadata_json: JSON.stringify(parsed.frontmatter),
             indexed_at: Date.now()
           });
 
           if (existing) metrics.updated++;
           else metrics.indexed++;
-
         } else {
-          // Asset processing (PDF, Images)
           if (existing && existing.modified_at === stats.mtimeMs && existing.size === stats.size) {
             metrics.unchanged++;
             continue;
           }
 
           if (!this.assetProcessor) {
-             metrics.unchanged++;
-             continue;
+            metrics.unchanged++;
+            continue;
           }
 
           const analysis = await this.assetProcessor(fullPath, normalizedPath, ext);
           const hash = crypto.createHash("sha256").update(`${stats.mtimeMs}:${stats.size}`).digest("hex");
-          
+
           if (existing && existing.content_hash === hash) {
             if (existing.modified_at !== stats.mtimeMs) {
               this.db.updateDocumentMtime(this.vaultId, normalizedPath, stats.mtimeMs);
@@ -163,7 +170,7 @@ export class VaultIndexer {
           }
 
           const docId = crypto.createHash("sha256").update(`${this.vaultId}:${normalizedPath}`).digest("hex");
-          
+
           this.db.upsertDocument({
             id: docId,
             vault_id: this.vaultId,
@@ -189,25 +196,5 @@ export class VaultIndexer {
         metrics.failed++;
       }
     }
-  }
-
-  private parseMarkdown(content: string) {
-    let frontmatter: Record<string, any> = {};
-    let body = content;
-    const fmMatch = content.match(/^---\r?\n([\s\S]*?)\r?\n---/);
-
-    if (fmMatch) {
-      body = content.slice(fmMatch[0].length).trim();
-      const fmLines = fmMatch[1].split("\n");
-      for (const line of fmLines) {
-        const colonIndex = line.indexOf(":");
-        if (colonIndex > -1) {
-          const key = line.slice(0, colonIndex).trim();
-          let value = line.slice(colonIndex + 1).trim().replace(/^['"]|['"]$/g, "");
-          frontmatter[key] = value;
-        }
-      }
-    }
-    return { frontmatter, body };
   }
 }

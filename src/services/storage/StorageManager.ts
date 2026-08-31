@@ -11,6 +11,7 @@ import { TaxonomyFolder, normalizeTaxonomyFolder, sanitizeSafePath } from "../..
 import { generateFastHash, generateUUID } from "../../utils/crypto";
 import { APP_VERSION, localDateKey } from "../../utils/reliability";
 import { ObsidianApiConfig, ObsidianNote } from "../../types";
+import { normalizeFrontmatterTags } from "../../utils/markdownFrontmatter";
 import { isObsidianRuntimeConnected } from "../obsidianRuntimeState";
 
 const STORAGE_KEYS = {
@@ -170,7 +171,7 @@ export class StorageManager implements IStorageService {
             title: f.title,
             folder: normalizeTaxonomyFolder(f.folder),
             content: f.content,
-            tags: Array.isArray(f.frontmatter?.tags) ? f.frontmatter.tags : [],
+            tags: normalizeFrontmatterTags(f.frontmatter?.tags),
             wikilinks: [],
             frontmatter: {
               id: f.frontmatter?.id || fallbackId,
@@ -184,7 +185,7 @@ export class StorageManager implements IStorageService {
               nicho: f.frontmatter?.nicho || "Não classificado",
               canal: f.frontmatter?.canal || "Não classificado",
               projeto: f.frontmatter?.projeto || "Geral",
-              tags: Array.isArray(f.frontmatter?.tags) ? f.frontmatter.tags : [],
+              tags: normalizeFrontmatterTags(f.frontmatter?.tags),
               origem: f.frontmatter?.origem || "Obsidian Local Vault",
               approved_by: f.frontmatter?.approved_by || "",
               hash: f.frontmatter?.hash || generateFastHash("h", sourcePath),
@@ -217,7 +218,7 @@ export class StorageManager implements IStorageService {
 
     const files = await window.electronAPI.readNotes();
     return files.map((f: any) => {
-      const tags = Array.isArray(f.frontmatter?.tags) ? f.frontmatter.tags : [];
+      const tags = normalizeFrontmatterTags(f.frontmatter?.tags);
       return {
         id: f.frontmatter?.id || `desktop-${generateFastHash("n", `${f.folder}/${f.title}`)}`,
         path: `${f.folder || "00_Inbox"}/${f.title}.md`,

@@ -25,6 +25,18 @@ class TestCustomEvent<T = unknown> extends Event {
   }
 }
 
+function createWindow() {
+  const target = new EventTarget() as EventTarget & {
+    localStorage: MemoryStorage;
+    electronAPI: Record<string, unknown>;
+  };
+  target.localStorage = new MemoryStorage();
+  target.electronAPI = {};
+  (globalThis as any).window = target;
+  (globalThis as any).CustomEvent = TestCustomEvent;
+  return target;
+}
+
 afterEach(() => {
   (globalThis as any).window = originalWindow;
   (globalThis as any).CustomEvent = originalCustomEvent;
@@ -32,28 +44,20 @@ afterEach(() => {
 
 describe("Obsidian snapshot state bridge", () => {
   it("publishes markdown notes into the persistent app notes state", () => {
-    const target = new EventTarget() as EventTarget & {
-      localStorage: MemoryStorage;
-      electronAPI: Record<string, unknown>;
-    };
-    target.localStorage = new MemoryStorage();
-    target.electronAPI = {};
-
+    const target = createWindow();
     target.localStorage.setItem(
       "obsidian_marketing_notes",
       JSON.stringify([
         {
-          id: "local-note",
+          id: "local-draft",
           path: "00_Inbox/local.md",
           title: "local",
           folder: "00_Inbox",
-          content: "local",
+          content: "rascunho ainda não gravado",
+          syncedWithApi: false,
         },
       ])
     );
-
-    (globalThis as any).window = target;
-    (globalThis as any).CustomEvent = TestCustomEvent;
 
     let stateEvent: any = null;
     let snapshotEvent: any = null;
@@ -93,5 +97,30 @@ describe("Obsidian snapshot state bridge", () => {
 
     expect(snapshotEvent?.notes).toHaveLength(1);
     expect(snapshotEvent?.folders).toEqual(["01_Estrategia"]);
+  });
+
+  it("drops stale synchronized notes that no longer exist in the physical Vault", () => {
+    const target = createWindow();
+    target.localStorage.setItem(
+      "obsidian_marketing_notes",
+      JSON.stringify([
+        {
+          id: "stale",
+          path: "02_Produtos/Removido.md",
+          title: "Removido",
+          folder: "02_Produtos",
+          content: "não pode continuar no contexto",
+          syncedWithApi: true,
+        },
+      ])
+    );
+
+    let stateEvent: any = null;
+    target.addEventListener("nisti:persistent-state-updated", (event) => {
+      stateEvent = (event as any).detail;
+    });
+
+    publishObsidianSnapshot([], ["02_Produtos"]);
+    expect(stateEvent?.value).toEqual([]);
   });
 });

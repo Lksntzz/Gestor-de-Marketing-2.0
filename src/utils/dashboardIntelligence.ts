@@ -63,6 +63,7 @@ const PRIORITY_SCORE: Record<MarketingTask["priority"], number> = {
   high: 3,
   medium: 2,
   low: 1,
+  unspecified: 0,
 };
 
 const CAMPAIGN_STATUS_SCORE: Record<MarketingCampaign["status"], number> = {
@@ -235,7 +236,9 @@ export function selectPriorityAction(
           ? "Alta prioridade"
           : task.priority === "medium"
             ? "Prioridade média"
-            : "Baixa prioridade";
+            : task.priority === "low"
+              ? "Baixa prioridade"
+              : "Prioridade não definida";
 
     const tone: DashboardActionTone =
       task.priority === "urgent" ? "urgent" : task.priority === "high" ? "high" : "normal";

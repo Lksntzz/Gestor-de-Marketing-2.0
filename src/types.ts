@@ -73,7 +73,7 @@ export interface MarketingCampaign {
   createdDate: string;
 }
 
-export type TaskPriority = "low" | "medium" | "high" | "urgent";
+export type TaskPriority = "unspecified" | "low" | "medium" | "high" | "urgent";
 export type TaskStatus = "todo" | "in-progress" | "done";
 
 export interface MarketingTask {

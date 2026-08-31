@@ -256,7 +256,7 @@ export const CampaignExecutionHub: React.FC<CampaignExecutionHubProps> = ({
                 </div>
                 <div className="flex items-center gap-2 shrink-0 text-[10px]">
                   <span className="px-2 py-0.5 rounded bg-surface-card border border-outline-border text-text-secondary">
-                    {task.priority.toUpperCase()}
+                    {task.priority === "unspecified" ? "NÃO DEFINIDA" : task.priority.toUpperCase()}
                   </span>
                   {task.dueDate && <span className="text-text-secondary">{task.dueDate}</span>}
                 </div>

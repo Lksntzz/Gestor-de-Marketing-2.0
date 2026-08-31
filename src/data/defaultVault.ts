@@ -10,6 +10,7 @@ import {
 
 export const STANDARD_VAULT_FOLDERS = [
   "00_Inbox",
+  "00_Base",
   "01_Estrategia",
   "02_Produtos",
   "03_Conteudos",
