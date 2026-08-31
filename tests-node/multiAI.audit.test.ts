@@ -301,13 +301,14 @@ describe("secure AI configuration", () => {
 
 describe("IPC and provider boundaries", () => {
   test("every preload invoke has one main-process handler and secret handlers are unique", async () => {
-    const [preload, main, bootstrap] = await Promise.all([
+    const [preload, main, bootstrap, vaultIpc] = await Promise.all([
       readFile(path.join(ROOT, "src/preload.ts"), "utf8"),
       readFile(path.join(ROOT, "electron-main.ts"), "utf8"),
       readFile(path.join(ROOT, "electron-bootstrap.ts"), "utf8"),
+      readFile(path.join(ROOT, "src/electron/knowledge/registerVaultIpc.ts"), "utf8"),
     ]);
     const invoked = [...preload.matchAll(/ipcRenderer\.invoke\("([^"]+)"/g)].map((match) => match[1]);
-    const handled = [...`${main}\n${bootstrap}`.matchAll(/ipcMain\.handle\("([^"]+)"/g)].map((match) => match[1]);
+    const handled = [...`${main}\n${bootstrap}\n${vaultIpc}`.matchAll(/ipcMain\.handle\("([^"]+)"/g)].map((match) => match[1]);
     for (const channel of invoked) {
       assert.equal(handled.filter((candidate) => candidate === channel).length, 1, channel);
     }
@@ -410,7 +411,9 @@ test("legacy aliases preserve local/offline behavior and legacy error status", a
     wasFallback: false,
   });
   assert.deepEqual(modernPayload.sources, []);
-  assert.match(String(modernPayload.contextWarning), /não fundamentada no Vault/i);
+  const warning = String(modernPayload.contextWarning);
+  assert.match(warning, /Nenhum documento canônico relevante foi encontrado no Vault/i);
+  assert.match(warning, /sem garantias/i);
 
   const aiBody = JSON.stringify({ campaignName: "Teste", objective: "Validar", engineMode: "ai" });
   const modernMissingKey = await fetch(`${baseUrl}/api/ai/generate-guidelines`, { method: "POST", headers, body: aiBody });

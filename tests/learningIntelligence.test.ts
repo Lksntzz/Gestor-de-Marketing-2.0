@@ -106,7 +106,7 @@ describe("learning intelligence audit", () => {
     const source = await readFile(new URL("../src/components/RoutineIntelligenceView.tsx", import.meta.url), "utf8");
     expect(source).toContain("Aprender");
     expect(source).toContain("Registrar resultado");
-    expect(source).toContain("Registrar aprendizado");
+    expect(source).toContain("Nova regra / hipótese");
     expect(source).toContain("campos não medidos permaneceram ausentes");
     expect(source).toContain("editorialItemId");
     expect(source).toContain('item.status === "PUBLISHED"');

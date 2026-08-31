@@ -114,7 +114,7 @@ describe("creative workflow", () => {
     expect(source).toContain('type CreationStage = "briefing" | "ideas" | "develop"');
     expect(source).toContain("1. Briefing");
     expect(source).toContain("2. Ideias");
-    expect(source).toContain("3. Desenvolver");
+    expect(source).toContain("3. Roteiros");
     expect(source).toContain("Biblioteca de criação");
     expect(source).toContain("buildCreativeLibrary");
     expect(source).toContain("editorialList");

@@ -9,6 +9,8 @@ on:
       - "electron-bootstrap.ts"
       - "src/electron/**"
       - "src/main.tsx"
+      - "src/index.css"
+      - "src/components/**"
       - "src/services/ai/**"
       - "src/services/knowledge/index/**"
       - "src/services/workspaceBackupService.ts"
@@ -16,7 +18,6 @@ on:
       - "src/domain/aiCredentialAnalysis.ts"
       - "src/domain/appStateSchemas.ts"
       - "src/domain/baseOnboarding.ts"
-      - "src/components/BaseOnboardingPanel.tsx"
       - "src/types.ts"
       - "tests/aiConnection*.test.ts"
       - "tests/aiCredential*.test.ts"
@@ -34,6 +35,8 @@ on:
       - "electron-bootstrap.ts"
       - "src/electron/**"
       - "src/main.tsx"
+      - "src/index.css"
+      - "src/components/**"
       - "src/services/ai/**"
       - "src/services/knowledge/index/**"
       - "src/services/workspaceBackupService.ts"
@@ -41,7 +44,6 @@ on:
       - "src/domain/aiCredentialAnalysis.ts"
       - "src/domain/appStateSchemas.ts"
       - "src/domain/baseOnboarding.ts"
-      - "src/components/BaseOnboardingPanel.tsx"
       - "src/types.ts"
       - "tests/aiConnection*.test.ts"
       - "tests/aiCredential*.test.ts"
@@ -92,9 +94,18 @@ jobs:
           CSC_IDENTITY_AUTO_DISCOVERY: "false"
         run: bunx electron-builder@26.0.12 --win --x64 --publish never
 
-      - name: Launch Electron and Verify Renderer, Preload and Backend
+      - name: Launch Electron, Verify Runtime and Capture UI Preview
         shell: pwsh
-        run: pwsh -NoProfile -ExecutionPolicy Bypass -File scripts/windows-electron-smoke.ps1 -ExecutablePath "dist-electron/win-unpacked/Nisti Marketing.exe"
+        run: pwsh -NoProfile -ExecutionPolicy Bypass -File scripts/windows-electron-smoke.ps1 -ExecutablePath "dist-electron/win-unpacked/Nisti Marketing.exe" -ScreenshotPath "artifacts/nisti-ui-preview.png"
+
+      - name: Upload UI Preview
+        if: always() && hashFiles('artifacts/nisti-ui-preview.png') != ''
+        uses: actions/upload-artifact@v4
+        with:
+          name: nisti-ui-preview-${{ github.run_number }}
+          path: artifacts/nisti-ui-preview.png
+          retention-days: 3
+          if-no-files-found: error
 
       - name: Verify Windows Test Artifacts
         shell: pwsh
@@ -108,5 +119,5 @@ jobs:
             Write-Host ("{0} | {1} bytes | SHA256 {2}" -f $exe.Name, $exe.Length, $hash)
           }
 
-      # Os instaladores de teste são descartáveis e não são enviados para
-      # actions/upload-artifact. Isso evita consumo recorrente de Actions Storage.
+      # Os instaladores de teste continuam descartáveis. Apenas a captura PNG da
+      # interface é mantida por poucos dias para revisão visual de PRs de UI.
