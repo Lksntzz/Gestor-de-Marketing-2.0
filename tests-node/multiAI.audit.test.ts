@@ -194,6 +194,7 @@ describe("Gemini provider compatibility", () => {
             data: { status: "ok" } as T,
           };
         },
+        transcribeAudio: async () => { throw new Error("unused"); },
         testConnection: async () => ({ success: true, provider: "gemini", model: config.model || "" }),
       })
     );
