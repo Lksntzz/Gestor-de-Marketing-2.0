@@ -84,6 +84,10 @@ async function persistConnectionState(
   return parsed;
 }
 
+async function resetConnectionState(): Promise<void> {
+  await fs.rm(connectionFilePath(), { force: true });
+}
+
 function secretStoreKey(secretRef: AISecretReference): string {
   if (secretRef === "legacy:openaiApiKey") return "openaiApiKey";
   if (secretRef === "legacy:geminiApiKey") return "geminiApiKey";
@@ -154,6 +158,7 @@ const runtime = new AIConnectionTrustedRuntimeService({
   loadState: loadConnectionState,
   persistState: persistConnectionState,
   readSecret,
+  resetState: resetConnectionState,
 });
 
 function isPlainObject(value: unknown): value is Record<string, unknown> {
@@ -205,6 +210,20 @@ export async function getAIConnectionRuntimeState() {
       state: createEmptyAIConnection(),
       code: "RUNTIME_ERROR",
       message: "Não foi possível carregar o estado da conexão de IA.",
+    };
+  }
+}
+
+export async function resetAIConnectionRuntimeState() {
+  try {
+    return await runtime.resetConnection();
+  } catch {
+    const snapshot = await safeSnapshot();
+    return {
+      success: false,
+      ...snapshot,
+      code: "RUNTIME_ERROR",
+      message: "Não foi possível limpar o estado da conexão de IA durante o reset.",
     };
   }
 }
