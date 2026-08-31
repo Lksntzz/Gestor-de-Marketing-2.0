@@ -10,7 +10,7 @@ const bootstrap = readFileSync(join(root, "electron-bootstrap.ts"), "utf8");
 describe("AI connection Stage 5 renderer bridge", () => {
   test("preload exposes dedicated write and clear operations without an active credential getter", () => {
     expect(preload).toContain("setAIConnectionCredential");
-    expect(preload).toContain('ipcRenderer.invoke("ai-connection:set-credential", apiKey)');
+    expect(preload).toContain('ipcRenderer.invoke("ai-connection:set-credential", credential)');
     expect(preload).toContain("clearAIConnectionCredential");
     expect(preload).toContain('ipcRenderer.invoke("ai-connection:clear-credential")');
     expect(preload).not.toContain("getAIConnectionCredential");
