@@ -348,4 +348,82 @@ describe("AI connection Stage 4 trusted runtime", () => {
     expect(result.code).toBe("MODEL_NOT_DISCOVERED");
     expect(providerCalls).toBe(0);
   });
+
+  test("revoking the active credential clears canonical connection metadata", async () => {
+    const store = createStore(activeOpenAI);
+    let resetCalls = 0;
+    const runtime = new AIConnectionTrustedRuntimeService({
+      ...store,
+      readSecret: async () => "sk-active",
+      resetState: async () => {
+        resetCalls += 1;
+      },
+    });
+
+    const result = await runtime.revokeSecret("legacy:openaiApiKey");
+
+    expect(resetCalls).toBe(1);
+    expect(result.state.status).toBe("SEM_CHAVE");
+    expect(result.proposal).toBeUndefined();
+  });
+
+  test("revoking an unrelated provider credential preserves the active connection", async () => {
+    const store = createStore(activeOpenAI);
+    let resetCalls = 0;
+    const runtime = new AIConnectionTrustedRuntimeService({
+      ...store,
+      readSecret: async () => "sk-active",
+      resetState: async () => {
+        resetCalls += 1;
+      },
+    });
+
+    const result = await runtime.revokeSecret("legacy:geminiApiKey");
+
+    expect(resetCalls).toBe(0);
+    expect(result.state).toEqual(activeOpenAI);
+  });
+
+  test("AI secret deletion clears orphaned SEM_CHAVE canonical metadata", async () => {
+    const store = createStore({ schemaVersion: 1, status: "SEM_CHAVE" });
+    let resetCalls = 0;
+    const runtime = new AIConnectionTrustedRuntimeService({
+      ...store,
+      readSecret: async () => "",
+      resetState: async () => {
+        resetCalls += 1;
+      },
+    });
+
+    const result = await runtime.revokeSecret("legacy:geminiApiKey");
+
+    expect(resetCalls).toBe(1);
+    expect(result.state.status).toBe("SEM_CHAVE");
+  });
+
+  test("trusted reset clears the in-memory proposal before future validation", async () => {
+    const store = createStore(activeOpenAI);
+    let resetCalls = 0;
+    const runtime = new AIConnectionTrustedRuntimeService({
+      ...store,
+      readSecret: async () => "sk-active",
+      resetState: async () => {
+        resetCalls += 1;
+      },
+      discovery: successfulDiscovery("ignored-id"),
+    });
+
+    const discovered = await runtime.confirmProvider("openai");
+    expect(discovered.proposal).toBeDefined();
+
+    const reset = await runtime.resetConnection();
+    expect(reset.success).toBe(true);
+    expect(reset.state.status).toBe("SEM_CHAVE");
+    expect(reset.proposal).toBeUndefined();
+    expect(resetCalls).toBe(1);
+
+    const validation = await runtime.validateModel("openai", "model-a");
+    expect(validation.success).toBe(false);
+    expect(validation.code).toBe("DISCOVERY_REQUIRED");
+  });
 });
