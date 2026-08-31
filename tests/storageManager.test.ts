@@ -86,13 +86,14 @@ describe("StorageManager app-state gateway", () => {
     expect(loaded.openaiApiKey).toBe("openai-secret");
   });
 
-  test("factory reset clears SQLite editorial data, revokes access and secrets before local state", async () => {
+  test("factory reset clears SQLite editorial data, canonical AI credential, access and legacy secrets before local state", async () => {
     const storage = StorageManager.getInstance();
     localStorage.setItem("workspace-state", "must-be-cleared");
 
     const deletedEditorialIds: string[] = [];
     const deletedSecrets: string[] = [];
     const connectionStates: boolean[] = [];
+    let canonicalCredentialClears = 0;
 
     (globalThis as any).window = {
       electronAPI: {
@@ -108,6 +109,10 @@ describe("StorageManager app-state gateway", () => {
           connectionStates.push(connected);
           return { success: true, connected };
         },
+        clearAIConnectionCredential: async () => {
+          canonicalCredentialClears += 1;
+          return { success: true };
+        },
         deleteSecret: async (name: string) => {
           deletedSecrets.push(name);
           return { success: true };
@@ -119,6 +124,7 @@ describe("StorageManager app-state gateway", () => {
 
     expect(deletedEditorialIds).toEqual(["editorial-1", "editorial-2"]);
     expect(connectionStates).toEqual([false]);
+    expect(canonicalCredentialClears).toBe(1);
     expect(deletedSecrets.sort()).toEqual(["geminiApiKey", "obsidianApiKey", "openaiApiKey"].sort());
     expect(localStorage.getItem("workspace-state")).toBeNull();
   });
@@ -137,6 +143,29 @@ describe("StorageManager app-state gateway", () => {
     };
 
     await expect(storage.factoryResetAll()).rejects.toThrow("item editorial");
+    expect(localStorage.getItem("workspace-state")).toBe("must-survive");
+  });
+
+  test("factory reset fails closed when the canonical AI credential cannot be cleared", async () => {
+    const storage = StorageManager.getInstance();
+    localStorage.setItem("workspace-state", "must-survive");
+    let legacySecretDeletes = 0;
+
+    (globalThis as any).window = {
+      electronAPI: {
+        editorialList: async () => [],
+        editorialDelete: async () => ({ success: true }),
+        setObsidianConnectionState: async (connected: boolean) => ({ success: true, connected }),
+        clearAIConnectionCredential: async () => ({ success: false }),
+        deleteSecret: async () => {
+          legacySecretDeletes += 1;
+          return { success: true };
+        },
+      },
+    };
+
+    await expect(storage.factoryResetAll()).rejects.toThrow("credencial canônica de IA");
+    expect(legacySecretDeletes).toBe(0);
     expect(localStorage.getItem("workspace-state")).toBe("must-survive");
   });
 });
