@@ -6,6 +6,11 @@ import http from "http";
 import net from "net";
 import crypto from "crypto";
 import * as path from "path";
+import {
+  confirmAIConnectionProvider,
+  getAIConnectionRuntimeState,
+  validateAIConnectionModel,
+} from "./src/electron/ai/registerAIConnectionRuntimeIpc";
 import { assertTrustedIpcSender } from "./src/electron/security/trustedRenderer";
 
 const STABLE_USER_DATA_NAME = "Nisti Print PKM Marketing Hub";
@@ -76,6 +81,21 @@ ipcMain.handle("secret:delete", async (event, name: string) => {
   delete store[name];
   await writeSecretStore(store);
   return { success: true };
+});
+
+ipcMain.handle("ai-connection:get-state", async (event) => {
+  assertTrustedIpcSender(event);
+  return getAIConnectionRuntimeState();
+});
+
+ipcMain.handle("ai-connection:confirm-provider", async (event, input: unknown) => {
+  assertTrustedIpcSender(event);
+  return confirmAIConnectionProvider(input);
+});
+
+ipcMain.handle("ai-connection:validate-model", async (event, input: unknown) => {
+  assertTrustedIpcSender(event);
+  return validateAIConnectionModel(input);
 });
 
 async function reserveEphemeralPort(): Promise<number> {
@@ -184,5 +204,4 @@ app.on("before-quit", () => {
 
 process.env.NODE_ENV = "production";
 
-void import("./src/electron/ai/registerAIConnectionRuntimeIpc.ts");
 void import("./electron-main.ts");
