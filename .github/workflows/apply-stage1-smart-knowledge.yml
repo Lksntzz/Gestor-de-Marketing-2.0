@@ -1,0 +1,46 @@
+name: Apply Stage 1 Smart Knowledge
+
+on:
+  push:
+    branches:
+      - feat/3.1-smart-knowledge-stage1
+    paths:
+      - scripts/apply-stage1-smart-knowledge.mjs
+      - .github/workflows/apply-stage1-smart-knowledge.yml
+
+permissions:
+  contents: write
+
+jobs:
+  apply:
+    if: github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: feat/3.1-smart-knowledge-stage1
+          fetch-depth: 0
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Apply deterministic Stage 1 migration
+        run: node scripts/apply-stage1-smart-knowledge.mjs
+
+      - name: Remove temporary migration machinery
+        run: |
+          rm -f scripts/apply-stage1-smart-knowledge.mjs
+          rm -f .github/workflows/apply-stage1-smart-knowledge.yml
+
+      - name: Commit transformed source
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -A
+          if git diff --cached --quiet; then
+            echo "No changes to commit"
+            exit 0
+          fi
+          git commit -m "feat: implement smart Obsidian knowledge inbox stage 1"
+          git push origin HEAD:feat/3.1-smart-knowledge-stage1
