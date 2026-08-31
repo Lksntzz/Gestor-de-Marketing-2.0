@@ -31,6 +31,7 @@ let backendProcess: ChildProcess | null = null;
 let appUrl = "";
 let backendInstanceId = "";
 let internalSyncToken = "";
+let apiSessionToken = "";
 let startupWindow: BrowserWindow | null = null;
 let startupTitle = "Iniciando Nisti Marketing";
 let startupMessage = "Preparando o backend local e carregando suas configurações...";
@@ -229,6 +230,7 @@ async function syncAllSecretsWithBackend(): Promise<void> {
         headers: {
           "Content-Type": "application/json",
           "x-nisti-internal-sync-token": internalSyncToken,
+          "x-app-session-token": apiSessionToken,
         },
       },
       (res) => {
@@ -491,6 +493,7 @@ async function startBackend(): Promise<void> {
   }
 
   internalSyncToken = crypto.randomBytes(32).toString("hex");
+  apiSessionToken = crypto.randomBytes(32).toString("hex");
   const serverPath = path.join(__dirname, "server.cjs");
   const spawned = spawn(process.execPath, [serverPath], {
     cwd: path.resolve(__dirname, ".."),
@@ -501,6 +504,7 @@ async function startBackend(): Promise<void> {
       NISTI_APP_PORT: String(port),
       NISTI_INSTANCE_ID: backendInstanceId,
       NISTI_INTERNAL_SYNC_TOKEN: internalSyncToken,
+      API_SESSION_SECRET: apiSessionToken,
       OBSIDIAN_API_KEY: obsidianKey,
       GEMINI_API_KEY: geminiKey,
       OPENAI_API_KEY: openaiKey,
