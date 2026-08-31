@@ -69,13 +69,38 @@ function normalize(value: unknown): string {
     .toLowerCase();
 }
 
+function normalizeMetricNumber(raw: string, compact: boolean): string {
+  const value = raw.replace(/\s/g, "");
+  if (compact) {
+    const lastComma = value.lastIndexOf(",");
+    const lastDot = value.lastIndexOf(".");
+    if (lastComma >= 0 && lastDot >= 0) {
+      const decimalIndex = Math.max(lastComma, lastDot);
+      const integerPart = value.slice(0, decimalIndex).replace(/[.,]/g, "");
+      return `${integerPart}.${value.slice(decimalIndex + 1).replace(/[.,]/g, "")}`;
+    }
+    return value.replace(",", ".");
+  }
+
+  if (/^\d{1,3}(?:[.,]\d{3})+$/.test(value)) {
+    return value.replace(/[.,]/g, "");
+  }
+  if (value.includes(",") && value.includes(".")) {
+    const decimalIndex = Math.max(value.lastIndexOf(","), value.lastIndexOf("."));
+    const integerPart = value.slice(0, decimalIndex).replace(/[.,]/g, "");
+    return `${integerPart}.${value.slice(decimalIndex + 1).replace(/[.,]/g, "")}`;
+  }
+  return value.replace(",", ".");
+}
+
 function numberFromToken(value: string): number | undefined {
-  const clean = value.trim().toLowerCase().replace(/\s/g, "").replace(/\./g, "").replace(",", ".");
-  const match = clean.match(/^([0-9]+(?:\.[0-9]+)?)([km])?$/i);
+  const clean = value.trim().toLowerCase().replace(/\s/g, "");
+  const match = clean.match(/^([0-9][0-9.,]*)([km])?$/i);
   if (!match) return undefined;
-  const base = Number(match[1]);
+  const suffix = match[2]?.toLowerCase();
+  const base = Number(normalizeMetricNumber(match[1], Boolean(suffix)));
   if (!Number.isFinite(base) || base < 0) return undefined;
-  const multiplier = match[2]?.toLowerCase() === "k" ? 1_000 : match[2]?.toLowerCase() === "m" ? 1_000_000 : 1;
+  const multiplier = suffix === "k" ? 1_000 : suffix === "m" ? 1_000_000 : 1;
   return Math.round(base * multiplier);
 }
 
