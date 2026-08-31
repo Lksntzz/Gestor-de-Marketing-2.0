@@ -91,7 +91,8 @@ describe("v2 hardening invariants", () => {
     const storage = await read("src/services/storage/StorageManager.ts");
 
     expect(settings).toContain("api.isObsidianSessionVerified()");
-    expect(settings).toContain("O status conectado só é liberado depois");
+    expect(settings).toContain("Local REST API");
+    expect(settings).toContain("Nisti Marketing/00_Inbox");
     expect(settings).not.toContain("Ativar Conexão Sandbox");
     expect(settings).not.toContain("Conexão Sandbox ativada com sucesso");
     expect(storage).toContain('connectionStatus: "disconnected"');
