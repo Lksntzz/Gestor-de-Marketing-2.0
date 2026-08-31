@@ -171,22 +171,30 @@ async function requestObsidianConnectionTest(config: { endpoint: string; apiKey:
       signal: controller.signal,
     });
     clearTimeout(timeoutId);
-    if (directRes.ok) {
-      console.log("Direct browser-to-Obsidian connection succeeded!");
-      const data = await directRes.json().catch(() => ({}));
-      useDirectClientSideFetch = true;
+    const data = await directRes.json().catch(() => ({}));
+    useDirectClientSideFetch = true;
+    if (directRes.ok && data?.authenticated === true) {
+      console.log("Direct browser-to-Obsidian authenticated connection succeeded!");
       return {
         res: { ok: true, status: 200 } as Response,
-        data: { success: true, message: "Conectado diretamente pelo navegador.", ...data },
-      };
-    } else {
-      useDirectClientSideFetch = true;
-      const data = await directRes.json().catch(() => ({}));
-      return {
-        res: directRes,
-        data: { success: false, message: `Obsidian respondeu com status HTTP ${directRes.status}. Verifique o token/chave de autenticação.`, ...data },
+        data: { success: true, message: "Conectado e autenticado no Obsidian Local REST API.", ...data },
       };
     }
+    if (directRes.ok && data?.authenticated === false) {
+      return {
+        res: { ok: false, status: 401 } as Response,
+        data: {
+          success: false,
+          status: 401,
+          message: "O Local REST API respondeu, mas a API Key não autenticou. Copie novamente a chave exibida no plugin do Obsidian.",
+          ...data,
+        },
+      };
+    }
+    return {
+      res: directRes,
+      data: { success: false, message: `Obsidian respondeu com status HTTP ${directRes.status}. Verifique o token/chave de autenticação.`, ...data },
+    };
   } catch (err) {
     console.warn("Direct browser-to-Obsidian connection failed.", err);
   }

@@ -1867,7 +1867,13 @@ app.post("/api/obsidian/test-connection", async (req, res) => {
         headers: { Authorization: `Bearer ${finalApiKey}`, Accept: "application/json" },
         signal: controller.signal,
       });
-      if (response.ok) return res.json({ success: true, message: "Conectado com sucesso ao Obsidian Local REST API." });
+      const payload = await response.json().catch(() => ({}));
+      if (response.ok && payload?.authenticated === true) {
+        return res.json({ success: true, message: "Conectado e autenticado com sucesso ao Obsidian Local REST API." });
+      }
+      if (response.ok && payload?.authenticated === false) {
+        return res.json({ success: false, status: 401, message: "O Local REST API respondeu, mas a API Key não autenticou." });
+      }
       return res.json({ success: false, status: response.status, message: `Obsidian REST API retornou HTTP ${response.status}` });
     } finally {
       clearTimeout(timeoutId);
