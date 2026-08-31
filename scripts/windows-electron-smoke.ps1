@@ -33,6 +33,9 @@ public static class NistiWindowCapture {
         public int Bottom;
     }
 
+    [DllImport("user32.dll", CharSet = CharSet.Unicode)]
+    public static extern IntPtr FindWindow(string lpClassName, string lpWindowName);
+
     [DllImport("user32.dll")]
     public static extern bool GetWindowRect(IntPtr hWnd, out RECT lpRect);
 
@@ -43,9 +46,12 @@ public static class NistiWindowCapture {
   }
 
   $TargetProcess.Refresh()
-  $handle = $TargetProcess.MainWindowHandle
+  $handle = [NistiWindowCapture]::FindWindow($null, "Nisti Marketing")
   if ($handle -eq [IntPtr]::Zero) {
-    throw "Não foi possível obter o handle da janela principal para a captura visual."
+    $handle = $TargetProcess.MainWindowHandle
+  }
+  if ($handle -eq [IntPtr]::Zero) {
+    throw "Não foi possível obter o handle da janela Nisti Marketing para a captura visual."
   }
 
   $rect = New-Object NistiWindowCapture+RECT
