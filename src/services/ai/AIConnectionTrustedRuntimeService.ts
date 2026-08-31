@@ -49,10 +49,6 @@ type RuntimeOptions = {
   validator?: Validator;
 };
 
-function legacySecretRef(provider: AIConnectionProvider): AISecretReference {
-  return provider === "openai" ? "legacy:openaiApiKey" : "legacy:geminiApiKey";
-}
-
 function secretRefMatchesProvider(provider: AIConnectionProvider, secretRef: AISecretReference | undefined): boolean {
   if (!secretRef) return false;
   if (secretRef === "active:aiConnectionKey") return true;
@@ -65,10 +61,14 @@ function resolveSecretRef(
   state: PersistedAIConnectionState,
 ): AISecretReference {
   const stateProvider = state.provider ?? state.providerCandidate;
+
+  // Explicit legacy references remain valid for migrated workspaces. Fresh
+  // connections — and provider switches that do not carry an explicit matching
+  // legacy reference — use the canonical single credential slot.
   if (stateProvider === provider && secretRefMatchesProvider(provider, state.secretRef)) {
     return state.secretRef as AISecretReference;
   }
-  return legacySecretRef(provider);
+  return "active:aiConnectionKey";
 }
 
 function sameCredential(
