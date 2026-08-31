@@ -31,6 +31,13 @@ export interface GenerationRequest {
   attachments?: GenerationAttachment[];
 }
 
+export interface AudioTranscriptionRequest {
+  mimeType: string;
+  data: string;
+  fileName?: string;
+  prompt?: string;
+}
+
 export interface GenerationResult<T = string> {
   provider: AIProviderName;
   model: string;
@@ -49,6 +56,7 @@ export interface AIProvider {
   generateText(request: GenerationRequest): Promise<GenerationResult<string>>;
   generateJson<T>(request: GenerationRequest): Promise<GenerationResult<T>>;
   analyzeDocument<T>(request: GenerationRequest): Promise<GenerationResult<T>>;
+  transcribeAudio(request: AudioTranscriptionRequest): Promise<GenerationResult<string>>;
   testConnection(): Promise<ConnectionTestResult>;
 }
 

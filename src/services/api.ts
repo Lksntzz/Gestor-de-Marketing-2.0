@@ -23,10 +23,12 @@ import {
   encodeVaultRelativePath,
   qualifyNistiKnowledgePath,
 } from "./obsidianKnowledgeAutomation";
+import { normalizeAiTriageCandidate } from "../domain/smartKnowledgeStage2";
 
 let cachedSessionToken: string | null = null;
 let obsidianHeartbeat: ReturnType<typeof setInterval> | null = null;
 let obsidianHeartbeatBusy = false;
+const aiTriageAttemptCache = new Map<string, string>();
 let useDirectClientSideFetch = true;
 const storage = StorageManager.getInstance();
 
@@ -429,6 +431,49 @@ interface InboxTriageResult {
   failed: Array<{ path: string; error: string }>;
 }
 
+async function classifyAmbiguousKnowledgeWithAI(
+  note: ObsidianNote,
+  deterministic: ReturnType<typeof classifyKnowledgeForVault>,
+): Promise<{ folder: string; confidence: number; reason: string } | null> {
+  const signature = generateFastHash(
+    "triage",
+    JSON.stringify({
+      title: note.title,
+      content: note.content,
+      frontmatter: note.frontmatter,
+      tags: note.tags,
+    }),
+  );
+  if (aiTriageAttemptCache.get(note.path) === signature) return null;
+
+  const headers = await getAIRequestHeaders();
+  if (!headers["x-ai-api-key"]) return null;
+  aiTriageAttemptCache.set(note.path, signature);
+
+  try {
+    const response = await fetch("/api/ai/classify-knowledge", {
+      method: "POST",
+      headers,
+      body: JSON.stringify({
+        title: note.title,
+        content: note.content.slice(0, 12_000),
+        tags: note.tags || [],
+        deterministic: {
+          folder: deterministic.folder,
+          confidence: deterministic.confidence,
+          reason: deterministic.reason,
+        },
+      }),
+    });
+    const payload = await response.json().catch(() => ({}));
+    if (!response.ok || !payload?.success) return null;
+    return normalizeAiTriageCandidate(payload.data, deterministic);
+  } catch (error) {
+    console.warn("AI-assisted Inbox triage failed closed:", error);
+    return null;
+  }
+}
+
 async function triageNistiInbox(config: ObsidianApiConfig): Promise<InboxTriageResult> {
   const result: InboxTriageResult = { moved: [], pending: [], failed: [] };
   const notes = await syncWebObsidianNotes(config);
@@ -441,26 +486,39 @@ async function triageNistiInbox(config: ObsidianApiConfig): Promise<InboxTriageR
   });
 
   for (const note of inboxNotes) {
-    const classification = classifyKnowledgeForVault(note);
-    if (classification.folder === NISTI_INBOX_FOLDER || classification.confidence < AUTO_TRIAGE_CONFIDENCE) {
+    const deterministic = classifyKnowledgeForVault(note);
+    let destinationFolder = deterministic.folder;
+    let confidence = deterministic.confidence;
+    let reason = deterministic.reason;
+
+    if (destinationFolder === NISTI_INBOX_FOLDER || confidence < AUTO_TRIAGE_CONFIDENCE) {
+      const aiCandidate = await classifyAmbiguousKnowledgeWithAI(note, deterministic);
+      if (aiCandidate) {
+        destinationFolder = aiCandidate.folder;
+        confidence = aiCandidate.confidence;
+        reason = `Classificação assistida por IA: ${aiCandidate.reason}`;
+      }
+    }
+
+    if (destinationFolder === NISTI_INBOX_FOLDER || confidence < AUTO_TRIAGE_CONFIDENCE) {
       result.pending.push({
         path: note.path,
-        confidence: classification.confidence,
-        suggestion: classification.folder,
-        reason: classification.reason,
+        confidence,
+        suggestion: destinationFolder,
+        reason,
       });
       continue;
     }
 
     const filename = note.path.replace(/\\/g, "/").split("/").pop() || `${note.title}.md`;
-    const targetPath = `${classification.folder}/${filename}`;
+    const targetPath = `${destinationFolder}/${filename}`;
     try {
       const targetProbe = await obsidianProxyRequest(config, "GET", `/vault/${encodeVaultRelativePath(targetPath)}`);
       if (targetProbe.response.ok && targetProbe.data?.success) {
         result.pending.push({
           path: note.path,
-          confidence: classification.confidence,
-          suggestion: classification.folder,
+          confidence,
+          suggestion: destinationFolder,
           reason: "Já existe uma nota com o mesmo nome no destino; revisão humana necessária.",
         });
         continue;
@@ -479,7 +537,7 @@ async function triageNistiInbox(config: ObsidianApiConfig): Promise<InboxTriageR
         throw new Error("A nota foi copiada, mas a remoção da Inbox falhou; a cópia foi revertida.");
       }
 
-      result.moved.push({ from: note.path, to: targetPath, confidence: classification.confidence });
+      result.moved.push({ from: note.path, to: targetPath, confidence });
     } catch (error: any) {
       result.failed.push({ path: note.path, error: error?.message || String(error) });
     }
@@ -638,7 +696,13 @@ async function obsidianProxyRequest(
         Accept: "application/json, text/plain, */*",
         ...(customHeaders || {}),
       };
-      if (body && typeof body === "string") forwardHeaders["Content-Type"] = "text/markdown; charset=utf-8";
+      const binaryPayload = body && typeof body === "object" && !Array.isArray(body)
+        && typeof (body as any).__nistiBinaryBase64 === "string"
+        && typeof (body as any).mimeType === "string"
+        ? body as { __nistiBinaryBase64: string; mimeType: string }
+        : null;
+      if (binaryPayload) forwardHeaders["Content-Type"] = binaryPayload.mimeType;
+      else if (body && typeof body === "string") forwardHeaders["Content-Type"] = "text/markdown; charset=utf-8";
       else if (body && typeof body === "object") forwardHeaders["Content-Type"] = "application/json";
 
       const fetchOptions: RequestInit = {
@@ -646,7 +710,9 @@ async function obsidianProxyRequest(
         headers: forwardHeaders,
       };
       if (body !== undefined && !["GET", "HEAD"].includes(method.toUpperCase())) {
-        fetchOptions.body = typeof body === "string" ? body : JSON.stringify(body);
+        fetchOptions.body = binaryPayload
+          ? new Blob([Uint8Array.from(atob(binaryPayload.__nistiBinaryBase64), (char) => char.charCodeAt(0))], { type: binaryPayload.mimeType })
+          : typeof body === "string" ? body : JSON.stringify(body);
       }
 
       const directRes = await fetch(fullUrl, fetchOptions);
@@ -759,6 +825,33 @@ export const api = {
 
   async syncWebObsidianNotes(config: ObsidianApiConfig): Promise<ObsidianNote[]> {
     return await syncWebObsidianNotes(config);
+  },
+
+  async pushBinaryAssetToObsidian(config: ObsidianApiConfig, filePath: string, dataUrl: string) {
+    const verified = await requireVerifiedObsidian(config);
+    if (!verified.success) throw new Error(verified.message);
+    const match = String(dataUrl || "").match(/^data:([^;]+);base64,(.+)$/);
+    if (!match) throw new Error("O arquivo binário não está em um Data URL válido.");
+    const allowedMime = /^(application\/pdf|image\/(png|jpeg|webp)|audio\/(mpeg|mp3|wav|x-wav|mp4|aac|ogg|webm))$/i;
+    if (!allowedMime.test(match[1])) throw new Error("Tipo binário não autorizado para persistência no Vault.");
+    const cleanPath = String(filePath || "").replace(/\\/g, "/").replace(/^\/+/, "");
+    if (!cleanPath.startsWith(`${NISTI_VAULT_ROOT}/`)) throw new Error("Asset fora da raiz gerenciada pelo Nisti.");
+    const targetPath = `/vault/${encodeVaultRelativePath(cleanPath)}`;
+    const existing = await obsidianProxyRequest(config, "GET", targetPath);
+    if (existing.response.ok && existing.data?.success) throw new Error("Já existe um asset com o mesmo caminho no Obsidian.");
+    const write = await obsidianProxyRequest(config, "PUT", targetPath, {
+      __nistiBinaryBase64: match[2],
+      mimeType: match[1],
+    });
+    if (!write.response.ok || !write.data?.success) throw new Error("O Obsidian não confirmou a gravação do arquivo original.");
+    return { success: true, path: cleanPath };
+  },
+
+  async deleteObsidianPath(config: ObsidianApiConfig, filePath: string) {
+    const cleanPath = String(filePath || "").replace(/\\/g, "/").replace(/^\/+/, "");
+    if (!cleanPath.startsWith(`${NISTI_VAULT_ROOT}/`)) throw new Error("Caminho fora da raiz gerenciada pelo Nisti.");
+    const remove = await obsidianProxyRequest(config, "DELETE", `/vault/${encodeVaultRelativePath(cleanPath)}`);
+    return Boolean(remove.response.ok && remove.data?.success);
   },
 
   async syncObsidianSnapshot() {

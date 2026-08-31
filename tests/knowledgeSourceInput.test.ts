@@ -10,6 +10,8 @@ describe("knowledge source input", () => {
     expect(detectKnowledgeFileType({ name: "catalogo.pdf", mimeType: "application/pdf" })).toBe("pdf");
     expect(detectKnowledgeFileType({ name: "produto.webp", mimeType: "image/webp" })).toBe("image");
     expect(detectKnowledgeFileType({ name: "produto.JPG" })).toBe("image");
+    expect(detectKnowledgeFileType({ name: "reuniao.m4a", mimeType: "audio/mp4" })).toBe("audio");
+    expect(detectKnowledgeFileType({ name: "briefing.MP3" })).toBe("audio");
     expect(detectKnowledgeFileType({ name: "animacao.gif", mimeType: "image/gif" })).toBeNull();
     expect(detectKnowledgeFileType({ name: "planilha.xlsx" })).toBeNull();
   });

@@ -20,6 +20,7 @@ import {
   NISTI_KNOWLEDGE_FOLDERS,
   qualifyNistiKnowledgeFolder,
 } from "../services/obsidianKnowledgeAutomation";
+import { socialPerformanceFrontmatter, type SocialPerformanceMetrics } from "../domain/smartKnowledgeStage2";
 import { buildObsidianOpenUri } from "../utils/obsidianUri";
 import {
   detectKnowledgeFileType,
@@ -57,6 +58,7 @@ interface CurationProposal {
   fileName?: string;
   analysisModel: string;
   wasFallback: boolean;
+  socialMetrics?: SocialPerformanceMetrics;
 }
 
 const MAX_MANUAL_SOURCE_BYTES = 15 * 1024 * 1024;
@@ -98,7 +100,7 @@ export const AddKnowledgeView: React.FC<AddKnowledgeViewProps> = ({
   engineMode,
 }) => {
   const [sourceMode, setSourceMode] = useState<PrimaryKnowledgeSource>("text");
-  const [binaryType, setBinaryType] = useState<"pdf" | "image" | null>(null);
+  const [binaryType, setBinaryType] = useState<"pdf" | "image" | "audio" | null>(null);
   const [binaryFileName, setBinaryFileName] = useState("");
   const [binaryDataUrl, setBinaryDataUrl] = useState("");
   const [binaryTitle, setBinaryTitle] = useState("");
@@ -128,8 +130,9 @@ export const AddKnowledgeView: React.FC<AddKnowledgeViewProps> = ({
   const sourceDescription = useMemo(() => {
     if (sourceMode === "file") {
       if (binaryType === "pdf") return "PDF detectado. O Nisti analisa e classifica a fonte; a síntese será gravada no Obsidian após sua aprovação.";
-      if (binaryType === "image") return "Imagem detectada. O Nisti analisa, classifica e grava a síntese no Obsidian após sua aprovação.";
-      return "Selecione um PDF, PNG, JPG/JPEG ou WEBP. O Nisti identifica o tipo automaticamente.";
+      if (binaryType === "image") return "Imagem detectada. O Nisti analisa, classifica e preserva o original no Obsidian após sua aprovação.";
+      if (binaryType === "audio") return "Áudio detectado. O Nisti transcreve com a IA conectada, classifica o conteúdo e preserva o arquivo original no Obsidian.";
+      return "Selecione PDF, imagem ou áudio. O Nisti identifica o tipo automaticamente.";
     }
     if (sourceMode === "link") {
       if (linkUrl && processorType === "youtube") {
@@ -173,7 +176,7 @@ export const AddKnowledgeView: React.FC<AddKnowledgeViewProps> = ({
       setBinaryType(null);
       setBinaryFileName("");
       setBinaryTitle("");
-      setError("Formato não suportado. Use PDF, PNG, JPG/JPEG ou WEBP.");
+      setError("Formato não suportado. Use PDF, PNG, JPG/JPEG, WEBP, MP3, WAV, M4A, AAC, OGG ou WEBM.");
       return;
     }
 
@@ -193,6 +196,7 @@ export const AddKnowledgeView: React.FC<AddKnowledgeViewProps> = ({
   const buildPayload = (type: KnowledgeProcessorType): Record<string, unknown> => {
     if (type === "pdf") return { fileName: binaryFileName, base64: binaryDataUrl };
     if (type === "image") return { title: binaryTitle, imageBase64: binaryDataUrl };
+    if (type === "audio") return { fileName: binaryFileName, audioBase64: binaryDataUrl };
     if (type === "youtube") return { url: linkUrl, videoTitle: linkTitle };
     if (type === "site") return { url: linkUrl, pageTitle: linkTitle };
     return { title: rawTextTitle, text: rawText };
@@ -203,7 +207,7 @@ export const AddKnowledgeView: React.FC<AddKnowledgeViewProps> = ({
 
     if (sourceMode === "file") {
       if (!binaryType || !binaryFileName || !binaryDataUrl) {
-        return "Selecione um PDF ou uma imagem suportada antes de continuar.";
+        return "Selecione um PDF, uma imagem ou um áudio suportado antes de continuar.";
       }
       return null;
     }
@@ -220,7 +224,7 @@ export const AddKnowledgeView: React.FC<AddKnowledgeViewProps> = ({
 
   const fallbackTitleFor = (type: KnowledgeProcessorType): string => {
     if (type === "pdf") return binaryFileName.replace(/\.pdf$/i, "");
-    if (type === "image") return binaryTitle;
+    if (type === "image" || type === "audio") return binaryTitle;
     if (type === "youtube" || type === "site") return linkTitle;
     return rawTextTitle;
   };
@@ -256,7 +260,7 @@ export const AddKnowledgeView: React.FC<AddKnowledgeViewProps> = ({
         folder,
         status: folder === NISTI_INBOX_FOLDER ? "NOVO" : "EM REVISÃO",
         epistemicStatus,
-        tipo: type === "pdf" ? "Documento PDF" : type === "image" ? "Ativo Visual" : type === "youtube" ? "Referência YouTube" : type === "site" ? "Artigo Web" : "Texto",
+        tipo: type === "pdf" ? "Documento PDF" : type === "image" ? "Ativo Visual" : type === "audio" ? "Transcrição de Áudio" : type === "youtube" ? "Referência YouTube" : type === "site" ? "Artigo Web" : "Texto",
         category: String(data.category || "Não classificado"),
         keywords,
         wikilinks,
@@ -268,6 +272,7 @@ export const AddKnowledgeView: React.FC<AddKnowledgeViewProps> = ({
         fileName: sourceMode === "file" ? binaryFileName : undefined,
         analysisModel: String(result.usedModel || "não informado"),
         wasFallback: Boolean(result.wasFallback),
+        socialMetrics: data.socialMetrics && typeof data.socialMetrics === "object" ? data.socialMetrics as SocialPerformanceMetrics : undefined,
       });
     } catch (err: any) {
       setError(err.message || "Falha ao processar a fonte.");
@@ -326,9 +331,10 @@ export const AddKnowledgeView: React.FC<AddKnowledgeViewProps> = ({
         source_url: proposal.sourceUrl || undefined,
         analysis_model: proposal.analysisModel,
         analysis_fallback: proposal.wasFallback ? "true" : "false",
+        ...(proposal.socialMetrics ? socialPerformanceFrontmatter(proposal.socialMetrics) : {}),
       };
       const curatedContent = buildCuratedContent(proposal);
-      const isBinarySource = processorType === "pdf" || processorType === "image";
+      const isBinarySource = processorType === "pdf" || processorType === "image" || processorType === "audio";
       const dataUrl = isBinarySource ? binaryDataUrl : "";
 
       let noteTitle = proposal.title;
@@ -359,7 +365,7 @@ export const AddKnowledgeView: React.FC<AddKnowledgeViewProps> = ({
           committedFrontmatter = {
             ...committedFrontmatter,
             source_type: "curated_asset",
-            asset_kind: processorType === "pdf" ? "pdf" : "image",
+            asset_kind: processorType,
             asset_path: commitResult.assetRelativePath,
             asset_mtime: String(commitResult.assetMtimeMs || ""),
             asset_size: String(commitResult.assetSize || ""),
@@ -373,15 +379,27 @@ export const AddKnowledgeView: React.FC<AddKnowledgeViewProps> = ({
           console.warn("Knowledge was committed, but the immediate Vault refresh failed:", syncError);
         }
       } else {
-        if (isBinarySource) {
+        let restAssetPath = "";
+        if (isBinarySource && proposal.fileName && dataUrl) {
+          const safeFileName = sanitizeTitle(proposal.fileName);
+          restAssetPath = `${folder}/_assets/${noteId}-${safeFileName}`;
+          await api.pushBinaryAssetToObsidian(apiConfig, restAssetPath, dataUrl);
           committedFrontmatter = {
             ...committedFrontmatter,
-            source_type: "analyzed_binary_source",
-            source_preservation: "analysis_only_rest_stage1",
+            source_type: "curated_asset",
+            asset_kind: processorType,
+            asset_path: restAssetPath,
+            source_preservation: "rest_binary_preserved",
+            origem: restAssetPath,
           };
         }
-        const writeResult = await api.pushNoteToObsidian(apiConfig, notePath, curatedContent, committedFrontmatter);
-        if (!writeResult?.success) throw new Error(writeResult?.message || "O Obsidian não confirmou a gravação.");
+        try {
+          const writeResult = await api.pushNoteToObsidian(apiConfig, notePath, curatedContent, committedFrontmatter);
+          if (!writeResult?.success) throw new Error(writeResult?.message || "O Obsidian não confirmou a gravação.");
+        } catch (writeError) {
+          if (restAssetPath) await api.deleteObsidianPath(apiConfig, restAssetPath).catch(() => false);
+          throw writeError;
+        }
       }
 
       const newNote: ObsidianNote = {
@@ -438,7 +456,7 @@ export const AddKnowledgeView: React.FC<AddKnowledgeViewProps> = ({
             {(["file", "link", "text"] as PrimaryKnowledgeSource[]).map((mode) => {
               const Icon = mode === "file" ? UploadCloud : mode === "link" ? Link2 : AlignLeft;
               const label = mode === "file" ? "Arquivo" : mode === "link" ? "Link" : "Texto";
-              const hint = mode === "file" ? "PDF ou imagem" : mode === "link" ? "Site ou YouTube" : "Digitar ou colar";
+              const hint = mode === "file" ? "PDF, imagem ou áudio" : mode === "link" ? "Site ou YouTube" : "Digitar ou colar";
               return (
                 <button
                   key={mode}
@@ -465,7 +483,7 @@ export const AddKnowledgeView: React.FC<AddKnowledgeViewProps> = ({
               <label className="block border border-dashed border-outline-border rounded-xl p-5 text-center cursor-pointer hover:border-pink-500/60">
                 <input
                   type="file"
-                  accept="application/pdf,.pdf,image/png,.png,image/jpeg,.jpg,.jpeg,image/webp,.webp"
+                  accept="application/pdf,.pdf,image/png,.png,image/jpeg,.jpg,.jpeg,image/webp,.webp,audio/mpeg,.mp3,audio/wav,.wav,audio/mp4,.m4a,audio/aac,.aac,audio/ogg,.ogg,audio/webm,.webm"
                   className="hidden"
                   onChange={(event) => {
                     const file = event.target.files?.[0];
@@ -474,13 +492,13 @@ export const AddKnowledgeView: React.FC<AddKnowledgeViewProps> = ({
                 />
                 <UploadCloud className="w-6 h-6 mx-auto text-pink-400 mb-2" />
                 <span className="text-xs font-bold text-text-primary">{binaryFileName || "Selecionar arquivo"}</span>
-                <span className="block text-[10px] text-text-secondary mt-1">PDF, PNG, JPG/JPEG ou WEBP • máximo 15 MB</span>
+                <span className="block text-[10px] text-text-secondary mt-1">PDF, imagem ou áudio (MP3/WAV/M4A/AAC/OGG/WEBM) • máximo 15 MB</span>
               </label>
 
               {binaryFileName && binaryType && (
                 <div className="px-3 py-2 rounded-xl bg-surface-container-low border border-outline-border text-[10px] text-text-secondary flex items-center justify-between gap-2">
                   <span className="truncate">{binaryFileName}</span>
-                  <span className="font-black text-text-primary shrink-0">{binaryType === "pdf" ? "PDF detectado" : "Imagem detectada"}</span>
+                  <span className="font-black text-text-primary shrink-0">{binaryType === "pdf" ? "PDF detectado" : binaryType === "audio" ? "Áudio detectado" : "Imagem detectada"}</span>
                 </div>
               )}
 
@@ -586,7 +604,7 @@ export const AddKnowledgeView: React.FC<AddKnowledgeViewProps> = ({
                 <div className="p-3 rounded-xl bg-surface-container-low border border-outline-border"><span className="text-text-secondary block text-[10px] uppercase">Categoria</span><strong className="text-text-primary mt-1 block">{proposal.category}</strong></div>
               </div>
 
-              {proposal.fileName && <div className="p-3 rounded-xl border border-emerald-500/20 bg-emerald-500/5 text-xs text-emerald-200"><strong>Fonte física:</strong> {proposal.fileName}. A análise será preservada no Obsidian quando você aprovar a gravação.</div>}
+              {proposal.fileName && <div className="p-3 rounded-xl border border-emerald-500/20 bg-emerald-500/5 text-xs text-emerald-200"><strong>Fonte física:</strong> {proposal.fileName}. O original e a análise/transcrição serão preservados no Obsidian quando você aprovar a gravação.</div>}
               {proposal.summary && <div><h3 className="text-xs font-bold uppercase tracking-wider text-text-secondary mb-2">Resumo</h3><p className="text-sm leading-relaxed text-text-primary">{proposal.summary}</p></div>}
               {proposal.evidence.length > 0 && <div><h3 className="text-xs font-bold uppercase tracking-wider text-text-secondary mb-2">Evidências extraídas</h3><ul className="space-y-2">{proposal.evidence.map((item, index) => <li key={index} className="text-xs text-text-primary flex gap-2"><Check className="w-3.5 h-3.5 text-emerald-400 shrink-0 mt-0.5" />{item}</li>)}</ul></div>}
               {proposal.hypotheses.length > 0 && <div><h3 className="text-xs font-bold uppercase tracking-wider text-text-secondary mb-2">Hipóteses</h3><ul className="space-y-2">{proposal.hypotheses.map((item, index) => <li key={index} className="text-xs text-text-primary">• {item}</li>)}</ul></div>}

@@ -25,8 +25,8 @@ import type { ObsidianNote, ObsidianApiConfig } from "../types";
 import { buildObsidianOpenUri } from "../utils/obsidianUri";
 import { extractLocalTasksFromNote } from "../utils/localEngine";
 import { api } from "../services/api";
+import { NISTI_KNOWLEDGE_FOLDERS } from "../services/obsidianKnowledgeAutomation";
 import { OBSIDIAN_DISCONNECTED_EVENT, OBSIDIAN_SNAPSHOT_EVENT } from "../services/obsidianRuntimeState";
-import { BaseOnboardingPanel } from "./BaseOnboardingPanel";
 import {
   cleanMarkdown,
   compactFolderSummary,
@@ -155,14 +155,7 @@ export const VaultView: React.FC<VaultViewProps> = ({
   useEffect(() => {
     const verified = api.isObsidianSessionVerified();
     setRuntimeConnected(verified);
-    if (!verified || apiConfig.connectionStatus !== "connected" || !window.electronAPI) return;
-
-    void window.electronAPI
-      .listVaultFolders()
-      .then((folders) => {
-        if (Array.isArray(folders)) setVaultFolders(folders as string[]);
-      })
-      .catch(() => setVaultFolders([]));
+    setVaultFolders(verified && apiConfig.connectionStatus === "connected" ? [...NISTI_KNOWLEDGE_FOLDERS] : []);
   }, [notes, apiConfig.connectionStatus]);
 
   const allFolders = useMemo(() => {
@@ -316,8 +309,6 @@ export const VaultView: React.FC<VaultViewProps> = ({
           {error}
         </div>
       )}
-
-      <BaseOnboardingPanel notes={visibleNotes} isConnected={isConnected} />
 
       <div className="shrink-0 rounded-xl border border-stone-200 bg-white px-3 py-2.5 flex flex-col xl:flex-row xl:items-center xl:justify-between gap-2">
         <div className="min-w-0">

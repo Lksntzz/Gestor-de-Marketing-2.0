@@ -1,5 +1,5 @@
 import type { ObsidianNote } from "../types";
-import { assessBaseReadiness } from "./baseOnboarding";
+import { assessSmartKnowledgeReadiness } from "./smartKnowledgeStage2";
 
 export interface CreationBriefing {
   objective: string;
@@ -50,10 +50,10 @@ export function creationBriefingBaseStatus(notes: ObsidianNote[]): {
   missingDocuments: number;
   pendingDocuments: number;
 } {
-  const readiness = assessBaseReadiness(notes);
+  const readiness = assessSmartKnowledgeReadiness(notes);
   return {
-    ready: readiness.complete,
-    missingDocuments: readiness.missingSectionIds.length,
-    pendingDocuments: readiness.pendingPaths.length,
+    ready: readiness.ready,
+    missingDocuments: readiness.ready ? 0 : 1,
+    pendingDocuments: readiness.pendingSources,
   };
 }

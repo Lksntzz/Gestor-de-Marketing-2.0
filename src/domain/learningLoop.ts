@@ -230,7 +230,7 @@ export function formatCanonicalLearningNote(learning: LearningInsight): {
   content: string;
 } {
   const safeTitle = learning.title.replace(/[/\\?%*:|"<>]/g, "-").trim();
-  const folder = "00_Base_Conhecimento/Aprendizados";
+  const folder = "Nisti Marketing/08_Aprendizados";
   const dateStr = learning.dateCreated || new Date().toISOString().split("T")[0];
 
   const content = `---

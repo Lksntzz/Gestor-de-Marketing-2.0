@@ -57,7 +57,7 @@ const STANDARD_FOLDERS = [
 ];
 
 const SUPPORTED_KNOWLEDGE_EXTENSIONS = new Set([".pdf", ".png", ".jpg", ".jpeg", ".webp", ".txt"]);
-const PERSISTABLE_SOURCE_EXTENSIONS = new Set([".pdf", ".png", ".jpg", ".jpeg", ".webp"]);
+const PERSISTABLE_SOURCE_EXTENSIONS = new Set([".pdf", ".png", ".jpg", ".jpeg", ".webp", ".mp3", ".wav", ".m4a", ".aac", ".ogg", ".webm"]);
 const MAX_AI_ASSET_BYTES = 10 * 1024 * 1024;
 const MAX_PERSISTED_ASSET_BYTES = 20 * 1024 * 1024;
 const MAX_TEXT_ASSET_CHARS = 120_000;
@@ -287,7 +287,7 @@ function serializeFrontmatter(frontmatter?: Record<string, unknown>): string {
 function decodePersistedAsset(fileName: string, dataUrl: string): { buffer: Buffer; extension: string } {
   const extension = path.extname(fileName).toLowerCase();
   if (!PERSISTABLE_SOURCE_EXTENSIONS.has(extension)) {
-    throw new Error("Somente PDF, PNG, JPG/JPEG e WEBP podem ser preservados como fonte binária nesta etapa.");
+    throw new Error("Somente PDF, PNG, JPG/JPEG, WEBP, MP3, WAV, M4A, AAC, OGG e WEBM podem ser preservados como fonte binária.");
   }
 
   const match = String(dataUrl || "").match(/^data:([^;,]+);base64,([A-Za-z0-9+/=\r\n]+)$/);
@@ -299,6 +299,12 @@ function decodePersistedAsset(fileName: string, dataUrl: string): { buffer: Buff
     ".jpg": ["image/jpeg"],
     ".jpeg": ["image/jpeg"],
     ".webp": ["image/webp"],
+    ".mp3": ["audio/mpeg", "audio/mp3"],
+    ".wav": ["audio/wav", "audio/x-wav"],
+    ".m4a": ["audio/mp4"],
+    ".aac": ["audio/aac"],
+    ".ogg": ["audio/ogg"],
+    ".webm": ["audio/webm"],
   };
   const mime = match[1].toLowerCase();
   if (!allowedMimeByExtension[extension]?.includes(mime)) {
@@ -313,8 +319,9 @@ function decodePersistedAsset(fileName: string, dataUrl: string): { buffer: Buff
   return { buffer, extension };
 }
 
-function assetKindForExtension(extension: string): "pdf" | "image" {
-  return extension === ".pdf" ? "pdf" : "image";
+function assetKindForExtension(extension: string): "pdf" | "image" | "audio" {
+  if (extension === ".pdf") return "pdf";
+  return [".mp3", ".wav", ".m4a", ".aac", ".ogg", ".webm"].includes(extension) ? "audio" : "image";
 }
 
 function escapeRegExp(value: string): string {
@@ -780,7 +787,7 @@ ipcMain.handle("knowledge:commit", async (event, payload: KnowledgeCommitPayload
       storedFileName: string;
       mtimeMs: number;
       size: number;
-      kind: "pdf" | "image";
+      kind: "pdf" | "image" | "audio";
     } | null = null;
 
     if (payload.asset) {

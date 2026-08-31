@@ -6,10 +6,6 @@ import type {
   ObsidianNote,
 } from "../src/types";
 import {
-  BASE_ONBOARDING_SECTIONS,
-  canonicalBasePath,
-} from "../src/domain/baseOnboarding";
-import {
   buildDashboardActivity,
   buildDashboardBlockers,
   computeDashboardMetrics,
@@ -17,10 +13,10 @@ import {
 } from "../src/utils/dashboardIntelligence";
 
 const connectedConfig: ObsidianApiConfig = {
-  endpoint: "http://127.0.0.1:27124",
+  endpoint: "https://127.0.0.1:27124",
   apiKey: "",
   vaultName: "MarketingVault",
-  useHttps: false,
+  useHttps: true,
   autoSync: true,
   syncIntervalSeconds: 60,
   connectionStatus: "connected",
@@ -62,37 +58,25 @@ function campaign(overrides: Partial<MarketingCampaign> = {}): MarketingCampaign
   };
 }
 
-function note(overrides: Partial<ObsidianNote> = {}): ObsidianNote {
+function note(path = "Nisti Marketing/01_Estrategia/Posicionamento.md", status = "CONFIRMADO"): ObsidianNote {
+  const title = path.split("/").pop()?.replace(/\.md$/i, "") || "Fonte";
   return {
-    id: "note-1",
-    path: "00_Inbox/fonte.md",
-    title: "Fonte validada",
-    folder: "00_Inbox",
-    content: "Conteúdo confirmado.",
-    frontmatter: {},
+    id: path,
+    path,
+    title,
+    folder: path.split("/").slice(0, -1).join("/"),
+    content: "Conteúdo real registrado.",
+    frontmatter: { epistemic_status: status },
     tags: [],
     wikilinks: [],
     lastModified: "2026-08-27 08:45",
-    ...overrides,
   };
 }
 
-function confirmedBaseNotes(): ObsidianNote[] {
-  return BASE_ONBOARDING_SECTIONS.map((section, index) => ({
-    ...note(),
-    id: `base-${section.id}`,
-    path: canonicalBasePath(section),
-    title: section.fileTitle,
-    folder: "00_Base",
-    frontmatter: { epistemic_status: "CONFIRMADO" },
-    lastModified: `2026-08-2${Math.min(index + 1, 8)} 08:45`,
-  }));
-}
-
 describe("dashboard intelligence", () => {
-  test("prioriza tarefas reais somente depois que a Base Inicial está pronta", () => {
+  test("prioriza tarefas reais depois que existe conhecimento estratégico utilizável", () => {
     const action = selectPriorityAction(
-      confirmedBaseNotes(),
+      [note()],
       [],
       [task({ priority: "urgent", channel: undefined, dueDate: "", dueTime: undefined, obsidianFilePath: undefined })],
       connectedConfig,
@@ -104,80 +88,43 @@ describe("dashboard intelligence", () => {
     expect(action.scheduleLabel).toBeUndefined();
     expect(action.channel).toBeUndefined();
     expect(action.filePath).toBeUndefined();
-    expect(JSON.stringify(action)).not.toContain("11:30");
-    expect(JSON.stringify(action)).not.toContain("Hoje");
   });
 
-  test("bloqueia a recomendação operacional quando o Obsidian não está conectado", () => {
-    const action = selectPriorityAction(
-      confirmedBaseNotes(),
-      [],
-      [task({ priority: "urgent" })],
-      { ...connectedConfig, connectionStatus: "disconnected" },
-      new Date("2026-08-27T09:00:00"),
-    );
-
-    expect(action.kind).toBe("connect-obsidian");
-    expect(action.title).toContain("Conecte o Obsidian");
-  });
-
-  test("uma nota solta no Vault não substitui a Base Inicial canônica", () => {
-    const blockers = buildDashboardBlockers([note()], connectedConfig);
-    expect(blockers).toHaveLength(1);
-    expect(blockers[0]?.id).toBe("base-not-ready");
-    expect(blockers[0]?.title).toBe("Base Inicial incompleta");
-
+  test("bloqueia execução quando o Obsidian não está conectado", () => {
     const action = selectPriorityAction(
       [note()],
-      [campaign()],
+      [],
       [task({ priority: "urgent" })],
-      connectedConfig,
-      new Date("2026-08-27T09:00:00"),
-    );
-    expect(action.kind).toBe("complete-base");
-  });
-
-  test("expõe conexão e prontidão canônica como bloqueios estruturais", () => {
-    expect(buildDashboardBlockers(confirmedBaseNotes(), connectedConfig)).toEqual([]);
-
-    const disconnected = buildDashboardBlockers(
-      confirmedBaseNotes(),
       { ...connectedConfig, connectionStatus: "disconnected" },
     );
-    expect(disconnected[0]?.id).toBe("obsidian-disconnected");
-
-    const empty = buildDashboardBlockers([], connectedConfig);
-    expect(empty[0]?.id).toBe("base-not-ready");
-    expect(empty[0]?.detail).toContain("9 documentos canônicos");
+    expect(action.kind).toBe("connect-obsidian");
+    expect(action.subtitle).toContain("conexão REST");
   });
 
-  test("orienta completar a Base antes de qualquer execução quando faltam documentos canônicos", () => {
-    const action = selectPriorityAction(
-      [],
-      [campaign()],
-      [task({ priority: "urgent" })],
-      connectedConfig,
-      new Date("2026-08-27T09:00:00"),
-    );
-    expect(action.kind).toBe("complete-base");
-    expect(action.badgeLabel).toBe("Base incompleta");
-  });
-
-  test("orienta revisão quando a estrutura existe mas algum documento não está confirmado", () => {
-    const notes = confirmedBaseNotes();
-    notes[0] = {
-      ...notes[0],
-      frontmatter: { epistemic_status: "HIPÓTESE" },
-    };
-
-    const blocker = buildDashboardBlockers(notes, connectedConfig)[0];
+  test("Inbox isolada não substitui conhecimento estratégico", () => {
+    const inbox = [note("Nisti Marketing/00_Inbox/Captura.md", "PENDENTE")];
+    const blocker = buildDashboardBlockers(inbox, connectedConfig)[0];
     expect(blocker?.id).toBe("base-not-ready");
-    expect(blocker?.title).toBe("Base Inicial precisa de revisão");
-    expect(blocker?.detail).toContain("1 documento precisa de revisão");
+    expect(blocker?.title).toBe("Conhecimento precisa de revisão");
 
-    const action = selectPriorityAction(notes, [], [], connectedConfig, new Date("2026-08-27T09:00:00"));
+    const action = selectPriorityAction(inbox, [campaign()], [task({ priority: "urgent" })], connectedConfig);
     expect(action.kind).toBe("review-base");
-    expect(action.badgeLabel).toBe("Base em revisão");
+    expect(action.badgeLabel).toBe("Conhecimento em revisão");
+  });
+
+  test("sem fontes reais orienta adicionar conhecimento em vez de fabricar Base Inicial", () => {
+    const blocker = buildDashboardBlockers([], connectedConfig)[0];
+    expect(blocker?.title).toBe("Conhecimento estratégico ausente");
+    expect(blocker?.detail).toContain("Adicione ao menos uma fonte real");
+
+    const action = selectPriorityAction([], [campaign()], [task({ priority: "urgent" })], connectedConfig);
+    expect(action.kind).toBe("complete-base");
+    expect(action.badgeLabel).toBe("Conhecimento ausente");
+  });
+
+  test("fontes estratégicas confirmadas ou hipóteses explícitas liberam a operação", () => {
+    expect(buildDashboardBlockers([note()], connectedConfig)).toEqual([]);
+    expect(buildDashboardBlockers([note("Nisti Marketing/08_Aprendizados/Teste.md", "HIPÓTESE")], connectedConfig)).toEqual([]);
   });
 
   test("calcula métricas registradas e resumo operacional da semana", () => {
@@ -208,7 +155,7 @@ describe("dashboard intelligence", () => {
   test("timeline usa timestamps reais e não simula sincronização", () => {
     const disconnected = { ...connectedConfig, connectionStatus: "disconnected" as const, lastSyncTime: "2026-08-27T09:10:00" };
     const activity = buildDashboardActivity(
-      [note({ lastModified: "2026-08-27 08:45" })],
+      [note()],
       [campaign({ createdDate: "2026-08-26" })],
       [task({ status: "done", completedAt: "2026-08-27T09:00:00" })],
       disconnected,

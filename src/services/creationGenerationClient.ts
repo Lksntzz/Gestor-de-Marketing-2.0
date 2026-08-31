@@ -1,4 +1,5 @@
 import type { ObsidianApiConfig, ObsidianNote } from "../types";
+import { preferredPlanningSourcePaths } from "../domain/smartKnowledgeStage2";
 import { knowledgeContextService, type KnowledgeContextSource } from "./knowledge/KnowledgeContextService";
 import { StorageManager } from "./storage/StorageManager";
 
@@ -71,17 +72,28 @@ async function selectKnowledge(
   notes: ObsidianNote[],
   query: string,
 ): Promise<{ knowledgeSources: KnowledgeContextSource[]; knowledgeWarning?: string }> {
+  const preferredSourcePaths = preferredPlanningSourcePaths(notes);
   if (typeof window !== "undefined" && window.electronAPI?.queryKnowledge) {
     try {
-      const response = await window.electronAPI.queryKnowledge(query, []);
+      const response = await window.electronAPI.queryKnowledge(query, preferredSourcePaths);
       return { knowledgeSources: response.sources, knowledgeWarning: response.warning };
     } catch (error) {
       console.warn("Creation knowledge query via IPC failed; using in-memory selector.", error);
     }
   }
 
-  const selection = knowledgeContextService.select({ query, notes });
+  const selection = knowledgeContextService.select({ query, notes, preferredSourcePaths });
   return { knowledgeSources: selection.sources, knowledgeWarning: selection.warning };
+}
+
+function requireGroundedKnowledge(
+  knowledge: { knowledgeSources: KnowledgeContextSource[]; knowledgeWarning?: string },
+): void {
+  if (knowledge.knowledgeSources.length > 0) return;
+  throw new Error(
+    knowledge.knowledgeWarning
+      || "O planejamento foi bloqueado porque nenhuma evidência relevante foi encontrada em Estratégia, Produtos, Conteúdos, Pesquisas ou Aprendizados do Obsidian.",
+  );
 }
 
 function rejectSyntheticFallback<T extends { wasFallback?: boolean; usedModel?: string }>(data: T): T {
@@ -113,7 +125,7 @@ async function postCreation<T extends { wasFallback?: boolean; usedModel?: strin
 export const creationGenerationClient = {
   async generateIdeas(payload: CreationIdeaRequest): Promise<any> {
     const query = [
-      "ideias de conteúdo",
+      "planejamento ideias de conteúdo estratégia produto pesquisa aprendizados resultados performance",
       payload.objective,
       payload.format,
       payload.channel,
@@ -121,6 +133,7 @@ export const creationGenerationClient = {
       payload.customInstructions || "",
     ].filter(Boolean).join(" ");
     const knowledge = await selectKnowledge(payload.knowledgeNotes, query);
+    requireGroundedKnowledge(knowledge);
 
     return await postCreation("/api/ai/generate-ideas", {
       objective: payload.objective,
@@ -135,7 +148,7 @@ export const creationGenerationClient = {
 
   async generateScript(payload: CreationScriptRequest): Promise<any> {
     const query = [
-      "roteiro de conteúdo",
+      "roteiro de conteúdo estratégia produto pesquisa aprendizados resultados performance",
       payload.idea,
       payload.objective,
       payload.format,
@@ -143,6 +156,7 @@ export const creationGenerationClient = {
       payload.customInstructions || "",
     ].filter(Boolean).join(" ");
     const knowledge = await selectKnowledge(payload.knowledgeNotes, query);
+    requireGroundedKnowledge(knowledge);
 
     return await postCreation("/api/ai/generate-script", {
       idea: payload.idea,
@@ -166,7 +180,7 @@ export const creationGenerationClient = {
     knowledgeNotes: ObsidianNote[];
   }): Promise<any> {
     const query = [
-      "copywriting redação texto",
+      "copywriting redação texto estratégia produto pesquisa aprendizados resultados performance",
       payload.title,
       payload.objective,
       payload.format,
@@ -175,6 +189,7 @@ export const creationGenerationClient = {
       payload.customInstructions || "",
     ].filter(Boolean).join(" ");
     const knowledge = await selectKnowledge(payload.knowledgeNotes, query);
+    requireGroundedKnowledge(knowledge);
 
     return await postCreation("/api/ai/generate-copywriting", {
       title: payload.title,
@@ -213,4 +228,3 @@ export const creationGenerationClient = {
     });
   },
 };
-
