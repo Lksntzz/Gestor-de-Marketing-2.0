@@ -21,12 +21,13 @@ describe("Windows release updater artifacts", () => {
     expect(workflow).not.toContain("uses: actions/upload-artifact");
   });
 
-  test("manual and PR release runs are dry-run unless publication is explicit", async () => {
+  test("manual and PR release runs are dry-run unless publication is explicit and on main", async () => {
     const workflow = await read(".github/workflows/release-windows.yml");
     expect(workflow).toContain("publish:");
     expect(workflow).toContain("default: false");
     expect(workflow).toContain('$shouldPublish = "false"');
     expect(workflow).toContain("SHOULD_PUBLISH=$shouldPublish");
+    expect(workflow).toContain("Publicação manual estável só é permitida a partir da branch main");
     expect(workflow).toContain("if: env.SHOULD_PUBLISH == 'true'");
     expect(workflow).toContain("Dry Run Complete — Release Not Published");
   });
