@@ -4,6 +4,7 @@ import {
 } from "./AIConnectionMetadataStore";
 import {
   AIConnectionModelValidationService,
+  type AIModelValidationFailure,
   type AIModelValidationFailureCode,
   type AIModelValidationRequest,
   type AIModelValidationResult,
@@ -23,6 +24,10 @@ const NON_TRANSITION_FAILURES = new Set<AIModelValidationFailureCode>([
   "MODEL_NOT_DISCOVERED",
 ]);
 
+function isValidationFailure(result: AIModelValidationResult): result is AIModelValidationFailure {
+  return result.success === false;
+}
+
 /**
  * Coordinates model validation with the secret-free metadata boundary.
  *
@@ -41,10 +46,8 @@ export class AIConnectionActivationCoordinator {
   async validateSelection(request: AIModelValidationRequest): Promise<AIModelValidationResult> {
     const result = await this.validator.validateAndActivate(request);
 
-    if (!result.success) {
-      if (NON_TRANSITION_FAILURES.has(result.code)) {
-        return result;
-      }
+    if (isValidationFailure(result) && NON_TRANSITION_FAILURES.has(result.code)) {
+      return result;
     }
 
     const persistedState = this.persistMetadata(result.state);
