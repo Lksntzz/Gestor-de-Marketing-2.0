@@ -119,15 +119,17 @@ export function evaluateEpistemicWeight(
     };
   }
 
-  // 2. Folder-based default classification if metadata is missing or vague
+  // 2. Folder-based default classification if metadata is missing or vague.
+  // Rigor epistêmico: Nenhuma pasta gera CONFIRMADO / isOfficialFact: true automaticamente
+  // sem evidência explícita (status: "OFICIAL" ou epistemic_status: "CONFIRMADO").
   const normalizedFolder = String(folder || "").replace(/\\/g, "/");
   if (normalizedFolder.includes("01_Estrategia") || normalizedFolder.includes("02_Produtos") || normalizedFolder.includes("08_Aprendizados")) {
     return {
-      normalizedEpistemicStatus: "CONFIRMADO",
-      canonicalStatus: "verified_truth",
-      priorityLevel: 1,
-      weightMultiplier: 1.5,
-      isOfficialFact: true,
+      normalizedEpistemicStatus: "HIPÓTESE",
+      canonicalStatus: "work_in_progress",
+      priorityLevel: 2,
+      weightMultiplier: 1.0,
+      isOfficialFact: false,
     };
   }
 

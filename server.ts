@@ -8,6 +8,25 @@ import { AIProviderFactory, DEFAULT_AI_MODELS } from "./src/services/ai/AIProvid
 import { AIProviderError, AIProviderName, GenerationRequest } from "./src/services/ai/AIProvider";
 import { buildKnowledgeContextPrompt } from "./src/services/knowledge/KnowledgeContextBuilder";
 import type { KnowledgeSourceTrace } from "./src/services/knowledge/KnowledgeContextService";
+import {
+  parseLoopbackEndpoint,
+  validateObsidianProxyPath,
+  validateObsidianProxyMethod,
+  sanitizeObsidianForwardHeaders,
+} from "./src/services/obsidian/obsidianEndpointValidator";
+import {
+  GenerateIdeasRequestSchema,
+  GenerateScriptRequestSchema,
+  GenerateCampaignRequestSchema,
+  GenerateGuidelinesRequestSchema,
+  ProcessKnowledgeRequestSchema,
+  ExtractTasksRequestSchema,
+  AnalyzeVaultRequestSchema,
+  SynthesizeLearningsRequestSchema,
+  TestAIConnectionRequestSchema,
+  ObsidianTestConnectionRequestSchema,
+  ObsidianProxyRequestSchema,
+} from "./src/domain/apiSchemas";
 
 dotenv.config();
 
@@ -64,6 +83,18 @@ app.use("/api/", (req, res, next) => {
 
 app.get("/api/auth/session", (_req, res) => {
   res.json({ success: true, token: SERVER_SESSION_SECRET });
+});
+
+app.post("/api/internal/update-secrets", express.json(), (req, res) => {
+  const instanceId = req.headers["x-nisti-instance-id"];
+  if (!instanceId || instanceId !== process.env.NISTI_INSTANCE_ID) {
+    return res.status(403).json({ success: false, error: "Acesso não autorizado." });
+  }
+  const { obsidianApiKey, geminiApiKey, openaiApiKey } = req.body || {};
+  if (obsidianApiKey !== undefined) process.env.OBSIDIAN_API_KEY = obsidianApiKey;
+  if (geminiApiKey !== undefined) process.env.GEMINI_API_KEY = geminiApiKey;
+  if (openaiApiKey !== undefined) process.env.OPENAI_API_KEY = openaiApiKey;
+  return res.json({ success: true });
 });
 
 app.use(["/api/ai/", "/api/gemini/"], (req, res, next) => {
@@ -236,8 +267,9 @@ function providerConfigFromRequest(req: express.Request) {
   const legacyGeminiKey = provider === "gemini" && req.path.startsWith("/api/gemini/")
     ? req.headers["x-gemini-api-key"]
     : undefined;
+  const rawApiKey = String(req.headers["x-ai-api-key"] || legacyGeminiKey || "").trim();
   const envKey = provider === "openai" ? (process.env.OPENAI_API_KEY || "") : (process.env.GEMINI_API_KEY || "");
-  const apiKey = String(req.headers["x-ai-api-key"] || legacyGeminiKey || envKey || "").trim();
+  const apiKey = (rawApiKey && rawApiKey !== "********" && rawApiKey !== "saved-in-secure-storage") ? rawApiKey : envKey;
   if (!apiKey) {
     throw new AIProviderError("MISSING_CONFIG", `A chave de API do provedor ${provider} não foi configurada.`, provider);
   }
@@ -1096,42 +1128,6 @@ ${JSON.stringify(vaultNotesOverview || [], null, 2)}`;
   }
 });
 
-function parseLoopbackEndpoint(endpoint: string): URL {
-  if (!endpoint || typeof endpoint !== "string") {
-    throw new Error("Endpoint do Obsidian não informado.");
-  }
-  let parsedUrl: URL;
-  try {
-    parsedUrl = new URL(endpoint.trim());
-  } catch {
-    throw new Error("URL do endpoint Obsidian inválida.");
-  }
-
-  if (parsedUrl.protocol !== "http:" && parsedUrl.protocol !== "https:") {
-    throw new Error("Protocolo do Obsidian inválido. Apenas HTTP e HTTPS são permitidos.");
-  }
-
-  const hostname = parsedUrl.hostname.toLowerCase();
-
-  // Strict loopback/local validation - SSRF defense
-  const isLoopback =
-    hostname === "127.0.0.1" ||
-    hostname === "localhost" ||
-    hostname === "::1" ||
-    hostname === "[::1]" ||
-    hostname === "0.0.0.0" ||
-    hostname === "local.obsidian.md" ||
-    hostname.endsWith(".localhost");
-
-  if (!isLoopback) {
-    throw new Error(
-      `SSRF Bloqueado: O host '${hostname}' não é permitido. Apenas o Obsidian Local REST API na mesma máquina (localhost / 127.0.0.1) é autorizado.`
-    );
-  }
-
-  return parsedUrl;
-}
-
 app.post(["/api/ai/generate-ideas", "/api/gemini/generate-ideas"], async (req, res) => {
   try {
     const { objective, format, channel, count, theme, customInstructions, engineMode, knowledgeSources } = req.body || {};
@@ -1753,16 +1749,22 @@ Retorne JSON estruturado com:
 
 
 app.post("/api/obsidian/test-connection", async (req, res) => {
-  const { endpoint = "http://127.0.0.1:27124", apiKey } = req.body || {};
+  const parseResult = ObsidianTestConnectionRequestSchema.safeParse(req.body);
+  if (!parseResult.success) {
+    return res.json({ success: false, message: parseResult.error.issues[0]?.message || "Payload inválido" });
+  }
+  const { endpoint, apiKey } = parseResult.data;
+  const finalApiKey = (!apiKey || apiKey === "********" || apiKey === "saved-in-secure-storage")
+    ? (process.env.OBSIDIAN_API_KEY || "")
+    : apiKey;
   try {
     const parsedUrl = parseLoopbackEndpoint(String(endpoint));
-    if (!String(apiKey || "").trim()) return res.json({ success: false, message: "Token do Obsidian não informado." });
     const controller = new AbortController();
     const timeoutId = setTimeout(() => controller.abort(), 3_500);
     try {
       const response = await fetch(`${parsedUrl.protocol}//${parsedUrl.host}/`, {
         method: "GET",
-        headers: { Authorization: `Bearer ${apiKey}`, Accept: "application/json" },
+        headers: { Authorization: `Bearer ${finalApiKey}`, Accept: "application/json" },
         signal: controller.signal,
       });
       if (response.ok) return res.json({ success: true, message: "Conectado com sucesso ao Obsidian Local REST API." });
@@ -1776,29 +1778,33 @@ app.post("/api/obsidian/test-connection", async (req, res) => {
 });
 
 app.post("/api/obsidian/proxy", async (req, res) => {
-  const { endpoint = "http://127.0.0.1:27124", apiKey, method = "GET", path: targetPath = "/", body, headers: customHeaders = {} } = req.body || {};
+  const parseResult = ObsidianProxyRequestSchema.safeParse(req.body);
+  if (!parseResult.success) {
+    return res.status(400).json({ success: false, error: parseResult.error.issues[0]?.message || "Payload inválido" });
+  }
+  const { endpoint, apiKey, method, path: targetPath, body, headers: customHeaders } = parseResult.data;
+  const finalApiKey = (!apiKey || apiKey === "********" || apiKey === "saved-in-secure-storage")
+    ? (process.env.OBSIDIAN_API_KEY || "")
+    : apiKey;
   try {
     const parsedUrl = parseLoopbackEndpoint(String(endpoint));
-    if (!String(apiKey || "").trim()) return res.status(401).json({ success: false, error: "Token do Obsidian não informado." });
-    const normalizedPath = String(targetPath).startsWith("/") ? String(targetPath) : `/${targetPath}`;
+    const normalizedPath = validateObsidianProxyPath(targetPath);
+    const validMethod = validateObsidianProxyMethod(method);
+    const forwardHeaders = sanitizeObsidianForwardHeaders(customHeaders as Record<string, unknown>, finalApiKey);
+
+    if (body && typeof body === "string") forwardHeaders["Content-Type"] = "text/markdown; charset=utf-8";
+    else if (body && typeof body === "object") forwardHeaders["Content-Type"] = "application/json";
+
     const fullUrl = `${parsedUrl.protocol}//${parsedUrl.host}${normalizedPath}`;
     const controller = new AbortController();
     const timeoutId = setTimeout(() => controller.abort(), 4_000);
     try {
-      const forwardHeaders: Record<string, string> = {
-        Authorization: `Bearer ${apiKey}`,
-        Accept: "application/json, text/plain, */*",
-        ...(customHeaders as Record<string, string>),
-      };
-      if (body && typeof body === "string") forwardHeaders["Content-Type"] = "text/markdown; charset=utf-8";
-      else if (body && typeof body === "object") forwardHeaders["Content-Type"] = "application/json";
-
       const fetchOptions: RequestInit = {
-        method: String(method).toUpperCase(),
+        method: validMethod,
         headers: forwardHeaders,
         signal: controller.signal,
       };
-      if (body !== undefined && !["GET", "HEAD"].includes(String(method).toUpperCase())) {
+      if (body !== undefined && !["GET", "HEAD"].includes(validMethod)) {
         fetchOptions.body = typeof body === "string" ? body : JSON.stringify(body);
       }
 
@@ -1813,7 +1819,7 @@ app.post("/api/obsidian/proxy", async (req, res) => {
       clearTimeout(timeoutId);
     }
   } catch (err: any) {
-    return res.json({ success: false, error: `Falha ao contatar Obsidian REST API em ${endpoint}: ${err.message}` });
+    return res.status(400).json({ success: false, error: `Falha ao contatar Obsidian REST API em ${endpoint}: ${err.message}` });
   }
 });
 

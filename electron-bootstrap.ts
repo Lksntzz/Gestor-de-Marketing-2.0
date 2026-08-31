@@ -60,6 +60,54 @@ function readStoredSecretValue(store: Record<string, string>, name: string): str
   }
 }
 
+async function syncAllSecretsWithBackend(): Promise<void> {
+  if (!appUrl) return;
+  try {
+    const store = await readSecretStore();
+    let obsidianKey = readStoredSecretValue(store, "obsidianApiKey") || "";
+    let geminiKey = readStoredSecretValue(store, "geminiApiKey") || "";
+    let openaiKey = readStoredSecretValue(store, "openaiApiKey") || "";
+
+    // Resolve unified single active credential based on active provider
+    const stateSnapshot = await getAIConnectionRuntimeState();
+    const activeProvider = stateSnapshot?.state?.provider;
+    const aiConnKey = readStoredSecretValue(store, AI_CONNECTION_SECRET_NAME) || "";
+
+    if (aiConnKey) {
+      if (activeProvider === "gemini") {
+        geminiKey = aiConnKey;
+      } else if (activeProvider === "openai") {
+        openaiKey = aiConnKey;
+      }
+    }
+
+    const req = http.request(
+      `${appUrl}/api/internal/update-secrets`,
+      {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "x-nisti-instance-id": backendInstanceId,
+        },
+      },
+      (res) => {
+        res.resume();
+      }
+    );
+    req.on("error", () => {});
+    req.write(
+      JSON.stringify({
+        obsidianApiKey: obsidianKey,
+        geminiApiKey: geminiKey,
+        openaiApiKey: openaiKey,
+      })
+    );
+    req.end();
+  } catch (err) {
+    console.error("Failed to sync secrets with local backend:", err);
+  }
+}
+
 ipcMain.handle("secret:set", async (event, name: string, value: string) => {
   assertTrustedIpcSender(event);
   if (!ALLOWED_SECRET_NAMES.has(name)) throw new Error("Secret name not allowed.");
@@ -84,6 +132,9 @@ ipcMain.handle("secret:set", async (event, name: string, value: string) => {
     store[name] = safeStorage.encryptString(nextValue).toString("base64");
   }
   await writeSecretStore(store);
+  
+  // Dynamically sync secrets with background server
+  void syncAllSecretsWithBackend();
   return { success: true };
 });
 
@@ -96,7 +147,11 @@ ipcMain.handle("secret:get", async (event, name: string) => {
     const store = await readSecretStore();
     const encrypted = store[name];
     if (!encrypted) return "";
-    return safeStorage.decryptString(Buffer.from(encrypted, "base64"));
+    
+    // SECURE CREDENTIAL ISOLATION: Never expose plaintext keys to the renderer!
+    // Returning "********" ensures that even if the renderer is compromised,
+    // it can never leak real credentials.
+    return "********";
   } catch {
     return "";
   }
@@ -113,6 +168,9 @@ ipcMain.handle("secret:delete", async (event, name: string) => {
   const store = await readSecretStore();
   delete store[name];
   await writeSecretStore(store);
+  
+  // Dynamically sync secrets with background server
+  void syncAllSecretsWithBackend();
   return { success: true };
 });
 
@@ -138,6 +196,9 @@ ipcMain.handle("ai-connection:set-credential", async (event, value: unknown) => 
 
   store[AI_CONNECTION_SECRET_NAME] = safeStorage.encryptString(nextValue).toString("base64");
   await writeSecretStore(store);
+  
+  // Dynamically sync secrets with background server
+  void syncAllSecretsWithBackend();
   return { success: true, changed: true };
 });
 
@@ -150,6 +211,9 @@ ipcMain.handle("ai-connection:clear-credential", async (event) => {
   const store = await readSecretStore();
   delete store[AI_CONNECTION_SECRET_NAME];
   await writeSecretStore(store);
+  
+  // Dynamically sync secrets with background server
+  void syncAllSecretsWithBackend();
   return { success: true };
 });
 
@@ -245,6 +309,32 @@ async function startBackend(): Promise<void> {
   backendInstanceId = crypto.randomBytes(16).toString("hex");
   appUrl = `http://${LOOPBACK_HOST}:${port}`;
 
+  // Read and decrypt secure secrets to seed backend environment
+  let obsidianKey = "";
+  let geminiKey = "";
+  let openaiKey = "";
+  try {
+    const store = await readSecretStore();
+    obsidianKey = readStoredSecretValue(store, "obsidianApiKey") || "";
+    geminiKey = readStoredSecretValue(store, "geminiApiKey") || "";
+    openaiKey = readStoredSecretValue(store, "openaiApiKey") || "";
+
+    // Resolve unified single active credential based on active provider
+    const stateSnapshot = await getAIConnectionRuntimeState();
+    const activeProvider = stateSnapshot?.state?.provider;
+    const aiConnKey = readStoredSecretValue(store, AI_CONNECTION_SECRET_NAME) || "";
+
+    if (aiConnKey) {
+      if (activeProvider === "gemini") {
+        geminiKey = aiConnKey;
+      } else if (activeProvider === "openai") {
+        openaiKey = aiConnKey;
+      }
+    }
+  } catch (err) {
+    console.warn("Could not decrypt initial backend secrets:", err);
+  }
+
   const serverPath = path.join(__dirname, "server.cjs");
   backendProcess = spawn(process.execPath, [serverPath], {
     cwd: path.resolve(__dirname, ".."),
@@ -254,6 +344,9 @@ async function startBackend(): Promise<void> {
       ELECTRON_RUN_AS_NODE: "1",
       NISTI_APP_PORT: String(port),
       NISTI_INSTANCE_ID: backendInstanceId,
+      OBSIDIAN_API_KEY: obsidianKey,
+      GEMINI_API_KEY: geminiKey,
+      OPENAI_API_KEY: openaiKey,
     },
     stdio: "ignore",
     windowsHide: true,

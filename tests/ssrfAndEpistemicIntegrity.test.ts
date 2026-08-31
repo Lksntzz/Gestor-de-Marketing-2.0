@@ -1,60 +1,33 @@
 import { describe, test, expect } from "bun:test";
 import { evaluateEpistemicWeight } from "../src/services/knowledge/EpistemicClassifier";
+import {
+  parseLoopbackEndpoint,
+  validateObsidianProxyPath,
+  validateObsidianProxyMethod,
+  sanitizeObsidianForwardHeaders,
+} from "../src/services/obsidian/obsidianEndpointValidator";
 
 describe("P0 Security & Epistemic Integrity Invariants", () => {
-  describe("P0 — SSRF Protection for Obsidian Loopback Integration", () => {
-    // We recreate the exact parsing logic implemented in server.ts to verify invariants
-    function parseLoopbackEndpoint(endpoint: string): URL {
-      if (!endpoint || typeof endpoint !== "string") {
-        throw new Error("Endpoint do Obsidian não informado.");
-      }
-      let parsedUrl: URL;
-      try {
-        parsedUrl = new URL(endpoint.trim());
-      } catch {
-        throw new Error("URL do endpoint Obsidian inválida.");
-      }
-
-      if (parsedUrl.protocol !== "http:" && parsedUrl.protocol !== "https:") {
-        throw new Error("Protocolo do Obsidian inválido. Apenas HTTP e HTTPS são permitidos.");
-      }
-
-      const hostname = parsedUrl.hostname.toLowerCase();
-
-      const isLoopback =
-        hostname === "127.0.0.1" ||
-        hostname === "localhost" ||
-        hostname === "::1" ||
-        hostname === "[::1]" ||
-        hostname === "0.0.0.0" ||
-        hostname === "local.obsidian.md" ||
-        hostname.endsWith(".localhost");
-
-      if (!isLoopback) {
-        throw new Error(
-          `SSRF Bloqueado: O host '${hostname}' não é permitido. Apenas o Obsidian Local REST API na mesma máquina (localhost / 127.0.0.1) é autorizado.`
-        );
-      }
-
-      return parsedUrl;
-    }
-
-    test("allows legitimate local Obsidian loopback endpoints", () => {
+  describe("P0 — SSRF Protection for Obsidian Loopback Integration (Real Implementation)", () => {
+    test("allows legitimate local Obsidian loopback endpoints on authorized ports", () => {
       expect(parseLoopbackEndpoint("http://127.0.0.1:27124").hostname).toBe("127.0.0.1");
       expect(parseLoopbackEndpoint("https://127.0.0.1:27124").hostname).toBe("127.0.0.1");
       expect(parseLoopbackEndpoint("http://localhost:27124").hostname).toBe("localhost");
       expect(parseLoopbackEndpoint("https://localhost:27123").hostname).toBe("localhost");
-      expect(parseLoopbackEndpoint("https://local.obsidian.md:27124").hostname).toBe("local.obsidian.md");
-      expect(parseLoopbackEndpoint("http://vault.localhost:27124").hostname).toBe("vault.localhost");
     });
 
-    test("blocks external domains and cloud metadata endpoints", () => {
+    test("blocks non-loopback hosts, 0.0.0.0, arbitrary domains and cloud metadata", () => {
       // Cloud metadata endpoints
       expect(() => parseLoopbackEndpoint("http://169.254.169.254/latest/meta-data/")).toThrow(/SSRF Bloqueado/);
       expect(() => parseLoopbackEndpoint("http://metadata.google.internal/computeMetadata/v1/")).toThrow(/SSRF Bloqueado/);
 
+      // Insecure aliases and non-strict addresses
+      expect(() => parseLoopbackEndpoint("http://0.0.0.0:27124")).toThrow(/SSRF Bloqueado/);
+      expect(() => parseLoopbackEndpoint("https://local.obsidian.md:27124")).toThrow(/SSRF Bloqueado/);
+      expect(() => parseLoopbackEndpoint("http://vault.localhost:27124")).toThrow(/SSRF Bloqueado/);
+
       // Public internet hosts
-      expect(() => parseLoopbackEndpoint("http://google.com")).toThrow(/SSRF Bloqueado/);
+      expect(() => parseLoopbackEndpoint("http://google.com:27124")).toThrow(/SSRF Bloqueado/);
       expect(() => parseLoopbackEndpoint("https://api.openai.com")).toThrow(/SSRF Bloqueado/);
       expect(() => parseLoopbackEndpoint("http://evil-attacker.com:27124")).toThrow(/SSRF Bloqueado/);
 
@@ -68,9 +41,69 @@ describe("P0 Security & Epistemic Integrity Invariants", () => {
       expect(() => parseLoopbackEndpoint("gopher://127.0.0.1:70")).toThrow(/Protocolo/);
       expect(() => parseLoopbackEndpoint("ftp://127.0.0.1")).toThrow(/Protocolo/);
     });
+
+    test("blocks sensitive local services and privileged ports", () => {
+      expect(() => parseLoopbackEndpoint("http://127.0.0.1:3000")).toThrow(/bloqueada por segurança/);
+      expect(() => parseLoopbackEndpoint("http://127.0.0.1:3306")).toThrow(/bloqueada por segurança/);
+      expect(() => parseLoopbackEndpoint("http://127.0.0.1:5432")).toThrow(/bloqueada por segurança/);
+      expect(() => parseLoopbackEndpoint("http://127.0.0.1:6379")).toThrow(/bloqueada por segurança/);
+      expect(() => parseLoopbackEndpoint("http://127.0.0.1:22")).toThrow(/Porta/);
+      expect(() => parseLoopbackEndpoint("http://127.0.0.1:80")).toThrow(/Porta/);
+    });
+
+    test("sanitizes proxy paths and prevents path traversal", () => {
+      expect(validateObsidianProxyPath("/vault/01_Estrategia/Brand.md")).toBe("/vault/01_Estrategia/Brand.md");
+      expect(validateObsidianProxyPath("/")).toBe("/");
+      expect(validateObsidianProxyPath("/active/")).toBe("/active/");
+      
+      expect(() => validateObsidianProxyPath("/vault/../../etc/passwd")).toThrow(/Path traversal/);
+      expect(() => validateObsidianProxyPath("/unauthorized_internal_route")).toThrow(/não é uma rota autorizada/);
+    });
+
+    test("sanitizes headers preventing Authorization overwrite", () => {
+      const sanitized = sanitizeObsidianForwardHeaders(
+        {
+          Authorization: "Bearer malicious_token",
+          Host: "evil.com",
+          "Content-Type": "application/json",
+          "X-Custom": "custom-val"
+        },
+        "real_secure_token"
+      );
+
+      expect(sanitized["Authorization"]).toBe("Bearer real_secure_token");
+      expect(sanitized["Content-Type"]).toBe("application/json");
+      expect(sanitized["Host"]).toBeUndefined();
+      expect(sanitized["X-Custom"]).toBeUndefined();
+    });
+
+    test("validates HTTP methods", () => {
+      expect(validateObsidianProxyMethod("get")).toBe("GET");
+      expect(validateObsidianProxyMethod("POST")).toBe("POST");
+      expect(() => validateObsidianProxyMethod("CONNECT")).toThrow(/não suportado/);
+    });
   });
 
   describe("P0 — Epistemic Logic & Fallback Invariants", () => {
+    test("folders without explicit metadata default to HIPÓTESE or PENDENTE, never CONFIRMADO", () => {
+      // Crucial test: evaluateEpistemicWeight without explicit metadata
+      const bareStrategy = evaluateEpistemicWeight("01_Estrategia");
+      expect(bareStrategy.normalizedEpistemicStatus).toBe("HIPÓTESE");
+      expect(bareStrategy.isOfficialFact).toBe(false);
+
+      const bareProducts = evaluateEpistemicWeight("02_Produtos");
+      expect(bareProducts.normalizedEpistemicStatus).toBe("HIPÓTESE");
+      expect(bareProducts.isOfficialFact).toBe(false);
+
+      const bareLearnings = evaluateEpistemicWeight("08_Aprendizados");
+      expect(bareLearnings.normalizedEpistemicStatus).toBe("HIPÓTESE");
+      expect(bareLearnings.isOfficialFact).toBe(false);
+
+      const bareContent = evaluateEpistemicWeight("03_Conteudos");
+      expect(bareContent.normalizedEpistemicStatus).toBe("HIPÓTESE");
+      expect(bareContent.isOfficialFact).toBe(false);
+    });
+
     test("unreviewed or newly ingested notes default to PENDENTE even in strategic folders", () => {
       const draftInStrategy = evaluateEpistemicWeight("01_Estrategia", "NOVO", "pendente");
       expect(draftInStrategy.normalizedEpistemicStatus).toBe("PENDENTE");
