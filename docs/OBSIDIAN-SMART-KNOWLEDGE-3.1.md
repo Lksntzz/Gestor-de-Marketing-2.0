@@ -13,6 +13,7 @@
 - Ambiguidades e colisões permanecem na Inbox para revisão.
 - A ferramenta Adicionar fonte usa exatamente as mesmas pastas canônicas.
 - A tela de Configurações descreve o fluxo REST-first e não orienta seleção manual de Vault físico.
+- O botão Sincronizar usa a mesma leitura REST-first e não depende do caminho físico no fluxo padrão.
 
 ### Etapa 2 — inteligência de planejamento e aprendizado
 - Transporte REST dos binários originais (PDF/imagem/áudio).
