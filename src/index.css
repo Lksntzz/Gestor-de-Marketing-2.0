@@ -187,12 +187,17 @@
 }
 
 html.dark {
-  /* Compatibilidade das telas antigas que usam bg-white/bg-stone-* em dark mode. */
-  --color-white: #172638;
+  /*
+   * Compatibilidade das telas antigas em dark mode.
+   * Texto e superfície não podem compartilhar o mesmo override: `text-white`
+   * deve continuar branco mesmo quando `bg-white` vira uma superfície escura.
+   */
+  --color-white: #FFFFFF;
   --color-stone-50: #0D1420;
   --color-stone-100: #142132;
   --color-stone-200: #38506A;
   --color-stone-300: #4B647D;
+  --color-stone-950: #F8FAFC;
   --color-stone-900: #F8FAFC;
   --color-stone-850: #F1F5F9;
   --color-stone-800: #E8EEF5;
@@ -205,6 +210,38 @@ html.dark {
   --color-purple-50: rgba(236, 206, 240, 0.10);
   --color-purple-100: rgba(236, 206, 240, 0.16);
   --color-purple-200: rgba(236, 206, 240, 0.24);
+}
+
+/*
+ * Overrides direcionais: classes de fundo recebem superfícies dark sem
+ * contaminar as mesmas cores quando usadas em texto.
+ */
+html.dark .bg-white {
+  background-color: #172638;
+}
+
+html.dark .bg-stone-900 {
+  background-color: #25384D;
+}
+
+html.dark .bg-stone-800 {
+  background-color: #203247;
+}
+
+html.dark .bg-stone-700 {
+  background-color: #29405A;
+}
+
+html.dark .text-purple-900 {
+  color: #F6E5F8;
+}
+
+html.dark .text-purple-700 {
+  color: #DDB9E4;
+}
+
+html.dark .text-purple-600 {
+  color: #C99CD2;
 }
 
 html,
