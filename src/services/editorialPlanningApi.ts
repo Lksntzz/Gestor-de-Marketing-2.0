@@ -65,7 +65,7 @@ export async function generateEditorialPlanSuggestions(payload: EditorialPlannin
   }
 
   const headers = await authenticatedHeaders();
-  if (!headers["x-ai-api-key"]) {
+  if (!headers["x-ai-api-key"] && !storage.isDesktopRuntime()) {
     throw new Error("Configure a chave do provedor de IA antes de gerar sugestões editoriais.");
   }
 

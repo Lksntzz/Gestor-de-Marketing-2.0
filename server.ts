@@ -236,7 +236,8 @@ function providerConfigFromRequest(req: express.Request) {
   const legacyGeminiKey = provider === "gemini" && req.path.startsWith("/api/gemini/")
     ? req.headers["x-gemini-api-key"]
     : undefined;
-  const apiKey = String(req.headers["x-ai-api-key"] || legacyGeminiKey || "").trim();
+  const envKey = provider === "openai" ? (process.env.OPENAI_API_KEY || "") : (process.env.GEMINI_API_KEY || "");
+  const apiKey = String(req.headers["x-ai-api-key"] || legacyGeminiKey || envKey || "").trim();
   if (!apiKey) {
     throw new AIProviderError("MISSING_CONFIG", `A chave de API do provedor ${provider} não foi configurada.`, provider);
   }
@@ -1374,6 +1375,349 @@ Instruções adicionais: ${customInstructions || "Nenhuma"}`;
     return sendAIError(req, res, error, "Erro na geração de roteiro");
   }
 });
+
+app.post(["/api/ai/generate-copywriting", "/api/gemini/generate-copywriting"], async (req, res) => {
+  try {
+    const { title, format, channel, objective, framework, targetAudience, tone, customInstructions, engineMode, knowledgeSources } = req.body || {};
+
+    if (!title || !format || !channel || !objective) {
+      return res.status(400).json({ success: false, error: "Título, formato, canal e objetivo são obrigatórios." });
+    }
+
+    const safeFallback = () => ({
+      title,
+      format,
+      channel,
+      objective,
+      framework: framework || "DIRECT_RESPONSE",
+      hook: `Gancho para ${title}`,
+      sections: [
+        { title: "Introdução", content: `Apresentação do tema com foco no objetivo ${objective}.` },
+        { title: "Desenvolvimento", content: "Argumentação e provas baseadas nos fatos registrados no Vault." },
+        { title: "Fechamento", content: "Chamada para ação clara e direcionada." }
+      ],
+      callToAction: "Saiba mais ou entre em contato.",
+      suggestedHashtagsOrKeywords: ["marketing", "conteudo"],
+      productionNotes: "Revisar dados factuais antes de publicar.",
+      sourceReferences: []
+    });
+
+    const businessPrompt = `Você é um copywriter de elite especializado no framework ${framework || 'DIRECT_RESPONSE'} para o canal ${channel}.
+Escreva uma cópia persuasiva e de alta conversão para: "${title}".
+
+REGRAS EPISTÊMICAS E OPERACIONAIS:
+- Use SOMENTE fatos CONFIRMADOS presentes no contexto do Vault.
+- Se fizer inferências ou sugestões criativas, trate-as como HIPÓTESE.
+- Não invente preços, prazos, descontos, métricas ou garantias.
+- Canal: ${channel} | Formato: ${format} | Objetivo: ${objective}
+${targetAudience ? `- Público-alvo: ${targetAudience}` : ''}
+${tone ? `- Tom de voz: ${tone}` : ''}
+${customInstructions ? `- Instruções adicionais: ${customInstructions}` : ''}
+
+Retorne JSON estruturado com title, format, channel, objective, framework, hook, sections (array com title e content), callToAction, suggestedHashtagsOrKeywords, productionNotes e sourceReferences.`;
+
+    const knowledgeContext = buildKnowledgeContextPrompt(businessPrompt, knowledgeSources);
+
+    if (engineMode === "local") {
+      const requestedProvider = String(req.headers["x-ai-provider"] || "gemini") === "openai" ? "openai" : "gemini";
+      return sendAISuccess(req, res, {
+        data: safeFallback(),
+        usedModel: "local-grounded-engine",
+        usedProvider: requestedProvider,
+        wasFallback: false,
+        sources: knowledgeContext.sources,
+        contextWarning: knowledgeContext.warning,
+      });
+    }
+
+    const schemaConfig = {
+      responseSchema: {
+        type: "object",
+        properties: {
+          title: { type: "string" },
+          format: { type: "string" },
+          channel: { type: "string" },
+          objective: { type: "string" },
+          framework: { type: "string" },
+          hook: { type: "string" },
+          sections: {
+            type: "array",
+            items: {
+              type: "object",
+              properties: {
+                title: { type: "string" },
+                content: { type: "string" },
+                guidelines: { type: "string" }
+              },
+              required: ["title", "content"]
+            }
+          },
+          callToAction: { type: "string" },
+          suggestedHashtagsOrKeywords: { type: "array", items: { type: "string" } },
+          productionNotes: { type: "string" },
+          sourceReferences: { type: "array", items: { type: "string" } }
+        },
+        required: ["title", "format", "channel", "objective", "framework", "hook", "sections", "callToAction", "suggestedHashtagsOrKeywords", "productionNotes", "sourceReferences"]
+      }
+    };
+
+    const result = await executeAIWithFallback(
+      req,
+      {
+        prompt: knowledgeContext.prompt,
+        systemPrompt: knowledgeContext.systemPrompt,
+        schema: schemaConfig.responseSchema,
+        schemaName: "copywriting_generation",
+      },
+      safeFallback
+    );
+
+    return sendAISuccess(req, res, {
+      ...result,
+      sources: knowledgeContext.sources,
+      contextWarning: knowledgeContext.warning,
+    });
+  } catch (error) {
+    return sendAIError(req, res, error, "Erro na geração de copywriting");
+  }
+});
+
+app.post(["/api/ai/analyze-asset", "/api/gemini/analyze-asset"], async (req, res) => {
+  try {
+    const { title, imageBase64, objective, customInstructions, engineMode, knowledgeSources } = req.body || {};
+
+    const assetTitle = String(title || "Ativo Visual").trim();
+    const dataUri = String(imageBase64 || "");
+
+    const fallback = () => ({
+      assetTitle,
+      visualSummary: "Ativo visual registrado para curadoria. Sem visão computacional ativada, a peça permanece PENDENTE.",
+      detectedElements: ["Imagem estática"],
+      suggestedAngles: ["Divulgação geral", "Post institucional"],
+      potentialHooks: [`Confira os detalhes de ${assetTitle}`],
+      recommendedChannels: ["Instagram Feed", "WhatsApp", "Stories"],
+      hypotheses: ["O layout pode performar bem em formatos verticais."],
+      epistemicStatus: "PENDENTE"
+    });
+
+    if (engineMode === "local" || !dataUri) {
+      return sendAISuccess(req, res, {
+        data: fallback(),
+        usedModel: "local-asset-analyzer",
+        usedProvider: "gemini",
+        wasFallback: false,
+      });
+    }
+
+    const match = dataUri.match(/^data:(image\/[a-zA-Z0-9.+-]+);base64,(.+)$/);
+    if (!match) {
+      return sendAISuccess(req, res, {
+        data: fallback(),
+        usedModel: "invalid-image-uri",
+        usedProvider: "gemini",
+        wasFallback: false,
+      });
+    }
+
+    const businessPrompt = `Analise este ativo visual publicitário / de marketing.
+Identifique SOMENTE elementos visuais estritamente visíveis (cores, composição, tipografia, objetos, estética).
+Cruze a análise com o conhecimento da marca presente no Vault para sugerir ângulos de conteúdo, ganchos e canais adequados.
+${objective ? `Objetivo desejado: ${objective}` : ''}
+${customInstructions ? `Instruções: ${customInstructions}` : ''}
+
+Retorne JSON estruturado com:
+- assetTitle
+- visualSummary
+- detectedElements (array)
+- suggestedAngles (array)
+- potentialHooks (array)
+- recommendedChannels (array)
+- hypotheses (array)
+- epistemicStatus ("CONFIRMADO" | "HIPÓTESE" | "PENDENTE")`;
+
+    const knowledgeContext = buildKnowledgeContextPrompt(businessPrompt, knowledgeSources);
+
+    const schemaConfig = {
+      responseSchema: {
+        type: "object",
+        properties: {
+          assetTitle: { type: "string" },
+          visualSummary: { type: "string" },
+          detectedElements: { type: "array", items: { type: "string" } },
+          suggestedAngles: { type: "array", items: { type: "string" } },
+          potentialHooks: { type: "array", items: { type: "string" } },
+          recommendedChannels: { type: "array", items: { type: "string" } },
+          hypotheses: { type: "array", items: { type: "string" } },
+          epistemicStatus: { type: "string" }
+        },
+        required: ["assetTitle", "visualSummary", "detectedElements", "suggestedAngles", "potentialHooks", "recommendedChannels", "hypotheses", "epistemicStatus"]
+      }
+    };
+
+    const result = await executeAIWithFallback(
+      req,
+      {
+        prompt: `${knowledgeContext.prompt}\nTítulo: ${assetTitle}`,
+        systemPrompt: knowledgeContext.systemPrompt,
+        schema: schemaConfig.responseSchema,
+        schemaName: "asset_analysis",
+        attachments: [{ mimeType: match[1], data: match[2], fileName: assetTitle }],
+      },
+      fallback,
+      "analyzeDocument"
+    );
+
+    return sendAISuccess(req, res, {
+      ...result,
+      sources: knowledgeContext.sources,
+      contextWarning: knowledgeContext.warning,
+    });
+  } catch (error) {
+    return sendAIError(req, res, error, "Erro na análise do ativo criativo");
+  }
+});
+
+app.post(["/api/ai/synthesize-learnings", "/api/gemini/synthesize-learnings"], async (req, res) => {
+  try {
+    const {
+      postHistory = [],
+      existingLearnings = [],
+      knowledgeSources = [],
+      customFocus = "",
+      engineMode = "hybrid",
+    } = req.body || {};
+
+    const fallback = () => {
+      const confirmedCount = Array.isArray(existingLearnings)
+        ? existingLearnings.filter((l: any) => l.verdict === "CONFIRMADO").length
+        : 0;
+      return {
+        executiveSummary: `Análise consolidada baseada em ${Array.isArray(postHistory) ? postHistory.length : 0} publicações e ${Array.isArray(existingLearnings) ? existingLearnings.length : 0} aprendizados registrados.`,
+        strengthsAndWins: [
+          "Formatos com métricas completas de conversão demonstram previsibilidade superior.",
+          "Canais ativos mantêm consistência na entrega de resultados de alcance.",
+        ],
+        weaknessesAndRisks: [
+          "Necessidade de reforçar o registro sistemático de CTR e taxa de conversão em todos os canais.",
+        ],
+        validatedRules: [
+          {
+            title: "Consistência de formato e proposta de valor",
+            category: "formato",
+            verdict: "CONFIRMADO",
+            ruleOfThumb: "Mantenha a frequência semanal nos formatos de maior engajamento comprovado.",
+            evidenceData: `${postHistory.length} publicações registradas no histórico recente.`,
+            suggestedAction: "Incorporar regra no briefing do próximo ciclo editorial.",
+          }
+        ],
+        hypothesesToTest: [
+          "Carrosséis educativos com estudo de caso superam posts estáticos em taxa de cliques.",
+          "Publicações com chamada para ação direta no início geram mais conversões no direct/WhatsApp."
+        ],
+        nextCyclePriorities: [
+          "Priorizar canais com maior retorno comprovado em conversão.",
+          "Validar hipóteses pendentes com testes A/B estruturados."
+        ],
+        epistemicStatus: "CONFIRMADO"
+      };
+    };
+
+    if (engineMode === "local" || !Array.isArray(postHistory) || postHistory.length === 0) {
+      return sendAISuccess(req, res, {
+        data: fallback(),
+        usedModel: "local-learning-synthesizer",
+        usedProvider: "gemini",
+        wasFallback: false,
+      });
+    }
+
+    const businessPrompt = `Você é o Diretor Epistêmico de Inteligência de Marketing da Nisti Print Solutions.
+Analise os dados reais de publicações e o histórico de aprendizados para sintetizar um diagnóstico de performance com aprendizado em loop.
+
+DADOS DE RESULTADOS (${postHistory.length} itens):
+${JSON.stringify(postHistory.slice(0, 30), null, 2)}
+
+APRENDIZADOS ATUAIS (${existingLearnings.length} itens):
+${JSON.stringify(existingLearnings, null, 2)}
+
+${customFocus ? `FOCO ESPECÍFICO: ${customFocus}` : ""}
+
+DIRETRIZES EPISTÊMICAS ESTRITAS:
+- NÃO invente dados nem métricas inexistentes. Se um canal não tiver dados de conversão, destaque a ausência de medição.
+- Identifique regras práticas comprovadas (CONFIRMADO) baseadas em correlações reais nos dados.
+- Proponha novas hipóteses claras para validação no próximo ciclo.
+
+Retorne JSON estruturado com:
+- executiveSummary (resumo executivo do ciclo)
+- strengthsAndWins (array de pontos fortes comprovados)
+- weaknessesAndRisks (array de pontos fracos/gargalos observados)
+- validatedRules (array de objetos com { title, category: "formato"|"canal"|"copy"|"oferta"|"audiência", verdict: "CONFIRMADO"|"REFUTADO"|"EM_TESTE", ruleOfThumb, evidenceData, suggestedAction })
+- hypothesesToTest (array de hipóteses claras para o próximo ciclo)
+- nextCyclePriorities (array de prioridades de execução)
+- epistemicStatus ("CONFIRMADO" | "HIPÓTESE" | "PENDENTE")`;
+
+    const knowledgeContext = buildKnowledgeContextPrompt(businessPrompt, knowledgeSources);
+
+    const schemaConfig = {
+      responseSchema: {
+        type: "object",
+        properties: {
+          executiveSummary: { type: "string" },
+          strengthsAndWins: { type: "array", items: { type: "string" } },
+          weaknessesAndRisks: { type: "array", items: { type: "string" } },
+          validatedRules: {
+            type: "array",
+            items: {
+              type: "object",
+              properties: {
+                title: { type: "string" },
+                category: { type: "string" },
+                verdict: { type: "string" },
+                ruleOfThumb: { type: "string" },
+                evidenceData: { type: "string" },
+                suggestedAction: { type: "string" }
+              },
+              required: ["title", "category", "verdict", "ruleOfThumb", "evidenceData", "suggestedAction"]
+            }
+          },
+          hypothesesToTest: { type: "array", items: { type: "string" } },
+          nextCyclePriorities: { type: "array", items: { type: "string" } },
+          epistemicStatus: { type: "string" }
+        },
+        required: [
+          "executiveSummary",
+          "strengthsAndWins",
+          "weaknessesAndRisks",
+          "validatedRules",
+          "hypothesesToTest",
+          "nextCyclePriorities",
+          "epistemicStatus"
+        ]
+      }
+    };
+
+    const result = await executeAIWithFallback(
+      req,
+      {
+        prompt: `${knowledgeContext.prompt}`,
+        systemPrompt: knowledgeContext.systemPrompt,
+        schema: schemaConfig.responseSchema,
+        schemaName: "learning_synthesis",
+      },
+      fallback,
+      "analyzeDocument"
+    );
+
+    return sendAISuccess(req, res, {
+      ...result,
+      sources: knowledgeContext.sources,
+      contextWarning: knowledgeContext.warning,
+    });
+  } catch (error) {
+    return sendAIError(req, res, error, "Erro na síntese de aprendizados");
+  }
+});
+
 
 app.post("/api/obsidian/test-connection", async (req, res) => {
   const { endpoint = "http://127.0.0.1:27124", apiKey } = req.body || {};

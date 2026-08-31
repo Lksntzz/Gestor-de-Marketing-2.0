@@ -294,8 +294,8 @@ export interface PostHistoryItem {
 export interface LearningInsight {
   id: string;
   title: string;
-  category: "formato" | "horario" | "nicho" | "emocao" | "copywriting";
-  verdict: "VENCEDOR" | "ALTO_IMPACTO" | "A_EVITAR" | "EM_TESTE";
+  category: "formato" | "horario" | "nicho" | "emocao" | "copywriting" | "canal" | "oferta" | "audiência";
+  verdict: "VENCEDOR" | "ALTO_IMPACTO" | "A_EVITAR" | "EM_TESTE" | "CONFIRMADO" | "REFUTADO";
   ruleOfThumb: string;
   evidenceData: string;
   suggestedAction: string;
@@ -386,6 +386,8 @@ declare global {
       getVaultPath: () => Promise<string | null>;
       setObsidianConnectionState: (connected: boolean) => Promise<{ success: boolean; connected: boolean }>;
       listVaultFolders: () => Promise<string[]>;
+      auditVault?: () => Promise<any>;
+      repairVault?: () => Promise<any>;
       readNotes: () => Promise<any[]>;
       queryKnowledge: (query: string, preferredPaths?: string[]) => Promise<any>;
       commitKnowledge: (payload: {
@@ -413,6 +415,12 @@ declare global {
       getSecret: (name: string) => Promise<string>;
       deleteSecret: (name: string) => Promise<{ success: boolean }>;
       setAIConfig: (config: { provider: "gemini" | "openai"; model?: string }) => Promise<{ success: boolean }>;
+      setAIConnectionCredential?: (credential: string) => Promise<{ success: boolean; changed?: boolean }>;
+      clearAIConnectionCredential?: () => Promise<{ success: boolean }>;
+      getAIConnectionState?: () => Promise<any>;
+      resetAIConnectionState?: () => Promise<any>;
+      confirmAIProvider?: (provider: "gemini" | "openai") => Promise<any>;
+      validateAIModel?: (provider: "gemini" | "openai", model: string) => Promise<any>;
       getSystemStatus: () => Promise<any>;
       editorialList: () => Promise<EditorialItem[]>;
       editorialUpsert: (item: EditorialItem) => Promise<{ success: boolean }>;

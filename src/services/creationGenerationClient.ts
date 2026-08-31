@@ -153,4 +153,64 @@ export const creationGenerationClient = {
       ...knowledge,
     });
   },
+
+  async generateCopywriting(payload: {
+    title: string;
+    format: string;
+    channel: string;
+    objective: string;
+    framework?: string;
+    targetAudience?: string;
+    tone?: string;
+    customInstructions?: string;
+    knowledgeNotes: ObsidianNote[];
+  }): Promise<any> {
+    const query = [
+      "copywriting redação texto",
+      payload.title,
+      payload.objective,
+      payload.format,
+      payload.channel,
+      payload.targetAudience || "",
+      payload.customInstructions || "",
+    ].filter(Boolean).join(" ");
+    const knowledge = await selectKnowledge(payload.knowledgeNotes, query);
+
+    return await postCreation("/api/ai/generate-copywriting", {
+      title: payload.title,
+      format: payload.format,
+      channel: payload.channel,
+      objective: payload.objective,
+      framework: payload.framework || "DIRECT_RESPONSE",
+      targetAudience: payload.targetAudience || "",
+      tone: payload.tone || "",
+      customInstructions: payload.customInstructions || "",
+      ...knowledge,
+    });
+  },
+
+  async analyzeCreativeAsset(payload: {
+    title: string;
+    imageBase64: string;
+    objective?: string;
+    customInstructions?: string;
+    knowledgeNotes: ObsidianNote[];
+  }): Promise<any> {
+    const query = [
+      "ativo visual imagem análise",
+      payload.title,
+      payload.objective || "",
+      payload.customInstructions || "",
+    ].filter(Boolean).join(" ");
+    const knowledge = await selectKnowledge(payload.knowledgeNotes, query);
+
+    return await postCreation("/api/ai/analyze-asset", {
+      title: payload.title,
+      imageBase64: payload.imageBase64,
+      objective: payload.objective || "",
+      customInstructions: payload.customInstructions || "",
+      ...knowledge,
+    });
+  },
 };
+

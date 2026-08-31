@@ -7,6 +7,8 @@ contextBridge.exposeInMainWorld("electronAPI", {
   getVaultPath: () => ipcRenderer.invoke("vault:get-path"),
   setObsidianConnectionState: (connected: boolean) => ipcRenderer.invoke("vault:connection-state", connected),
   listVaultFolders: () => ipcRenderer.invoke("vault:list-folders"),
+  auditVault: () => ipcRenderer.invoke("vault:audit"),
+  repairVault: () => ipcRenderer.invoke("vault:repair"),
 
   readNotes: () => ipcRenderer.invoke("notes:read-all"),
   queryKnowledge: (query: string, preferredPaths?: string[]) => ipcRenderer.invoke("knowledge:query", query, preferredPaths),

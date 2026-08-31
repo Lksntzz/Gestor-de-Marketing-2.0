@@ -14,6 +14,7 @@ import {
   validateAIConnectionModel,
 } from "./src/electron/ai/registerAIConnectionRuntimeIpc";
 import { assertTrustedIpcSender } from "./src/electron/security/trustedRenderer";
+import { registerVaultIpcHandlers } from "./src/electron/knowledge/registerVaultIpc";
 
 const STABLE_USER_DATA_NAME = "Nisti Print PKM Marketing Hub";
 const stableUserDataPath = path.join(app.getPath("appData"), STABLE_USER_DATA_NAME);
@@ -171,6 +172,9 @@ ipcMain.handle("ai-connection:validate-model", async (event, input: unknown) => 
   assertTrustedIpcSender(event);
   return validateAIConnectionModel(input);
 });
+
+// Register Vault and Notes direct filesystem IPC handlers
+registerVaultIpcHandlers(ipcMain);
 
 async function reserveEphemeralPort(): Promise<number> {
   return new Promise((resolve, reject) => {

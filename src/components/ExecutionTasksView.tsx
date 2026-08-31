@@ -11,6 +11,7 @@ import {
   Loader2,
   Play,
   Plus,
+  RefreshCw,
   Search,
   Trash2,
 } from "lucide-react";
@@ -47,6 +48,7 @@ interface ExecutionTasksViewProps {
   onOpenNewTaskModal: () => void;
   onPublishEditorialTask?: (taskId: string) => Promise<void>;
   onOpenPlanning?: () => void;
+  onExtractTasksFromVault?: () => Promise<number | void>;
   apiConfig: ObsidianApiConfig;
 }
 
@@ -87,12 +89,15 @@ export const ExecutionTasksView: React.FC<ExecutionTasksViewProps> = ({
   onOpenNewTaskModal,
   onPublishEditorialTask,
   onOpenPlanning,
+  onExtractTasksFromVault,
   apiConfig,
 }) => {
   const [filterMode, setFilterMode] = useState<FilterMode>("all");
   const [searchQuery, setSearchQuery] = useState("");
   const [selectedTaskId, setSelectedTaskId] = useState<string | null>(null);
   const [publishingTaskId, setPublishingTaskId] = useState<string | null>(null);
+  const [isSyncingVault, setIsSyncingVault] = useState(false);
+  const [syncNotice, setSyncNotice] = useState<string | null>(null);
   const [actionError, setActionError] = useState("");
 
   const now = new Date();
@@ -289,15 +294,53 @@ export const ExecutionTasksView: React.FC<ExecutionTasksViewProps> = ({
           )}
         </div>
 
-        <button
-          type="button"
-          onClick={onOpenNewTaskModal}
-          className="px-4 py-2.5 rounded-xl bg-primary-container text-white text-xs font-bold flex items-center justify-center gap-1.5"
-        >
-          <Plus className="w-3.5 h-3.5" />
-          Nova tarefa
-        </button>
+        <div className="flex flex-wrap items-center gap-2">
+          {onExtractTasksFromVault && (
+            <button
+              type="button"
+              disabled={isSyncingVault || !isConnected}
+              onClick={async () => {
+                setIsSyncingVault(true);
+                setSyncNotice(null);
+                try {
+                  const count = await onExtractTasksFromVault();
+                  setSyncNotice(
+                    typeof count === "number" && count > 0
+                      ? `${count} nova(s) tarefa(s) extraída(s) das notas do Vault!`
+                      : "Todas as tarefas do Vault já estão sincronizadas."
+                  );
+                  setTimeout(() => setSyncNotice(null), 3500);
+                } catch (e: any) {
+                  setSyncNotice(e?.message || "Erro ao sincronizar tarefas do Vault.");
+                  setTimeout(() => setSyncNotice(null), 4000);
+                } finally {
+                  setIsSyncingVault(false);
+                }
+              }}
+              className="px-3.5 py-2.5 rounded-xl border border-outline-border bg-surface-card hover:bg-surface-elevated text-text-primary text-xs font-semibold flex items-center justify-center gap-1.5 transition-colors disabled:opacity-50"
+              title="Varre todas as notas do Vault em busca de tarefas no padrão '- [ ] ...'"
+            >
+              {isSyncingVault ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <RefreshCw className="w-3.5 h-3.5" />}
+              {isSyncingVault ? "Extraindo..." : "Extrair do Vault"}
+            </button>
+          )}
+
+          <button
+            type="button"
+            onClick={onOpenNewTaskModal}
+            className="px-4 py-2.5 rounded-xl bg-primary-container text-white text-xs font-bold flex items-center justify-center gap-1.5"
+          >
+            <Plus className="w-3.5 h-3.5" />
+            Nova tarefa
+          </button>
+        </div>
       </header>
+
+      {syncNotice && (
+        <div className="rounded-xl border border-primary-container/30 bg-primary-container/10 px-4 py-2.5 text-xs text-primary-fixed-dim shrink-0">
+          {syncNotice}
+        </div>
+      )}
 
       <section className="grid grid-cols-2 lg:grid-cols-4 gap-3 shrink-0">
         <button type="button" onClick={() => setFilterMode("overdue")} className="rounded-xl border border-outline-border bg-surface-card p-3.5 text-left">

@@ -553,6 +553,20 @@ export class StorageManager implements IStorageService {
   public async loadAIRequestConfig(
     defaultConfig: ObsidianApiConfig
   ): Promise<{ provider: "gemini" | "openai"; model: string; apiKey: string }> {
+    if (this.isDesktopRuntime() && window.electronAPI?.getAIConnectionState) {
+      try {
+        const runtime = await window.electronAPI.getAIConnectionState();
+        if (runtime?.state) {
+          const state = runtime.state;
+          const provider = (state.provider || state.providerCandidate || defaultConfig.aiProvider || "gemini") as "gemini" | "openai";
+          const model = String(state.model || state.modelCandidate || defaultConfig.aiModel || "").trim();
+          return { provider, model, apiKey: "" };
+        }
+      } catch (err) {
+        console.warn("Could not query AI connection state from trusted runtime:", err);
+      }
+    }
+
     if (localStorage.getItem("obsidian_api_config")) {
       const migratedConfig = await this.loadApiConfig(defaultConfig);
       const provider = migratedConfig.aiProvider === "openai" ? "openai" : "gemini";

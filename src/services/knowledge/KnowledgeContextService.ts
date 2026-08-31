@@ -1,4 +1,5 @@
 import type { ObsidianNote } from "../../types";
+import { evaluateEpistemicWeight } from "./EpistemicClassifier";
 
 export type EpistemicStatus = "CONFIRMADO" | "HIPÓTESE" | "PENDENTE";
 
@@ -114,6 +115,11 @@ function relevanceScore(note: ObsidianNote, query: string, preferredPaths: Set<s
 
   const phrase = normalized(query).trim();
   if (phrase.length >= 4 && normalized(note.title).includes(phrase)) score += 8;
+
+  // Apply Epistemic Weight
+  const epistemic = evaluateEpistemicWeight(note.folder || note.path, note.frontmatter?.status, note.frontmatter?.epistemic_status);
+  score = Math.round(score * epistemic.weightMultiplier);
+
   return score;
 }
 
@@ -135,11 +141,12 @@ export function relativeVaultPath(input: unknown): string {
 }
 
 export function epistemicStatusOf(note: ObsidianNote): EpistemicStatus {
-  const explicit = normalized(note.frontmatter?.epistemic_status).toUpperCase();
-  if (explicit === "CONFIRMADO" || explicit === "HIPOTESE" || explicit === "PENDENTE") {
-    return explicit === "HIPOTESE" ? "HIPÓTESE" : explicit as EpistemicStatus;
-  }
-  return normalized(note.frontmatter?.status).toUpperCase() === "OFICIAL" ? "CONFIRMADO" : "PENDENTE";
+  const epistemic = evaluateEpistemicWeight(
+    note.folder || note.path,
+    note.frontmatter?.status,
+    note.frontmatter?.epistemic_status
+  );
+  return epistemic.normalizedEpistemicStatus;
 }
 
 export function sanitizeKnowledgeContent(input: unknown): string {

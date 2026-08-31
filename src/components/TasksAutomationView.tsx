@@ -18,6 +18,7 @@ interface TasksAutomationViewProps {
   onOpenNewTaskModal: () => void;
   onPublishEditorialTask?: (taskId: string) => Promise<void>;
   onOpenPlanning?: () => void;
+  onExtractTasksFromVault?: () => Promise<number | void>;
   onToggleRule: (ruleId: string) => void;
   onRunRuleNow: (ruleId: string) => void;
   onSyncDailyNote: () => void;
@@ -43,6 +44,7 @@ export const TasksAutomationView: React.FC<TasksAutomationViewProps> = ({
   onOpenNewTaskModal,
   onPublishEditorialTask,
   onOpenPlanning,
+  onExtractTasksFromVault,
   apiConfig,
   initialSection = "tasks",
 }) => {
@@ -81,6 +83,7 @@ export const TasksAutomationView: React.FC<TasksAutomationViewProps> = ({
       onOpenNewTaskModal={onOpenNewTaskModal}
       onPublishEditorialTask={publishEditorialTask}
       onOpenPlanning={onOpenPlanning}
+      onExtractTasksFromVault={onExtractTasksFromVault}
       apiConfig={apiConfig}
     />
   );

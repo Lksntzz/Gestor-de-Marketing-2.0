@@ -1,6 +1,7 @@
-import React, { useMemo, useState } from "react";
+import React, { useEffect, useMemo, useState } from "react";
 import {
   AlertTriangle,
+  Calendar,
   CheckCircle2,
   FileText,
   Layers,
@@ -13,6 +14,7 @@ import {
   X,
 } from "lucide-react";
 import type {
+  EditorialItem,
   EngineMode,
   MarketingCampaign,
   MarketingTask,
@@ -30,6 +32,7 @@ import {
   type GroundedCampaign,
   normalizeSuggestedTasks,
 } from "../utils/resultsIntelligence";
+import { CampaignExecutionHub } from "./CampaignExecutionHub";
 
 interface CampaignsViewProps {
   campaigns: MarketingCampaign[];
@@ -76,10 +79,26 @@ export const CampaignsView: React.FC<CampaignsViewProps> = ({
 
   const liveCampaigns = campaignStore as GroundedCampaign[];
   const [selectedCampaignId, setSelectedCampaignId] = useState<string | null>(campaigns[0]?.id || null);
+  const [activeSubTab, setActiveSubTab] = useState<"strategy" | "execution">("strategy");
+  const [editorialItems, setEditorialItems] = useState<EditorialItem[]>([]);
   const [isBriefingOpen, setIsBriefingOpen] = useState(false);
   const [isGenerating, setIsGenerating] = useState(false);
   const [savingCampaignId, setSavingCampaignId] = useState<string | null>(null);
   const [notice, setNotice] = useState<{ type: "success" | "warning" | "info"; text: string } | null>(null);
+
+  useEffect(() => {
+    async function loadEditorial() {
+      if (window.electronAPI?.editorialList) {
+        try {
+          const list = await window.electronAPI.editorialList();
+          if (Array.isArray(list)) setEditorialItems(list);
+        } catch (e) {
+          console.error("Failed to load editorial list:", e);
+        }
+      }
+    }
+    void loadEditorial();
+  }, []);
 
   const [campaignName, setCampaignName] = useState("");
   const [objective, setObjective] = useState("");
@@ -339,22 +358,51 @@ export const CampaignsView: React.FC<CampaignsViewProps> = ({
     <div className="flex h-full min-h-0 w-full flex-col gap-4 font-sans">
       <header className="flex shrink-0 flex-col gap-3 border-b border-outline-border pb-4 xl:flex-row xl:items-center xl:justify-between">
         <div>
-          <p className="text-[11px] font-bold uppercase tracking-[0.2em] text-pink-400">Planejamento estratégico</p>
+          <p className="text-[11px] font-bold uppercase tracking-[0.2em] text-pink-400">Planejamento estratégico & Execução</p>
           <h1 className="mt-1 text-2xl font-black tracking-tight text-text-primary">Campanhas</h1>
           <p className="mt-1 max-w-3xl text-xs text-text-secondary">
-            Agrupe objetivo, público, canais e fontes em um rascunho estratégico. Gerar não significa aprovar, agendar, salvar no Vault ou criar tarefas.
+            Agrupe objetivo, público, canais, peças e tarefas operacionais com rastreamento integral da execução.
           </p>
         </div>
-        <button
-          type="button"
-          onClick={() => {
-            setNotice(null);
-            setIsBriefingOpen(true);
-          }}
-          className="inline-flex items-center gap-2 rounded-xl bg-pink-600 px-4 py-2.5 text-xs font-black text-white hover:bg-pink-500 self-start xl:self-auto"
-        >
-          <Plus className="h-4 w-4" /> Nova campanha
-        </button>
+
+        <div className="flex flex-wrap items-center gap-3">
+          {/* Subtab Switcher */}
+          <div className="flex p-1 bg-surface-container-low border border-outline-border rounded-xl">
+            <button
+              type="button"
+              onClick={() => setActiveSubTab("strategy")}
+              className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-colors ${
+                activeSubTab === "strategy"
+                  ? "bg-pink-600 text-white shadow"
+                  : "text-text-secondary hover:text-text-primary"
+              }`}
+            >
+              Estratégia & Briefing
+            </button>
+            <button
+              type="button"
+              onClick={() => setActiveSubTab("execution")}
+              className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-colors ${
+                activeSubTab === "execution"
+                  ? "bg-pink-600 text-white shadow"
+                  : "text-text-secondary hover:text-text-primary"
+              }`}
+            >
+              Execução & Rastreamento
+            </button>
+          </div>
+
+          <button
+            type="button"
+            onClick={() => {
+              setNotice(null);
+              setIsBriefingOpen(true);
+            }}
+            className="inline-flex items-center gap-2 rounded-xl bg-pink-600 px-4 py-2.5 text-xs font-black text-white hover:bg-pink-500 self-start xl:self-auto"
+          >
+            <Plus className="h-4 w-4" /> Nova campanha
+          </button>
+        </div>
       </header>
 
       {notice && (
@@ -369,6 +417,21 @@ export const CampaignsView: React.FC<CampaignsViewProps> = ({
         </div>
       )}
 
+      {activeSubTab === "execution" ? (
+        <div className="min-h-0 flex-1 overflow-y-auto pr-1">
+          <CampaignExecutionHub
+            campaigns={liveCampaigns}
+            editorialItems={editorialItems}
+            tasks={taskStore}
+            notes={notes}
+            onSaveCampaignToVault={async ({ title, folder, content }) => {
+              if (window.electronAPI?.commitKnowledge) {
+                await window.electronAPI.commitKnowledge({ title, folder, content });
+              }
+            }}
+          />
+        </div>
+      ) : (
       <div className="grid min-h-0 flex-1 grid-cols-1 gap-4 xl:grid-cols-12">
         <section className="xl:col-span-4 min-h-0 rounded-2xl border border-outline-border bg-surface-card p-4 flex flex-col">
           <div className="mb-3 flex items-center justify-between gap-3">
@@ -443,6 +506,7 @@ export const CampaignsView: React.FC<CampaignsViewProps> = ({
           )}
         </section>
       </div>
+      )}
 
       {isBriefingOpen && (
         <div className="fixed inset-0 z-50 bg-black/75 backdrop-blur-sm flex items-center justify-center p-4">

@@ -52,6 +52,7 @@ import { APP_STATE_KEYS, StorageManager } from "./services/storage/StorageManage
 import { usePersistentState, usePersistentTextState } from "./hooks/usePersistentState";
 import { AppStateSchemas, parseWorkspaceImport } from "./domain/appStateSchemas";
 import { assessBaseReadiness } from "./domain/baseOnboarding";
+import { extractAllTasksFromNotes } from "./domain/taskExtractor";
 import { formatToObsidianTask } from "./utils/obsidianUri";
 import {
   PLANNING_SUBNAVIGATION,
@@ -600,6 +601,30 @@ export default function App() {
     } finally {
       setIsExtractingTasks(false);
     }
+  };
+
+  const handleExtractTasksFromVault = async (): Promise<number> => {
+    const extracted = extractAllTasksFromNotes(notes);
+    if (extracted.length === 0) return 0;
+
+    let addedCount = 0;
+    setTasks((current) => {
+      const existingSignatures = new Set(
+        current.map((t) => `${t.title.trim().toLowerCase()}::${t.obsidianFilePath || ""}`)
+      );
+
+      const toAdd = extracted.filter((t) => {
+        const sig = `${t.title.trim().toLowerCase()}::${t.obsidianFilePath || ""}`;
+        if (existingSignatures.has(sig)) return false;
+        existingSignatures.add(sig);
+        addedCount++;
+        return true;
+      });
+
+      return toAdd.length > 0 ? [...toAdd, ...current] : current;
+    });
+
+    return addedCount;
   };
 
   const handlePushNoteToObsidianApi = async (note: ObsidianNote) => {
@@ -1413,6 +1438,7 @@ export default function App() {
               onUpdateTask={handleUpdateTask}
               onDeleteTask={handleDeleteTask}
               onOpenNewTaskModal={() => setIsTaskModalOpen(true)}
+              onExtractTasksFromVault={handleExtractTasksFromVault}
               onToggleRule={handleToggleRule}
               onRunRuleNow={handleRunRuleNow}
               onSyncDailyNote={handleSyncDailyNote}
@@ -1473,6 +1499,14 @@ export default function App() {
                   id: `learn-${Date.now()}`,
                 };
                 setLearnings((prev) => [fullLearning, ...prev]);
+              }}
+              onUpdateLearning={(learningId, updated) => {
+                setLearnings((prev) =>
+                  prev.map((l) => (l.id === learningId ? { ...l, ...updated } : l))
+                );
+              }}
+              onDeleteLearning={(learningId) => {
+                setLearnings((prev) => prev.filter((l) => l.id !== learningId));
               }}
               onUpdateRoutineSlot={(slotId, updated) => {
                 setWeeklyRoutine((prev) =>

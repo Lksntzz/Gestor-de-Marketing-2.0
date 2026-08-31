@@ -11,10 +11,14 @@ import {
   Loader2,
   Save,
   Sparkles,
+  PenTool,
+  Image as ImageIcon,
 } from "lucide-react";
 import type { CreativeScript, EditorialItem, IdeaItem, ObsidianNote } from "../types";
 import { creationGenerationClient } from "../services/creationGenerationClient";
 import { storeEditorialPlanningHandoff } from "../services/editorialPlanningHandoff";
+import { CopywritingGenerator } from "./CopywritingGenerator";
+import { CreativeAssetAnalyzer } from "./CreativeAssetAnalyzer";
 import {
   buildCreationBriefingInstructions,
   creationBriefingBaseStatus,
@@ -78,7 +82,8 @@ interface GeneratedScript {
   productionNotes: string;
 }
 
-type CreationStage = "briefing" | "ideas" | "develop";
+type CreationStage = "briefing" | "ideas" | "develop" | "copywriting" | "assets";
+
 
 const LIBRARY_STATUS: Record<CreativeLibraryStatus, { label: string; className: string }> = {
   idea: { label: "Ideia", className: "border-slate-500/25 bg-slate-500/10 text-slate-300" },
@@ -590,10 +595,10 @@ export const ContentView: React.FC<ContentViewProps> = ({
         <div className="mt-4 flex flex-wrap items-center gap-2">
           {([[
             "briefing", "1. Briefing", FileText,
-          ], ["ideas", "2. Ideias", Lightbulb], ["develop", "3. Desenvolver", Film]] as const).map(([id, label, Icon], index) => (
+          ], ["ideas", "2. Ideias", Lightbulb], ["develop", "3. Roteiros", Film], ["copywriting", "4. Copywriting", PenTool], ["assets", "5. Análise de Ativos", ImageIcon]] as const).map(([id, label, Icon], index) => (
             <React.Fragment key={id}>
               {index > 0 && <ArrowRight className="w-4 h-4 text-text-secondary/40" />}
-              <button type="button" onClick={() => goToStage(id)} className={`px-4 py-2 rounded-xl text-xs font-bold flex items-center gap-2 border ${stage === id ? "border-pink-500/40 bg-pink-500/10 text-pink-300" : "border-outline-border text-text-secondary"}`}>
+              <button type="button" onClick={() => goToStage(id)} className={`px-4 py-2 rounded-xl text-xs font-bold flex items-center gap-2 border ${stage === id ? "border-pink-500/40 bg-pink-500/10 text-pink-300" : "border-outline-border text-text-secondary hover:text-text-primary"}`}>
                 <Icon className="w-4 h-4" /> {label}
               </button>
             </React.Fragment>
@@ -724,7 +729,26 @@ export const ContentView: React.FC<ContentViewProps> = ({
             </section>
           </div>
         )}
+
+        {stage === "copywriting" && (
+          <CopywritingGenerator
+            notes={notes}
+            onSaveToVault={onSaveToVault}
+            engineMode={engineMode}
+            defaultChannel={normalizedBriefing.channel || "Instagram Feed / Carrossel"}
+            defaultObjective={normalizedBriefing.objective || "Educar e Construir Autoridade"}
+          />
+        )}
+
+        {stage === "assets" && (
+          <CreativeAssetAnalyzer
+            notes={notes}
+            onSaveToVault={onSaveToVault}
+            engineMode={engineMode}
+          />
+        )}
       </div>
     </div>
   );
 };
+

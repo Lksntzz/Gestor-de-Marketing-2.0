@@ -18,6 +18,15 @@ import {
   UserCheck,
   Sparkles,
   ArrowUpCircle,
+  ShieldCheck,
+  Eye,
+  EyeOff,
+  Cpu,
+  Zap,
+  Check,
+  Lock,
+  Wrench,
+  ShieldAlert,
 } from "lucide-react";
 import { ObsidianApiConfig, UpdateState } from "../types";
 import { api } from "../services/api";
@@ -26,6 +35,13 @@ import {
   downloadWorkspaceBackup,
   restoreWorkspaceBackupText,
 } from "../services/workspaceBackupService";
+import { analyzeAICredentialLocally } from "../domain/aiCredentialAnalysis";
+import {
+  AIConnectionProvider,
+  PersistedAIConnectionState,
+  createEmptyAIConnection,
+} from "../domain/aiConnection";
+import type { DiscoveredAIModel } from "../services/ai/AIConnectionDiscoveryService";
 
 interface ObsidianApiSettingsModalProps {
   isOpen: boolean;
@@ -40,6 +56,19 @@ interface ObsidianApiSettingsModalProps {
 
 type SettingsTab = "ai" | "obsidian" | "drive" | "system";
 
+const FALLBACK_GEMINI_MODELS: DiscoveredAIModel[] = [
+  { id: "gemini-2.5-flash", displayName: "Gemini 2.5 Flash (Recomendado)", supportedActions: ["generateContent"] },
+  { id: "gemini-2.5-pro", displayName: "Gemini 2.5 Pro (Alta Capacidade)", supportedActions: ["generateContent"] },
+  { id: "gemini-1.5-flash", displayName: "Gemini 1.5 Flash", supportedActions: ["generateContent"] },
+  { id: "gemini-1.5-pro", displayName: "Gemini 1.5 Pro", supportedActions: ["generateContent"] },
+];
+
+const FALLBACK_OPENAI_MODELS: DiscoveredAIModel[] = [
+  { id: "gpt-4o-mini", displayName: "GPT-4o Mini (Recomendado)", supportedActions: ["generateContent"] },
+  { id: "gpt-4o", displayName: "GPT-4o", supportedActions: ["generateContent"] },
+  { id: "o3-mini", displayName: "o3-mini", supportedActions: ["generateContent"] },
+];
+
 export const ObsidianApiSettingsModal: React.FC<ObsidianApiSettingsModalProps> = ({
   isOpen,
   onClose,
@@ -51,8 +80,17 @@ export const ObsidianApiSettingsModal: React.FC<ObsidianApiSettingsModalProps> =
   const [activeTab, setActiveTab] = useState<SettingsTab>("ai");
   const [formData, setFormData] = useState<ObsidianApiConfig>({ ...config });
 
-  const [isTestingAi, setIsTestingAi] = useState(false);
-  const [aiTestResult, setAiTestResult] = useState<{ success: boolean; message: string } | null>(null);
+  // Single AI Connection States
+  const [aiKeyInput, setAiKeyInput] = useState("");
+  const [showAiKey, setShowAiKey] = useState(false);
+  const [selectedProviderOverride, setSelectedProviderOverride] = useState<AIConnectionProvider | null>(null);
+  const [aiState, setAiState] = useState<PersistedAIConnectionState>(createEmptyAIConnection());
+  const [discoveredModels, setDiscoveredModels] = useState<DiscoveredAIModel[]>([]);
+  const [selectedModel, setSelectedModel] = useState<string>("");
+  const [isConfirmingProvider, setIsConfirmingProvider] = useState(false);
+  const [isValidatingModel, setIsValidatingModel] = useState(false);
+  const [isDisconnectingAi, setIsDisconnectingAi] = useState(false);
+  const [aiFeedback, setAiFeedback] = useState<{ success: boolean; message: string } | null>(null);
 
   const [isTesting, setIsTesting] = useState(false);
   const [testResult, setTestResult] = useState<{ success: boolean; message: string } | null>(null);
@@ -69,6 +107,21 @@ export const ObsidianApiSettingsModal: React.FC<ObsidianApiSettingsModalProps> =
   const [isCheckingUpdate, setIsCheckingUpdate] = useState(false);
   const [isInstallingUpdate, setIsInstallingUpdate] = useState(false);
 
+  // Vault Audit & Structure State
+  const [isAuditingVault, setIsAuditingVault] = useState(false);
+  const [isRepairingVault, setIsRepairingVault] = useState(false);
+  const [vaultAuditData, setVaultAuditData] = useState<any | null>(null);
+  const [vaultAuditFeedback, setVaultAuditFeedback] = useState<{ success: boolean; message: string } | null>(null);
+
+  // Local key heuristic analysis
+  const keyAnalysis = analyzeAICredentialLocally(aiKeyInput);
+  const activeProvider: AIConnectionProvider =
+    selectedProviderOverride ||
+    keyAnalysis.providerCandidate ||
+    aiState.provider ||
+    formData.aiProvider ||
+    "gemini";
+
   useEffect(() => {
     if (isOpen) {
       const runtimeConnected = api.isObsidianSessionVerified();
@@ -78,11 +131,46 @@ export const ObsidianApiSettingsModal: React.FC<ObsidianApiSettingsModalProps> =
         errorMessage: runtimeConnected ? undefined : config.errorMessage,
       });
       setIsDriveConnected(googleDriveService.isAuthenticated());
-      setAiTestResult(null);
+      setAiFeedback(null);
       setTestResult(null);
       setConfirmClear(false);
       setBackupResult(null);
       setIsBackupBusy(false);
+      setAiKeyInput("");
+      setShowAiKey(false);
+      setSelectedProviderOverride(null);
+
+      // Load AI connection state from trusted runtime if in Electron
+      if (window.electronAPI?.getAIConnectionState) {
+        window.electronAPI.getAIConnectionState().then((res: any) => {
+          if (res?.state) {
+            setAiState(res.state);
+            if (res.state.model) {
+              setSelectedModel(res.state.model);
+            }
+          }
+          if (res?.proposal?.models && Array.isArray(res.proposal.models) && res.proposal.models.length > 0) {
+            setDiscoveredModels(res.proposal.models);
+            if (!res.state?.model && res.proposal.models[0]?.id) {
+              setSelectedModel(res.proposal.models[0].id);
+            }
+          }
+        }).catch((err) => {
+          console.warn("Could not load AI connection runtime state:", err);
+        });
+      } else {
+        // Web fallback initialization
+        if (config.aiProvider) {
+          const isConnected = Boolean(config.geminiApiKey || config.openaiApiKey);
+          setAiState({
+            schemaVersion: 1,
+            status: isConnected ? "CONEXAO_ATIVA" : "SEM_CHAVE",
+            provider: config.aiProvider,
+            model: config.aiModel || (config.aiProvider === "openai" ? "gpt-4o-mini" : "gemini-2.5-flash"),
+          });
+          setSelectedModel(config.aiModel || (config.aiProvider === "openai" ? "gpt-4o-mini" : "gemini-2.5-flash"));
+        }
+      }
 
       if (window.electronAPI?.getUpdateStatus) {
         window.electronAPI.getUpdateStatus().then((st) => {
@@ -105,6 +193,203 @@ export const ObsidianApiSettingsModal: React.FC<ObsidianApiSettingsModalProps> =
     }
   }, [isOpen, config]);
 
+  const handleConfirmProviderAndDiscover = async () => {
+    if (!aiKeyInput.trim() && aiState.status === "SEM_CHAVE") {
+      setAiFeedback({ success: false, message: "Insira a chave da IA antes de continuar." });
+      return;
+    }
+
+    setIsConfirmingProvider(true);
+    setAiFeedback(null);
+
+    try {
+      if (window.electronAPI?.setAIConnectionCredential && window.electronAPI?.confirmAIProvider) {
+        if (aiKeyInput.trim()) {
+          const credRes = await window.electronAPI.setAIConnectionCredential(aiKeyInput.trim());
+          if (!credRes?.success) {
+            throw new Error("Não foi possível gravar a credencial de forma segura.");
+          }
+        }
+
+        const confirmRes = await window.electronAPI.confirmAIProvider(activeProvider);
+        if (confirmRes?.success) {
+          setAiState(confirmRes.state);
+          const models = confirmRes.proposal?.models || [];
+          setDiscoveredModels(models);
+          if (models.length > 0) {
+            const preferred = models.find((m: DiscoveredAIModel) => m.id.includes("flash") || m.id.includes("mini")) || models[0];
+            setSelectedModel(preferred.id);
+          } else {
+            setSelectedModel(activeProvider === "openai" ? "gpt-4o-mini" : "gemini-2.5-flash");
+          }
+          setAiFeedback({
+            success: true,
+            message: `Provedor ${activeProvider === "openai" ? "OpenAI" : "Google Gemini"} confirmado com sucesso! Selecione o modelo abaixo para validar a conexão.`,
+          });
+        } else {
+          setAiFeedback({
+            success: false,
+            message: confirmRes?.message || "Não foi possível confirmar a chave com o provedor.",
+          });
+          if (confirmRes?.state) {
+            setAiState(confirmRes.state);
+          }
+        }
+      } else {
+        // Web mode fallback
+        const result = await api.testAIConnection({
+          provider: activeProvider,
+          apiKey: aiKeyInput.trim() || (activeProvider === "openai" ? formData.openaiApiKey || "" : formData.geminiApiKey || ""),
+          model: selectedModel,
+        });
+
+        if (result.success) {
+          const updatedState: PersistedAIConnectionState = {
+            schemaVersion: 1,
+            status: "CONEXAO_ATIVA",
+            provider: activeProvider,
+            model: selectedModel || (activeProvider === "openai" ? "gpt-4o-mini" : "gemini-2.5-flash"),
+          };
+          setAiState(updatedState);
+          const updatedConfig: ObsidianApiConfig = {
+            ...formData,
+            aiProvider: activeProvider,
+            aiModel: selectedModel,
+            geminiApiKey: activeProvider === "gemini" ? aiKeyInput.trim() : formData.geminiApiKey,
+            openaiApiKey: activeProvider === "openai" ? aiKeyInput.trim() : formData.openaiApiKey,
+          };
+          setFormData(updatedConfig);
+          onSaveConfig(updatedConfig);
+          setAiFeedback({ success: true, message: result.message });
+        } else {
+          setAiFeedback({ success: false, message: result.message });
+        }
+      }
+    } catch (err: any) {
+      setAiFeedback({
+        success: false,
+        message: err?.message || "Erro inesperado ao confirmar o provedor.",
+      });
+    } finally {
+      setIsConfirmingProvider(false);
+    }
+  };
+
+  const handleValidateAndActivateModel = async () => {
+    const modelToValidate = selectedModel.trim();
+    if (!modelToValidate) {
+      setAiFeedback({ success: false, message: "Selecione ou informe um modelo para validação." });
+      return;
+    }
+
+    setIsValidatingModel(true);
+    setAiFeedback(null);
+
+    try {
+      if (window.electronAPI?.validateAIModel) {
+        const valRes = await window.electronAPI.validateAIModel(activeProvider, modelToValidate);
+        if (valRes?.success) {
+          setAiState(valRes.state);
+          const updatedConfig: ObsidianApiConfig = {
+            ...formData,
+            aiProvider: activeProvider,
+            aiModel: valRes.model || modelToValidate,
+          };
+          setFormData(updatedConfig);
+          onSaveConfig(updatedConfig);
+          setAiFeedback({
+            success: true,
+            message: `Conexão ativada e validada com sucesso com ${activeProvider === "openai" ? "OpenAI" : "Google Gemini"} (${valRes.model || modelToValidate})!`,
+          });
+          setAiKeyInput(""); // Clear input field from memory once activated
+        } else {
+          setAiFeedback({
+            success: false,
+            message: valRes?.message || "Falha ao validar o modelo selecionado.",
+          });
+          if (valRes?.state) {
+            setAiState(valRes.state);
+          }
+        }
+      } else {
+        // Web mode fallback
+        const result = await api.testAIConnection({
+          provider: activeProvider,
+          apiKey: aiKeyInput.trim() || (activeProvider === "openai" ? formData.openaiApiKey || "" : formData.geminiApiKey || ""),
+          model: modelToValidate,
+        });
+
+        if (result.success) {
+          const updatedState: PersistedAIConnectionState = {
+            schemaVersion: 1,
+            status: "CONEXAO_ATIVA",
+            provider: activeProvider,
+            model: modelToValidate,
+          };
+          setAiState(updatedState);
+          const updatedConfig: ObsidianApiConfig = {
+            ...formData,
+            aiProvider: activeProvider,
+            aiModel: modelToValidate,
+            geminiApiKey: activeProvider === "gemini" ? (aiKeyInput.trim() || formData.geminiApiKey) : formData.geminiApiKey,
+            openaiApiKey: activeProvider === "openai" ? (aiKeyInput.trim() || formData.openaiApiKey) : formData.openaiApiKey,
+          };
+          setFormData(updatedConfig);
+          onSaveConfig(updatedConfig);
+          setAiFeedback({ success: true, message: result.message });
+        } else {
+          setAiFeedback({ success: false, message: result.message });
+        }
+      }
+    } catch (err: any) {
+      setAiFeedback({
+        success: false,
+        message: err?.message || "Erro inesperado ao validar o modelo.",
+      });
+    } finally {
+      setIsValidatingModel(false);
+    }
+  };
+
+  const handleDisconnectAI = async () => {
+    setIsDisconnectingAi(true);
+    setAiFeedback(null);
+
+    try {
+      if (window.electronAPI?.clearAIConnectionCredential && window.electronAPI?.resetAIConnectionState) {
+        await window.electronAPI.clearAIConnectionCredential();
+        await window.electronAPI.resetAIConnectionState();
+      }
+
+      setAiState(createEmptyAIConnection());
+      setDiscoveredModels([]);
+      setAiKeyInput("");
+      setSelectedModel("");
+      setSelectedProviderOverride(null);
+
+      const clearedConfig: ObsidianApiConfig = {
+        ...formData,
+        aiModel: "",
+        geminiApiKey: "",
+        openaiApiKey: "",
+      };
+      setFormData(clearedConfig);
+      onSaveConfig(clearedConfig);
+
+      setAiFeedback({
+        success: true,
+        message: "Conexão de IA desconectada e credencial apagada do armazenamento seguro.",
+      });
+    } catch (err: any) {
+      setAiFeedback({
+        success: false,
+        message: err?.message || "Não foi possível desconectar a IA completamente.",
+      });
+    } finally {
+      setIsDisconnectingAi(false);
+    }
+  };
+
   const handleCheckForUpdates = async () => {
     if (!window.electronAPI?.checkForUpdates) return;
     setIsCheckingUpdate(true);
@@ -125,6 +410,61 @@ export const ObsidianApiSettingsModal: React.FC<ObsidianApiSettingsModalProps> =
       await window.electronAPI.installUpdate();
     } catch {
       setIsInstallingUpdate(false);
+    }
+  };
+
+  const handleAuditVault = async () => {
+    if (!window.electronAPI?.auditVault) return;
+    setIsAuditingVault(true);
+    setVaultAuditFeedback(null);
+    try {
+      const audit = await window.electronAPI.auditVault();
+      setVaultAuditData(audit);
+      if (audit.isValid) {
+        setVaultAuditFeedback({
+          success: true,
+          message: `Estrutura 100% íntegra! 10 pastas oficiais, templates padronizados e manifesto .nisti/vault-manifest.json confirmados (${audit.totalNotesFound} notas indexadas).`,
+        });
+      } else {
+        const issues = [];
+        if (audit.missingFolders?.length > 0) issues.push(`${audit.missingFolders.length} pastas ausentes`);
+        if (audit.missingTemplates?.length > 0) issues.push(`${audit.missingTemplates.length} templates ausentes`);
+        if (!audit.manifestPresent) issues.push("manifesto ausente");
+        setVaultAuditFeedback({
+          success: false,
+          message: `Inconsistências encontradas: ${issues.join(", ")}. Clique em 'Reparar Estrutura' para regularizar o Vault sem risco aos seus arquivos.`,
+        });
+      }
+    } catch (err: any) {
+      setVaultAuditFeedback({
+        success: false,
+        message: err?.message || "Erro ao auditar o Vault.",
+      });
+    } finally {
+      setIsAuditingVault(false);
+    }
+  };
+
+  const handleRepairVault = async () => {
+    if (!window.electronAPI?.repairVault) return;
+    setIsRepairingVault(true);
+    setVaultAuditFeedback(null);
+    try {
+      const res = await window.electronAPI.repairVault();
+      if (res?.success) {
+        setVaultAuditData(res.audit);
+        setVaultAuditFeedback({
+          success: true,
+          message: `Vault reparado com sucesso! Pastas regularizadas: ${res.repairedFolders?.length || 0}. Templates regularizados: ${res.repairedTemplates?.length || 0}. Manifesto gravado em .nisti/vault-manifest.json.`,
+        });
+      }
+    } catch (err: any) {
+      setVaultAuditFeedback({
+        success: false,
+        message: err?.message || "Erro ao reparar estrutura do Vault.",
+      });
+    } finally {
+      setIsRepairingVault(false);
     }
   };
 
@@ -170,30 +510,6 @@ export const ObsidianApiSettingsModal: React.FC<ObsidianApiSettingsModalProps> =
   };
 
   if (!isOpen) return null;
-
-  const handleTestAI = async () => {
-    setIsTestingAi(true);
-    setAiTestResult(null);
-    try {
-      const provider = formData.aiProvider || "gemini";
-      const apiKey = provider === "openai" ? formData.openaiApiKey || "" : formData.geminiApiKey || "";
-      const result = await api.testAIConnection({ provider, apiKey, model: formData.aiModel });
-      setAiTestResult(result);
-      if (result.success) {
-        onSaveConfig({
-          ...formData,
-          connectionStatus: api.isObsidianSessionVerified() ? "connected" : "disconnected",
-        });
-      }
-    } catch (err: any) {
-      setAiTestResult({
-        success: false,
-        message: err.message || "Erro desconhecido ao testar o provedor de IA.",
-      });
-    } finally {
-      setIsTestingAi(false);
-    }
-  };
 
   const handleTestObsidian = async () => {
     setIsTesting(true);
@@ -268,6 +584,12 @@ export const ObsidianApiSettingsModal: React.FC<ObsidianApiSettingsModalProps> =
     onClose();
   };
 
+  const availableModelsList = discoveredModels.length > 0
+    ? discoveredModels
+    : (activeProvider === "openai" ? FALLBACK_OPENAI_MODELS : FALLBACK_GEMINI_MODELS);
+
+  const isAiActive = aiState.status === "CONEXAO_ATIVA";
+
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-[#0f131c]/80 backdrop-blur-xs">
       <div className="bg-surface-card rounded-2xl border border-outline-border shadow-2xl max-w-xl w-full overflow-hidden flex flex-col max-h-[90vh]">
@@ -339,115 +661,215 @@ export const ObsidianApiSettingsModal: React.FC<ObsidianApiSettingsModalProps> =
           {activeTab === "ai" && (
             <div className="space-y-4 animate-fadeIn">
               <div className="space-y-1.5">
-                <h3 className="text-sm font-bold text-text-primary flex items-center gap-1.5">
-                  <Brain className="w-4 h-4 text-pink-500" />
-                  <span>Configuração da IA</span>
-                </h3>
+                <div className="flex items-center justify-between">
+                  <h3 className="text-sm font-bold text-text-primary flex items-center gap-1.5">
+                    <Brain className="w-4 h-4 text-pink-500" />
+                    <span>Conexão Única com Inteligência Artificial</span>
+                  </h3>
+                  {isAiActive && (
+                    <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[10px] font-bold bg-emerald-500/20 text-emerald-400 border border-emerald-500/30">
+                      <CheckCircle2 className="w-3 h-3" />
+                      Conexão Ativa
+                    </span>
+                  )}
+                </div>
                 <p className="text-xs text-text-secondary leading-normal">
-                  Escolha o provedor e o modelo. O Gemini permanece selecionado por padrão para preservar o comportamento atual.
+                  Insira uma única chave de API. O Nisti reconhece automaticamente o provedor oficial, descobre os modelos e valida a conexão com teste estruturado.
                 </p>
               </div>
 
-              <div className="p-4 bg-pink-500/5 border border-pink-500/30 rounded-xl space-y-3.5">
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                  <div className="space-y-1.5">
-                    <label className="block text-xs font-bold text-text-primary uppercase tracking-wider">Provedor ativo</label>
-                    <select
-                      value={formData.aiProvider || "gemini"}
-                      onChange={(e) => {
-                        const provider = e.target.value as "gemini" | "openai";
-                        setFormData({ ...formData, aiProvider: provider, aiModel: "" });
-                        setAiTestResult(null);
-                      }}
-                      className="w-full px-3 py-2.5 bg-[#0f131c] border border-pink-500/30 rounded-lg text-xs focus:outline-none focus:ring-1 focus:ring-pink-500"
+              {/* Card de Conexão Ativa */}
+              {isAiActive && (
+                <div className="p-4 bg-emerald-500/10 border border-emerald-500/30 rounded-xl space-y-3">
+                  <div className="flex items-start justify-between gap-3">
+                    <div className="flex items-center gap-3">
+                      <div className="w-9 h-9 rounded-lg bg-emerald-500/20 text-emerald-400 flex items-center justify-center border border-emerald-500/30">
+                        <ShieldCheck className="w-5 h-5" />
+                      </div>
+                      <div>
+                        <h4 className="text-xs font-bold text-emerald-300">
+                          {aiState.provider === "openai" ? "OpenAI" : "Google Gemini"} Conectado e Operacional
+                        </h4>
+                        <p className="text-[11px] text-text-secondary font-mono">
+                          Modelo ativo: <span className="text-emerald-400 font-semibold">{aiState.model || "Padrão"}</span>
+                        </p>
+                      </div>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={handleDisconnectAI}
+                      disabled={isDisconnectingAi}
+                      className="px-3 py-1.5 bg-surface-card hover:bg-rose-500/20 text-rose-400 hover:text-rose-300 border border-rose-500/30 rounded-lg text-xs font-medium transition-colors flex items-center gap-1.5 cursor-pointer disabled:opacity-50"
                     >
-                      <option value="gemini">Google Gemini</option>
-                      <option value="openai">OpenAI</option>
-                    </select>
+                      {isDisconnectingAi ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <LogOut className="w-3.5 h-3.5" />}
+                      <span>Desconectar / Trocar</span>
+                    </button>
                   </div>
-                  <div className="space-y-1.5">
-                    <label className="block text-xs font-bold text-text-primary uppercase tracking-wider">Modelo</label>
+                  {aiState.modelConfirmedAt && (
+                    <div className="text-[10px] text-text-secondary pt-1 border-t border-emerald-500/20">
+                      Validado em: {new Date(aiState.modelConfirmedAt).toLocaleString()}
+                    </div>
+                  )}
+                </div>
+              )}
+
+              {/* Card de Configuração / Entrada de Chave */}
+              <div className="p-4 bg-pink-500/5 border border-pink-500/30 rounded-xl space-y-4">
+                {/* Entrada da Chave */}
+                <div className="space-y-2">
+                  <div className="flex items-center justify-between">
+                    <label className="block text-xs font-bold text-text-primary uppercase tracking-wider flex items-center gap-1.5">
+                      <Key className="w-3.5 h-3.5 text-pink-500" />
+                      <span>{isAiActive ? "Substituir Chave da IA" : "Chave da IA (Google Gemini ou OpenAI)"}</span>
+                    </label>
+                    <button
+                      type="button"
+                      onClick={() => setShowAiKey(!showAiKey)}
+                      className="text-[11px] text-text-secondary hover:text-text-primary flex items-center gap-1 cursor-pointer"
+                    >
+                      {showAiKey ? <EyeOff className="w-3.5 h-3.5" /> : <Eye className="w-3.5 h-3.5" />}
+                      <span>{showAiKey ? "Ocultar" : "Mostrar"}</span>
+                    </button>
+                  </div>
+
+                  <div className="relative">
                     <input
-                      type="text"
-                      value={formData.aiModel || ""}
+                      type={showAiKey ? "text" : "password"}
+                      value={aiKeyInput}
                       onChange={(e) => {
-                        setFormData({ ...formData, aiModel: e.target.value });
-                        setAiTestResult(null);
+                        setAiKeyInput(e.target.value);
+                        setAiFeedback(null);
                       }}
-                      className="w-full px-3 py-2.5 bg-[#0f131c] border border-pink-500/30 rounded-lg text-xs font-mono focus:outline-none focus:ring-1 focus:ring-pink-500"
-                      placeholder={(formData.aiProvider || "gemini") === "openai" ? "gpt-5-mini (padrão)" : "gemini-flash-latest (padrão)"}
+                      className="w-full pl-3 pr-10 py-2.5 bg-[#0f131c] border border-pink-500/30 rounded-lg text-xs font-mono focus:outline-none focus:ring-1 focus:ring-pink-500 focus:border-pink-500 transition-shadow"
+                      placeholder={isAiActive ? "Cole nova chave para trocar de IA (AIzaSy... ou sk-...)" : "Cole sua chave de API (AIzaSy... do Gemini ou sk-... da OpenAI)"}
                     />
+                    <div className="absolute right-3 top-1/2 -translate-y-1/2 pointer-events-none text-text-secondary">
+                      <Lock className="w-3.5 h-3.5" />
+                    </div>
                   </div>
+
+                  {/* Detecção Inteligente de Formato */}
+                  {aiKeyInput.trim() && (
+                    <div className="flex items-center justify-between gap-2 p-2 bg-[#0f131c] rounded-lg border border-outline-border text-[11px]">
+                      <div className="flex items-center gap-1.5">
+                        <Zap className="w-3.5 h-3.5 text-pink-500" />
+                        <span className="text-text-secondary">Formato identificado:</span>
+                        <span className="font-bold text-text-primary">
+                          {keyAnalysis.providerCandidate === "gemini"
+                            ? "Google Gemini (AIza...)"
+                            : keyAnalysis.providerCandidate === "openai"
+                            ? "OpenAI (sk-...)"
+                            : "Formato personalizado"}
+                        </span>
+                      </div>
+                      <div className="flex items-center gap-1">
+                        <button
+                          type="button"
+                          onClick={() => setSelectedProviderOverride("gemini")}
+                          className={`px-2 py-0.5 rounded text-[10px] font-bold cursor-pointer transition-colors ${
+                            activeProvider === "gemini" ? "bg-pink-600 text-white" : "text-text-secondary hover:text-text-primary bg-surface-card"
+                          }`}
+                        >
+                          Gemini
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => setSelectedProviderOverride("openai")}
+                          className={`px-2 py-0.5 rounded text-[10px] font-bold cursor-pointer transition-colors ${
+                            activeProvider === "openai" ? "bg-pink-600 text-white" : "text-text-secondary hover:text-text-primary bg-surface-card"
+                          }`}
+                        >
+                          OpenAI
+                        </button>
+                      </div>
+                    </div>
+                  )}
                 </div>
 
-                <div className="space-y-1.5">
-                  <label className="block text-xs font-bold text-text-primary uppercase tracking-wider flex items-center gap-1.5">
-                    <Key className="w-3.5 h-3.5 text-pink-500" />
-                    <span>Chave de API do Google Gemini</span>
-                  </label>
-                  <input
-                    type="password"
-                    value={formData.geminiApiKey || ""}
-                    onChange={(e) => {
-                      setFormData({ ...formData, geminiApiKey: e.target.value });
-                      setAiTestResult(null);
-                    }}
-                    className="w-full px-3 py-2.5 bg-[#0f131c] border border-pink-500/30 rounded-lg text-xs font-mono focus:outline-none focus:ring-1 focus:ring-pink-500 focus:border-pink-500 transition-shadow"
-                    placeholder="Cole sua API Key do Google AI Studio (AIzaSy...)"
-                  />
-                </div>
-
-                <div className="space-y-1.5">
-                  <label className="block text-xs font-bold text-text-primary uppercase tracking-wider flex items-center gap-1.5">
-                    <Key className="w-3.5 h-3.5 text-pink-500" />
-                    <span>Chave de API da OpenAI</span>
-                  </label>
-                  <input
-                    type="password"
-                    value={formData.openaiApiKey || ""}
-                    onChange={(e) => {
-                      setFormData({ ...formData, openaiApiKey: e.target.value });
-                      setAiTestResult(null);
-                    }}
-                    className="w-full px-3 py-2.5 bg-[#0f131c] border border-pink-500/30 rounded-lg text-xs font-mono focus:outline-none focus:ring-1 focus:ring-pink-500 focus:border-pink-500 transition-shadow"
-                    placeholder="Cole sua API Key da OpenAI (sk-...)"
-                  />
-                </div>
-
+                {/* Botão de Salvar Credencial & Confirmar Provedor */}
                 <button
                   type="button"
-                  onClick={handleTestAI}
-                  disabled={isTestingAi || !((formData.aiProvider || "gemini") === "openai" ? formData.openaiApiKey : formData.geminiApiKey)?.trim()}
-                  className="w-full py-2.5 bg-pink-600 hover:bg-pink-700 disabled:opacity-50 disabled:cursor-not-allowed text-white text-xs font-semibold rounded-lg transition-colors flex items-center justify-center gap-2 cursor-pointer"
+                  onClick={handleConfirmProviderAndDiscover}
+                  disabled={isConfirmingProvider || (!aiKeyInput.trim() && aiState.status === "SEM_CHAVE")}
+                  className="w-full py-2.5 bg-pink-600 hover:bg-pink-700 disabled:opacity-50 disabled:cursor-not-allowed text-white text-xs font-semibold rounded-lg transition-colors flex items-center justify-center gap-2 cursor-pointer shadow-xs"
                 >
-                  <RefreshCw className={`w-3.5 h-3.5 ${isTestingAi ? "animate-spin" : ""}`} />
-                  <span>{isTestingAi ? "Validando provedor..." : `Testar e Ativar ${(formData.aiProvider || "gemini") === "openai" ? "OpenAI" : "Gemini"}`}</span>
+                  <RefreshCw className={`w-3.5 h-3.5 ${isConfirmingProvider ? "animate-spin" : ""}`} />
+                  <span>
+                    {isConfirmingProvider
+                      ? "Validando credencial e descobrindo modelos..."
+                      : `1. Validar Credencial e Descobrir Modelos (${activeProvider === "openai" ? "OpenAI" : "Gemini"})`}
+                  </span>
                 </button>
 
-                {aiTestResult && (
+                {/* Seletor e Validação do Modelo Descoberto */}
+                {(discoveredModels.length > 0 || isAiActive || aiState.status === "AGUARDANDO_MODELO") && (
+                  <div className="pt-3 border-t border-pink-500/20 space-y-3 animate-fadeIn">
+                    <div className="space-y-1.5">
+                      <label className="block text-xs font-bold text-text-primary uppercase tracking-wider flex items-center gap-1.5">
+                        <Cpu className="w-3.5 h-3.5 text-pink-500" />
+                        <span>2. Seleção e Validação do Modelo</span>
+                      </label>
+                      <p className="text-[11px] text-text-secondary">
+                        Modelos descobertos para esta credencial. O teste de geração ativa a conexão definitivamente.
+                      </p>
+                    </div>
+
+                    <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
+                      <div className="sm:col-span-2">
+                        <select
+                          value={selectedModel}
+                          onChange={(e) => {
+                            setSelectedModel(e.target.value);
+                            setAiFeedback(null);
+                          }}
+                          className="w-full px-3 py-2 bg-[#0f131c] border border-pink-500/30 rounded-lg text-xs font-mono focus:outline-none focus:ring-1 focus:ring-pink-500"
+                        >
+                          {availableModelsList.map((m) => (
+                            <option key={m.id} value={m.id}>
+                              {m.displayName || m.id}
+                            </option>
+                          ))}
+                        </select>
+                      </div>
+
+                      <button
+                        type="button"
+                        onClick={handleValidateAndActivateModel}
+                        disabled={isValidatingModel || !selectedModel}
+                        className="py-2 px-3 bg-emerald-600 hover:bg-emerald-500 disabled:opacity-50 disabled:cursor-not-allowed text-white text-xs font-bold rounded-lg transition-colors flex items-center justify-center gap-1.5 cursor-pointer shadow-xs"
+                      >
+                        {isValidatingModel ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Check className="w-3.5 h-3.5" />}
+                        <span>{isValidatingModel ? "Testando..." : "Ativar Modelo"}</span>
+                      </button>
+                    </div>
+                  </div>
+                )}
+
+                {/* Feedback e Mensagens */}
+                {aiFeedback && (
                   <div
                     className={`p-3 rounded-lg border text-xs flex items-start gap-2 ${
-                      aiTestResult.success
+                      aiFeedback.success
                         ? "bg-emerald-500/10 text-emerald-400 border-emerald-500/30"
                         : "bg-amber-500/10 text-amber-400 border-amber-500/30"
                     }`}
                   >
-                    {aiTestResult.success ? (
+                    {aiFeedback.success ? (
                       <CheckCircle2 className="w-4 h-4 text-emerald-400 shrink-0 mt-0.5" />
                     ) : (
                       <AlertCircle className="w-4 h-4 text-amber-400 shrink-0 mt-0.5" />
                     )}
-                    <div className="text-[11px] leading-relaxed">{aiTestResult.message}</div>
+                    <div className="text-[11px] leading-relaxed">{aiFeedback.message}</div>
                   </div>
                 )}
 
                 <div className="text-[11px] text-pink-200 leading-relaxed bg-pink-500/10 p-3 rounded-lg border border-pink-500/20">
-                  <p className="font-bold mb-1">🔐 Armazenamento da chave</p>
+                  <p className="font-bold mb-1">🔐 Segurança e Armazenamento Seguro</p>
                   <p>
-                    No aplicativo desktop, as chaves são protegidas pelo armazenamento seguro do sistema operacional. No modo web, elas permanecem apenas em memória durante a sessão e não são gravadas no localStorage.
+                    No desktop Electron, a chave de API é criptografada e protegida no armazenamento seguro do sistema operacional (DPAPI / Keychain / Secret Service). A chave nunca é exposta para leitura do renderizador.
                   </p>
-                  <p className="mt-2">
-                    Para obter uma chave, acesse o <a href="https://aistudio.google.com/" target="_blank" rel="noreferrer" className="text-pink-500 hover:text-text-primary underline font-semibold">Google AI Studio</a> e use a opção <strong>Get API Key</strong>.
+                  <p className="mt-1.5">
+                    Para obter uma chave do Gemini, acesse o <a href="https://aistudio.google.com/" target="_blank" rel="noreferrer" className="text-pink-400 hover:underline font-semibold">Google AI Studio</a>. Para OpenAI, acesse a <a href="https://platform.openai.com/api-keys" target="_blank" rel="noreferrer" className="text-pink-400 hover:underline font-semibold">Plataforma OpenAI</a>.
                   </p>
                 </div>
               </div>
@@ -585,6 +1007,60 @@ export const ObsidianApiSettingsModal: React.FC<ObsidianApiSettingsModalProps> =
                     </div>
                   )}
                 </div>
+
+                {/* Seção de Integridade e Reparo do Vault Local */}
+                {window.electronAPI && (
+                  <div className="mt-4 pt-4 border-t border-outline-border space-y-3">
+                    <div className="space-y-1">
+                      <h4 className="text-xs font-bold text-text-primary uppercase tracking-wider flex items-center gap-1.5">
+                        <ShieldCheck className="w-3.5 h-3.5 text-emerald-400" />
+                        <span>Integridade e Manifesto do Vault (.nisti)</span>
+                      </h4>
+                      <p className="text-[11px] text-text-secondary">
+                        Verifique e repare as 10 pastas canônicas, templates padronizados e o manifesto sem alterar nem apagar notas pessoais.
+                      </p>
+                    </div>
+
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                      <button
+                        type="button"
+                        onClick={handleAuditVault}
+                        disabled={isAuditingVault || isRepairingVault}
+                        className="py-2 px-3 bg-[#0f131c] hover:bg-[#334155] disabled:opacity-50 text-text-primary text-xs font-medium rounded-lg border border-outline-border transition-colors flex items-center justify-center gap-1.5 cursor-pointer"
+                      >
+                        {isAuditingVault ? <Loader2 className="w-3.5 h-3.5 animate-spin text-pink-500" /> : <ShieldCheck className="w-3.5 h-3.5 text-emerald-400" />}
+                        <span>{isAuditingVault ? "Auditando..." : "Auditar Integridade"}</span>
+                      </button>
+
+                      <button
+                        type="button"
+                        onClick={handleRepairVault}
+                        disabled={isAuditingVault || isRepairingVault}
+                        className="py-2 px-3 bg-[#0f131c] hover:bg-[#334155] disabled:opacity-50 text-text-primary text-xs font-medium rounded-lg border border-outline-border transition-colors flex items-center justify-center gap-1.5 cursor-pointer"
+                      >
+                        {isRepairingVault ? <Loader2 className="w-3.5 h-3.5 animate-spin text-pink-500" /> : <Wrench className="w-3.5 h-3.5 text-pink-400" />}
+                        <span>{isRepairingVault ? "Reparando..." : "Reparar Estrutura"}</span>
+                      </button>
+                    </div>
+
+                    {vaultAuditFeedback && (
+                      <div
+                        className={`p-3 rounded-lg border text-xs flex items-start gap-2 ${
+                          vaultAuditFeedback.success
+                            ? "bg-emerald-500/10 text-emerald-400 border-emerald-500/30"
+                            : "bg-amber-500/10 text-amber-400 border-amber-500/30"
+                        }`}
+                      >
+                        {vaultAuditFeedback.success ? (
+                          <CheckCircle2 className="w-4 h-4 text-emerald-400 shrink-0 mt-0.5" />
+                        ) : (
+                          <AlertCircle className="w-4 h-4 text-amber-400 shrink-0 mt-0.5" />
+                        )}
+                        <div className="text-[11px] leading-relaxed">{vaultAuditFeedback.message}</div>
+                      </div>
+                    )}
+                  </div>
+                )}
               </div>
             </div>
           )}
