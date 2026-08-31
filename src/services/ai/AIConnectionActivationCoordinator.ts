@@ -4,6 +4,7 @@ import {
 } from "./AIConnectionMetadataStore";
 import {
   AIConnectionModelValidationService,
+  type AIModelValidationFailureCode,
   type AIModelValidationRequest,
   type AIModelValidationResult,
 } from "./AIConnectionModelValidationService";
@@ -16,7 +17,7 @@ type CoordinatorOptions = {
   persistMetadata?: PersistMetadata;
 };
 
-const NON_TRANSITION_FAILURES = new Set([
+const NON_TRANSITION_FAILURES = new Set<AIModelValidationFailureCode>([
   "MISSING_KEY",
   "INVALID_STATE",
   "MODEL_NOT_DISCOVERED",
@@ -40,8 +41,10 @@ export class AIConnectionActivationCoordinator {
   async validateSelection(request: AIModelValidationRequest): Promise<AIModelValidationResult> {
     const result = await this.validator.validateAndActivate(request);
 
-    if (!result.success && NON_TRANSITION_FAILURES.has(result.code)) {
-      return result;
+    if (!result.success) {
+      if (NON_TRANSITION_FAILURES.has(result.code)) {
+        return result;
+      }
     }
 
     const persistedState = this.persistMetadata(result.state);
