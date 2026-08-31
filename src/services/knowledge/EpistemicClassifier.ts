@@ -101,6 +101,24 @@ export function evaluateEpistemicWeight(
     };
   }
 
+  if (
+    epistemicStr === "raw_capture" ||
+    epistemicStr === "pendente" ||
+    epistemicStr === "novo" ||
+    epistemicStr === "rascunho" ||
+    statusStr === "NOVO" ||
+    statusStr === "PENDENTE" ||
+    statusStr === "RASCUNHO"
+  ) {
+    return {
+      normalizedEpistemicStatus: "PENDENTE",
+      canonicalStatus: "raw_capture",
+      priorityLevel: 3,
+      weightMultiplier: 0.6,
+      isOfficialFact: false,
+    };
+  }
+
   // 2. Folder-based default classification if metadata is missing or vague
   const normalizedFolder = String(folder || "").replace(/\\/g, "/");
   if (normalizedFolder.includes("01_Estrategia") || normalizedFolder.includes("02_Produtos") || normalizedFolder.includes("08_Aprendizados")) {

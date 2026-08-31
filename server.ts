@@ -691,23 +691,24 @@ function safePdfData(fileName: string, extractedText: string) {
   return {
     title: cleanTitle,
     summary: hasText
-      ? `Texto extraído do PDF para revisão humana (${text.length} caracteres indexados).`
+      ? `Texto extraído do PDF para revisão humana (${text.length} caracteres indexados). Status provisório até homologação editorial.`
       : "PDF registrado, mas nenhum texto indexável foi extraído. O conteúdo permanece PENDENTE.",
     category: "Documento PDF",
     keywords: ["pdf"],
     wikilinks: [],
-    evidence: hasText ? ["Existe texto extraído diretamente do arquivo PDF."] : [],
-    hypotheses: [],
-    epistemic_status: hasText ? "CONFIRMADO" : "PENDENTE",
+    evidence: hasText ? ["Texto extraído bruto do arquivo PDF — aguarda validação factual humana."] : [],
+    hypotheses: hasText ? ["Informações extraídas devem ser conferidas antes de uso em campanhas oficiais."] : [],
+    epistemic_status: "PENDENTE",
     folder,
     content: `${sourceFrontmatter({
       id: `pdf_${Date.now().toString(36)}`,
       type: "Documento PDF",
-      epistemicStatus: hasText ? "CONFIRMADO" : "PENDENTE",
+      status: "NOVO",
+      epistemicStatus: "PENDENTE",
       category: "Documento PDF",
       source: fileName,
-      tags: ["pdf"],
-    })}\n\n# ${cleanTitle}\n\n## Conteúdo extraído\n${text || "Nenhum texto indexável extraído. Revisão manual necessária."}`,
+      tags: ["pdf", "ingestao"],
+    })}\n\n# ${cleanTitle}\n\n## Conteúdo extraído (PENDENTE de homologação)\n${text || "Nenhum texto indexável extraído. Revisão manual necessária."}`,
   };
 }
 
@@ -719,23 +720,24 @@ function safeSiteData(siteUrl: string, pageTitle: string, pageContent: string) {
   return {
     title,
     summary: hasText
-      ? `Conteúdo textual extraído da URL para revisão (${text.length} caracteres indexados).`
+      ? `Conteúdo textual extraído da URL para curadoria (${text.length} caracteres indexados).`
       : "URL registrada sem conteúdo textual validado. A fonte permanece PENDENTE.",
     category: "Artigo Web",
     keywords: ["web"],
     wikilinks: [],
-    evidence: hasText ? ["Texto obtido diretamente da página informada."] : [],
-    hypotheses: [],
-    epistemic_status: hasText ? "CONFIRMADO" : "PENDENTE",
+    evidence: hasText ? ["Texto capturado da página informada — requer validação editorial."] : [],
+    hypotheses: hasText ? ["Conteúdo web externo não verificado institucionalmente."] : [],
+    epistemic_status: "PENDENTE",
     folder,
     content: `${sourceFrontmatter({
       id: `site_${Date.now().toString(36)}`,
       type: "Artigo Web",
-      epistemicStatus: hasText ? "CONFIRMADO" : "PENDENTE",
+      status: "NOVO",
+      epistemicStatus: "PENDENTE",
       category: "Artigo Web",
       source: siteUrl,
-      tags: ["web"],
-    })}\n\n# ${title}\n\n- **URL**: ${siteUrl}\n\n## Conteúdo capturado\n${text || "Conteúdo não extraído. Revisão manual necessária."}`,
+      tags: ["web", "referencia"],
+    })}\n\n# ${title}\n\n- **URL**: ${siteUrl}\n\n## Conteúdo capturado (PENDENTE de validação)\n${text || "Conteúdo não extraído. Revisão manual necessária."}`,
   };
 }
 
@@ -745,22 +747,23 @@ function safeTextData(titleInput: string, rawText: string) {
   const folder = sanitizeOfficialFolder(title, "Texto", text);
   return {
     title,
-    summary: "Texto fornecido diretamente pelo usuário e preservado para curadoria.",
+    summary: "Texto fornecido pelo usuário e preservado para curadoria editorial.",
     category: "Texto",
     tags: ["texto"],
     keywords: ["texto"],
     wikilinks: [],
-    evidence: text ? ["Conteúdo fornecido diretamente pelo usuário."] : [],
-    hypotheses: [],
-    epistemic_status: text ? "CONFIRMADO" : "PENDENTE",
+    evidence: text ? ["Conteúdo bruto fornecido na entrada — aguarda curadoria editorial."] : [],
+    hypotheses: text ? ["Afirmações sem homologação formal."] : [],
+    epistemic_status: "PENDENTE",
     folder,
     content: `${sourceFrontmatter({
       id: `text_${Date.now().toString(36)}`,
       type: "Texto",
-      epistemicStatus: text ? "CONFIRMADO" : "PENDENTE",
+      status: "NOVO",
+      epistemicStatus: "PENDENTE",
       category: "Texto",
       source: "Entrada manual",
-      tags: ["texto"],
+      tags: ["texto", "curadoria"],
     })}\n\n# ${title}\n\n${text || "Conteúdo vazio."}`,
   };
 }
@@ -1094,8 +1097,38 @@ ${JSON.stringify(vaultNotesOverview || [], null, 2)}`;
 });
 
 function parseLoopbackEndpoint(endpoint: string): URL {
-  const parsedUrl = new URL(endpoint);
-  if (parsedUrl.protocol !== "http:" && parsedUrl.protocol !== "https:") throw new Error("Protocolo do Obsidian inválido.");
+  if (!endpoint || typeof endpoint !== "string") {
+    throw new Error("Endpoint do Obsidian não informado.");
+  }
+  let parsedUrl: URL;
+  try {
+    parsedUrl = new URL(endpoint.trim());
+  } catch {
+    throw new Error("URL do endpoint Obsidian inválida.");
+  }
+
+  if (parsedUrl.protocol !== "http:" && parsedUrl.protocol !== "https:") {
+    throw new Error("Protocolo do Obsidian inválido. Apenas HTTP e HTTPS são permitidos.");
+  }
+
+  const hostname = parsedUrl.hostname.toLowerCase();
+
+  // Strict loopback/local validation - SSRF defense
+  const isLoopback =
+    hostname === "127.0.0.1" ||
+    hostname === "localhost" ||
+    hostname === "::1" ||
+    hostname === "[::1]" ||
+    hostname === "0.0.0.0" ||
+    hostname === "local.obsidian.md" ||
+    hostname.endsWith(".localhost");
+
+  if (!isLoopback) {
+    throw new Error(
+      `SSRF Bloqueado: O host '${hostname}' não é permitido. Apenas o Obsidian Local REST API na mesma máquina (localhost / 127.0.0.1) é autorizado.`
+    );
+  }
+
   return parsedUrl;
 }
 
@@ -1604,10 +1637,10 @@ app.post(["/api/ai/synthesize-learnings", "/api/gemini/synthesize-learnings"], a
           {
             title: "Consistência de formato e proposta de valor",
             category: "formato",
-            verdict: "CONFIRMADO",
-            ruleOfThumb: "Mantenha a frequência semanal nos formatos de maior engajamento comprovado.",
-            evidenceData: `${postHistory.length} publicações registradas no histórico recente.`,
-            suggestedAction: "Incorporar regra no briefing do próximo ciclo editorial.",
+            verdict: "EM_TESTE",
+            ruleOfThumb: "Mantenha a frequência semanal nos formatos com medições ativas.",
+            evidenceData: `${postHistory.length} publicações registradas no histórico recente (requer validação contínua de conversão).`,
+            suggestedAction: "Incorporar hipótese no briefing e monitorar taxa de conversão.",
           }
         ],
         hypothesesToTest: [
@@ -1618,7 +1651,7 @@ app.post(["/api/ai/synthesize-learnings", "/api/gemini/synthesize-learnings"], a
           "Priorizar canais com maior retorno comprovado em conversão.",
           "Validar hipóteses pendentes com testes A/B estruturados."
         ],
-        epistemicStatus: "CONFIRMADO"
+        epistemicStatus: "HIPÓTESE"
       };
     };
 

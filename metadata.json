@@ -1,6 +1,6 @@
 {
   "name": "Nisti Marketing",
-  "description": "Aplicativo local-first de gestão de marketing integrado ao Obsidian e a provedores de IA configurados pelo usuário.",
+  "description": "Nisti Print Papelaria Criativa: gestor de marketing local-first e PKM integrado ao Obsidian e provedores de IA.",
   "requestFramePermissions": [],
   "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
 }

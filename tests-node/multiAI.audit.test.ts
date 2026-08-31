@@ -380,6 +380,8 @@ test("legacy aliases preserve local/offline behavior and legacy error status", a
     cwd: ROOT,
     env: {
       ...process.env,
+      GEMINI_API_KEY: "",
+      OPENAI_API_KEY: "",
       NODE_ENV: "production",
       NISTI_APP_PORT: String(port),
       NISTI_INSTANCE_ID: "multi-ai-audit-test",

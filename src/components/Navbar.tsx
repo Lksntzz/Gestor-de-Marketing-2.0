@@ -21,6 +21,7 @@ import {
   type PrimaryNavigationIcon,
 } from "../navigation/productNavigation";
 import { EDITORIAL_PLANNING_REQUEST_EVENT } from "../services/editorialPlanningHandoff";
+import { NistiLogo, NistiLogoIcon } from "./NistiLogo";
 
 interface NavbarProps {
   activeTab: string;
@@ -122,29 +123,14 @@ export const Navbar: React.FC<NavbarProps> = ({
               className="lg:hidden flex items-center gap-2 text-left group cursor-pointer shrink-0"
               aria-label="Ir para Início"
             >
-              <svg className="w-8 h-8 shrink-0" viewBox="0 0 40 40" fill="none" xmlns="http://www.w3.org/2000/svg">
-                <path
-                  d="M10 26C10 26 13 14 17 14C21 14 21.5 26 25 26C28.5 26 31 14 31 14"
-                  stroke="url(#mob-nisti-pink-grad)"
-                  strokeWidth="5"
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                />
-                <defs>
-                  <linearGradient id="mob-nisti-pink-grad" x1="10" y1="14" x2="31" y2="26" gradientUnits="userSpaceOnUse">
-                    <stop stopColor="#F43F5E" />
-                    <stop stopColor="#D946EF" />
-                  </linearGradient>
-                </defs>
-              </svg>
-              <div>
-                <span className="font-black text-text-primary text-xs tracking-tight block leading-none">Nisti Print</span>
-                <span className="text-[9px] text-pink-500 font-extrabold tracking-widest block mt-0.5 uppercase">Marketing</span>
-              </div>
+              <NistiLogo size="sm" />
             </button>
 
             <div className="hidden lg:block min-w-0">
-              <div className="text-[10px] uppercase tracking-[0.18em] font-bold text-text-secondary">Nisti Marketing</div>
+              <div className="flex items-center gap-2">
+                <span className="text-[10px] uppercase tracking-[0.18em] font-bold text-[#7FD0D1]">Nisti Print Hub</span>
+                <span className="text-[9px] px-1.5 py-0.2 rounded bg-[#FF95BA]/15 text-[#FF95BA] font-bold border border-[#FF95BA]/25">PKM 2.0</span>
+              </div>
               <div className="text-sm font-black text-text-primary truncate">{currentArea?.label || "Workspace"}</div>
             </div>
           </div>
