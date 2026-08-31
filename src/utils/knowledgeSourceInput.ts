@@ -1,13 +1,24 @@
 export type PrimaryKnowledgeSource = "file" | "link" | "text";
-export type KnowledgeProcessorType = "pdf" | "image" | "youtube" | "site" | "text";
+export type KnowledgeProcessorType = "pdf" | "image" | "audio" | "youtube" | "site" | "text";
 
 const SUPPORTED_IMAGE_EXTENSIONS = [".png", ".jpg", ".jpeg", ".webp"] as const;
 const SUPPORTED_IMAGE_MIME_TYPES = ["image/png", "image/jpeg", "image/webp"] as const;
+const SUPPORTED_AUDIO_EXTENSIONS = [".mp3", ".wav", ".m4a", ".aac", ".ogg", ".webm"] as const;
+const SUPPORTED_AUDIO_MIME_TYPES = [
+  "audio/mpeg",
+  "audio/mp3",
+  "audio/wav",
+  "audio/x-wav",
+  "audio/mp4",
+  "audio/aac",
+  "audio/ogg",
+  "audio/webm",
+] as const;
 
 export function detectKnowledgeFileType(input: {
   name: string;
   mimeType?: string;
-}): "pdf" | "image" | null {
+}): "pdf" | "image" | "audio" | null {
   const fileName = String(input.name || "").trim().toLowerCase();
   const mimeType = String(input.mimeType || "").trim().toLowerCase();
 
@@ -17,6 +28,12 @@ export function detectKnowledgeFileType(input: {
     SUPPORTED_IMAGE_EXTENSIONS.some((extension) => fileName.endsWith(extension))
   ) {
     return "image";
+  }
+  if (
+    SUPPORTED_AUDIO_MIME_TYPES.some((supported) => supported === mimeType) ||
+    SUPPORTED_AUDIO_EXTENSIONS.some((extension) => fileName.endsWith(extension))
+  ) {
+    return "audio";
   }
 
   return null;
