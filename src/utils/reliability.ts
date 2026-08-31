@@ -1,6 +1,6 @@
 import type { MarketingTask } from "../types";
 
-export const APP_VERSION = "3.0.0";
+export const APP_VERSION = "3.1.0";
 export const DAILY_TASKS_SECTION_ID = "daily-pending-tasks";
 export const AUTOMATION_HIGH_PRIORITY_SECTION_ID = "automation-high-priority";
 
@@ -34,9 +34,9 @@ function escapeRegExp(value: string): string {
 
 export function upsertManagedSection(content: string, sectionId: string, heading: string, body: string): string {
   const safeId = normalizeSectionId(sectionId);
-  const block = buildManagedSection(safeId, heading, body);
   const start = `<!-- nisti:start:${safeId} -->`;
   const end = `<!-- nisti:end:${safeId} -->`;
+  const block = buildManagedSection(safeId, heading, body);
   const pattern = new RegExp(`${escapeRegExp(start)}[\\s\\S]*?${escapeRegExp(end)}`, "m");
 
   if (pattern.test(content)) {
@@ -44,101 +44,108 @@ export function upsertManagedSection(content: string, sectionId: string, heading
   }
 
   const trimmed = content.trimEnd();
-  return trimmed ? `${trimmed}\n\n${block}` : block;
+  return trimmed ? `${trimmed}\n\n${block}\n` : `${block}\n`;
 }
 
-export function startOfWeekMonday(date: Date = new Date()): Date {
-  const result = new Date(date);
-  result.setHours(12, 0, 0, 0);
-  const day = result.getDay();
-  const offset = day === 0 ? -6 : 1 - day;
-  result.setDate(result.getDate() + offset);
+export function stableTextHash(value: string): string {
+  let hash = 2166136261;
+  for (let index = 0; index < value.length; index += 1) {
+    hash ^= value.charCodeAt(index);
+    hash = Math.imul(hash, 16777619);
+  }
+  return (hash >>> 0).toString(16).padStart(8, "0");
+}
+
+export function deterministicId(prefix: string, ...parts: Array<string | number | undefined>): string {
+  const payload = parts.map((part) => String(part ?? "")).join("::");
+  return `${prefix}-${stableTextHash(payload)}`;
+}
+
+export function parseLocalDateTime(date?: string, time?: string): Date | null {
+  const rawDate = date?.trim();
+  if (!rawDate) return null;
+
+  const normalized = rawDate.includes(" ") && !rawDate.includes("T")
+    ? rawDate.replace(" ", "T")
+    : rawDate;
+  const candidate = /^\d{4}-\d{2}-\d{2}$/.test(normalized)
+    ? `${normalized}T${/^\d{2}:\d{2}/.test(time || "") ? time!.slice(0, 5) : "12:00"}:00`
+    : normalized;
+  const parsed = new Date(candidate);
+  return Number.isNaN(parsed.getTime()) ? null : parsed;
+}
+
+export function isReminderDue(task: MarketingTask, now = new Date(), graceMinutes = 2): boolean {
+  if (!task.isReminderActive || task.status === "done" || !task.dueDate || !task.reminderTime) return false;
+  const reminder = parseLocalDateTime(task.dueDate, task.reminderTime);
+  if (!reminder) return false;
+  const delta = now.getTime() - reminder.getTime();
+  return delta >= 0 && delta <= graceMinutes * 60_000;
+}
+
+export function reminderEventKey(task: MarketingTask): string | null {
+  if (!task.isReminderActive || !task.dueDate || !task.reminderTime) return null;
+  return `${task.id}::${task.dueDate}::${task.reminderTime}`;
+}
+
+export function pruneFiredReminderKeys(keys: string[], maxEntries = 400): string[] {
+  return Array.from(new Set(keys)).slice(-maxEntries);
+}
+
+export function normalizeRoutineDay(day: string): number {
+  const normalized = day.trim().toLocaleLowerCase("pt-BR");
+  const map: Record<string, number> = {
+    domingo: 0,
+    segunda: 1,
+    "segunda-feira": 1,
+    terça: 2,
+    terca: 2,
+    "terça-feira": 2,
+    "terca-feira": 2,
+    quarta: 3,
+    "quarta-feira": 3,
+    quinta: 4,
+    "quinta-feira": 4,
+    sexta: 5,
+    "sexta-feira": 5,
+    sábado: 6,
+    sabado: 6,
+  };
+  return map[normalized] ?? -1;
+}
+
+export function nextLocalDateForWeekday(day: string, from = new Date()): Date | null {
+  const targetDay = normalizeRoutineDay(day);
+  if (targetDay < 0) return null;
+  const result = new Date(from.getFullYear(), from.getMonth(), from.getDate(), 12, 0, 0, 0);
+  const delta = (targetDay - result.getDay() + 7) % 7;
+  result.setDate(result.getDate() + delta);
   return result;
 }
 
-const ROUTINE_DAY_OFFSETS: Record<string, number> = {
-  Segunda: 0,
-  "Segunda-feira": 0,
-  Terça: 1,
-  "Terça-feira": 1,
-  Quarta: 2,
-  "Quarta-feira": 2,
-  Quinta: 3,
-  "Quinta-feira": 3,
-  Sexta: 4,
-  "Sexta-feira": 4,
-  Sábado: 5,
-  Domingo: 6,
-};
-
-export function dateForRoutineDay(dayOfWeek: string, weekAnchor: Date = new Date()): string {
-  const monday = startOfWeekMonday(weekAnchor);
-  const offset = ROUTINE_DAY_OFFSETS[dayOfWeek];
-  if (offset === undefined) {
-    throw new Error(`Dia da rotina inválido: ${dayOfWeek}`);
-  }
-  const result = new Date(monday);
-  result.setDate(monday.getDate() + offset);
-  return localDateKey(result);
+export function localDateInputValue(date: Date): string {
+  return localDateKey(date);
 }
 
-export function stableRoutineTaskId(weekAnchor: Date, slotId: string): string {
-  const weekKey = localDateKey(startOfWeekMonday(weekAnchor));
-  const safeSlot = slotId.toLowerCase().replace(/[^a-z0-9_-]/g, "-").replace(/-+/g, "-");
-  return `routine-task-${weekKey}-${safeSlot || "slot"}`;
+export function localWeekBounds(now = new Date()): { start: Date; end: Date } {
+  const start = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 0, 0, 0, 0);
+  const day = start.getDay();
+  const diffToMonday = day === 0 ? -6 : 1 - day;
+  start.setDate(start.getDate() + diffToMonday);
+
+  const end = new Date(start);
+  end.setDate(start.getDate() + 6);
+  end.setHours(23, 59, 59, 999);
+  return { start, end };
 }
 
-export function upsertItemsById<T extends { id: string }>(existing: T[], incoming: T[]): T[] {
-  const existingById = new Map(existing.map((item) => [item.id, item]));
-  const mergedIncoming = incoming.map((item) => {
-    const previous = existingById.get(item.id);
-    if (!previous) return item;
-
-    const previousRecord = previous as Record<string, unknown>;
-    const itemRecord = item as Record<string, unknown>;
-    const merged = { ...previousRecord, ...itemRecord };
-
-    if ("status" in previousRecord) merged.status = previousRecord.status;
-    if ("completedAt" in previousRecord) merged.completedAt = previousRecord.completedAt;
-    return merged as T;
-  });
-
-  const incomingIds = new Set(incoming.map((item) => item.id));
-  const preserved = existing.filter((item) => !incomingIds.has(item.id));
-  return [...mergedIncoming, ...preserved];
+export function sameLocalDay(left: Date, right: Date): boolean {
+  return localDateKey(left) === localDateKey(right);
 }
 
-/**
- * For Vault knowledge, Obsidian is the source of truth. Once a verified
- * snapshot arrives, local-only notes must not survive and masquerade as Vault
- * content. Duplicate incoming paths are collapsed to the last value.
- */
-export function mergeByPath<T extends { path: string }>(_localItems: T[], incomingItems: T[]): T[] {
-  const byPath = new Map<string, T>();
-  for (const item of incomingItems) byPath.set(item.path, item);
-  return Array.from(byPath.values());
-}
-
-export function reminderEventKey(task: Pick<MarketingTask, "id" | "reminderDate" | "reminderTime">): string | null {
-  if (!task.reminderDate || !task.reminderTime) return null;
-  return `${task.id}|${task.reminderDate}|${task.reminderTime}`;
-}
-
-export function isReminderDue(
-  task: Pick<MarketingTask, "status" | "isReminderActive" | "reminderDate" | "reminderTime">,
-  now: Date = new Date(),
-  graceMinutes = 5
-): boolean {
-  if (!task.isReminderActive || task.status === "done" || !task.reminderDate || !task.reminderTime) return false;
-  const match = task.reminderTime.match(/^(\d{2}):(\d{2})$/);
-  if (!match) return false;
-  const [year, month, day] = task.reminderDate.split("-").map(Number);
-  if (!year || !month || !day) return false;
-  const due = new Date(year, month - 1, day, Number(match[1]), Number(match[2]), 0, 0);
-  const diffMs = now.getTime() - due.getTime();
-  return diffMs >= 0 && diffMs < graceMinutes * 60_000;
-}
-
-export function pruneFiredReminderKeys(keys: string[], maxEntries = 500): string[] {
-  return Array.from(new Set(keys)).slice(-maxEntries);
+export function isWithinLocalWeek(value: string | undefined, now = new Date()): boolean {
+  const parsed = parseLocalDateTime(value);
+  if (!parsed) return false;
+  const { start, end } = localWeekBounds(now);
+  return parsed.getTime() >= start.getTime() && parsed.getTime() <= end.getTime();
 }
