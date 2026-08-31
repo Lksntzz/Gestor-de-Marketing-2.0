@@ -65,6 +65,16 @@ function resolveSecretRef(
   return defaultSecretRef(provider);
 }
 
+function matchingModelCandidate(
+  provider: AIConnectionProvider,
+  state: PersistedAIConnectionState | null | undefined,
+): string | undefined {
+  if (!state?.modelCandidate) return undefined;
+  if (state.provider === provider) return state.modelCandidate;
+  if (!state.provider && state.providerCandidate === provider) return state.modelCandidate;
+  return undefined;
+}
+
 function sanitizeText(value: unknown): string {
   return typeof value === "string" ? value.trim() : "";
 }
@@ -131,12 +141,13 @@ function failureState(
   secretRef: AISecretReference,
   currentState?: PersistedAIConnectionState | null,
 ): PersistedAIConnectionState {
+  const modelCandidate = matchingModelCandidate(provider, currentState);
   return {
     schemaVersion: AI_CONNECTION_SCHEMA_VERSION,
     status,
     providerCandidate: provider,
     secretRef,
-    ...(currentState?.modelCandidate ? { modelCandidate: currentState.modelCandidate } : {}),
+    ...(modelCandidate ? { modelCandidate } : {}),
   };
 }
 
@@ -237,14 +248,15 @@ export class AIConnectionDiscoveryService {
         };
       }
 
+      const modelCandidate = matchingModelCandidate(request.provider, request.currentState);
       const state: PersistedAIConnectionState = {
         schemaVersion: AI_CONNECTION_SCHEMA_VERSION,
         status: "AGUARDANDO_MODELO",
-        connectionId: request.currentState?.connectionId || this.idFactory(),
+        connectionId: this.idFactory(),
         provider: request.provider,
         secretRef,
         credentialConfirmedAt: this.now(),
-        ...(request.currentState?.modelCandidate ? { modelCandidate: request.currentState.modelCandidate } : {}),
+        ...(modelCandidate ? { modelCandidate } : {}),
       };
 
       return {
