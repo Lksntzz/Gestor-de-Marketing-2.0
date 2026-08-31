@@ -44,7 +44,7 @@ import {
 import { APP_STATE_KEYS, StorageManager } from "./services/storage/StorageManager";
 import { usePersistentState, usePersistentTextState } from "./hooks/usePersistentState";
 import { AppStateSchemas, parseWorkspaceImport } from "./domain/appStateSchemas";
-import { assessBaseReadiness } from "./domain/baseOnboarding";
+import { assessSmartKnowledgeReadiness } from "./domain/smartKnowledgeStage2";
 import { extractAllTasksFromNotes } from "./domain/taskExtractor";
 import {
   PLANNING_SUBNAVIGATION,
@@ -148,7 +148,7 @@ export default function App() {
   );
 
   const [activeTab, setActiveTab] = useState<AppViewId>(() =>
-    assessBaseReadiness(notes).complete ? "dashboard" : "vault",
+    assessSmartKnowledgeReadiness(notes).ready ? "dashboard" : "vault",
   );
   const [selectedNote, setSelectedNote] = useState<ObsidianNote | null>(notes[0] || null);
   const [apiConfig, setApiConfig] = useState<ObsidianApiConfig>(DEFAULT_API_CONFIG);

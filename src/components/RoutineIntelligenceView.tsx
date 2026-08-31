@@ -23,6 +23,7 @@ import {
 } from "lucide-react";
 import type { EditorialItem, LearningInsight, ObsidianApiConfig, ObsidianNote, PostHistoryItem } from "../types";
 import { localDateKey } from "../utils/reliability";
+import { NISTI_VAULT_ROOT } from "../services/obsidianKnowledgeAutomation";
 import {
   buildLearningSnapshot,
   formatRecordedMetric,
@@ -339,10 +340,10 @@ export const RoutineIntelligenceView: React.FC<RoutineIntelligenceViewProps> = (
       if (window.electronAPI?.commitKnowledge) {
         await window.electronAPI.commitKnowledge({
           title,
-          folder: "06_Metricas",
+          folder: `${NISTI_VAULT_ROOT}/08_Aprendizados`,
           content: md,
         });
-        showToast("success", "Salvo no Vault", `Nota [[${title}]] criada na pasta 06_Metricas/.`);
+        showToast("success", "Salvo no Vault", `Nota [[${title}]] criada na pasta ${NISTI_VAULT_ROOT}/08_Aprendizados/.`);
       } else {
         showToast("info", "Modo Web", "Relatório gerado. Abra no desktop para persistir no arquivo local.");
       }
