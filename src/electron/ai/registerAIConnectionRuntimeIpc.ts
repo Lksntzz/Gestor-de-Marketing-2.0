@@ -94,6 +94,13 @@ function secretStoreKey(secretRef: AISecretReference): string {
   return "aiConnectionKey";
 }
 
+function secretRefForStoreKey(storeKey: string): AISecretReference | null {
+  if (storeKey === "openaiApiKey") return "legacy:openaiApiKey";
+  if (storeKey === "geminiApiKey") return "legacy:geminiApiKey";
+  if (storeKey === "aiConnectionKey") return "active:aiConnectionKey";
+  return null;
+}
+
 async function readEncryptedSecretByStoreKey(storeKey: string): Promise<string> {
   if (!safeStorage.isEncryptionAvailable()) return "";
   const filePath = secretsFilePath();
@@ -200,6 +207,12 @@ async function invalidRequest(message: string) {
     code: "INVALID_REQUEST",
     message,
   };
+}
+
+export async function revokeAIConnectionSecretStoreKey(storeKey: string): Promise<void> {
+  const secretRef = secretRefForStoreKey(storeKey);
+  if (!secretRef) return;
+  await runtime.revokeSecret(secretRef);
 }
 
 export async function getAIConnectionRuntimeState() {
