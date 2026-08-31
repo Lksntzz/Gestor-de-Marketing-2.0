@@ -667,6 +667,17 @@ export class StorageManager implements IStorageService {
           }
         }
 
+        const aiConnectionBridge = window.electronAPI as typeof window.electronAPI & {
+          clearAIConnectionCredential?: () => Promise<{ success: boolean }>;
+        };
+        if (!aiConnectionBridge.clearAIConnectionCredential) {
+          throw new Error("A ponte segura da credencial canônica de IA não está disponível para o reset.");
+        }
+        const aiCredentialResult = await aiConnectionBridge.clearAIConnectionCredential();
+        if (!aiCredentialResult?.success) {
+          throw new Error("Não foi possível remover a credencial canônica de IA durante o reset.");
+        }
+
         if (window.electronAPI.deleteSecret) {
           const secretResults = await Promise.all([
             window.electronAPI.deleteSecret("obsidianApiKey"),
