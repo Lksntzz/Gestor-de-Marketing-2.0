@@ -306,7 +306,8 @@ export async function syncWebObsidianNotes(config: ObsidianApiConfig): Promise<O
           const isFolder = itemRelativePath.endsWith("/") || 
                            item?.type === "directory" || 
                            item?.type === "folder" ||
-                           (typeof item === "object" && item?.isFolder === true);
+                           (typeof item === "object" && item?.isFolder === true) ||
+                           (typeof item === "string" && !item.toLowerCase().endsWith(".md") && !item.includes("."));
 
           if (isFolder) {
             // Remove a barra final antes de passar para crawl se necessário, o crawl tratará
@@ -325,14 +326,36 @@ export async function syncWebObsidianNotes(config: ObsidianApiConfig): Promise<O
                 const title = filename.replace(/\.md$/i, "");
                 const folder = pathParts.join("/") || "00_Inbox";
 
+                let frontmatter: Record<string, any> = {};
+                let body = content;
+                const fmMatch = content.match(/^---\r?\n([\s\S]*?)\r?\n---/);
+                if (fmMatch) {
+                  body = content.slice(fmMatch[0].length).trim();
+                  const fmLines = fmMatch[1].split("\n");
+                  for (const line of fmLines) {
+                    const colonIndex = line.indexOf(":");
+                    if (colonIndex > -1) {
+                      const key = line.slice(0, colonIndex).trim();
+                      const value = line.slice(colonIndex + 1).trim().replace(/^['"]|['"]$/g, "");
+                      frontmatter[key] = value;
+                    }
+                  }
+                }
+
+                const tags = Array.isArray(frontmatter.tags)
+                  ? frontmatter.tags
+                  : typeof frontmatter.tags === "string"
+                  ? frontmatter.tags.split(",").map((t: string) => t.trim()).filter(Boolean)
+                  : [];
+
                 notesMap.set(itemRelativePath, {
                   id: `web-${generateFastHash("n", `${folder}/${title}`)}`,
                   path: itemRelativePath,
                   title,
                   folder,
-                  content,
-                  frontmatter: {},
-                  tags: [],
+                  content: body,
+                  frontmatter,
+                  tags,
                   wikilinks: [],
                   lastModified: new Date().toISOString().replace("T", " ").slice(0, 16),
                   syncedWithApi: true,

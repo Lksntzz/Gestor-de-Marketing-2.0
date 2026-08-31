@@ -436,7 +436,11 @@ export class StorageManager implements IStorageService {
       errorMessage: undefined,
     };
 
-    const isSentinel = (val?: string) => val === "saved-in-secure-storage" || val === "********";
+    const isSentinel = (val?: string) => 
+      !val ||
+      val === "saved-in-secure-storage" || 
+      val === "********" || 
+      val.includes("...");
 
     if (!isSentinel(apiKey)) {
       this.volatileSecrets.obsidianApiKey = apiKey || "";

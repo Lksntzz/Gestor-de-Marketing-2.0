@@ -506,7 +506,7 @@ async function scanVaultKnowledge(): Promise<any[]> {
           }
         }
         notes.push({
-          title: entry.name.replace(/\.md$/, ""),
+          title: entry.name.replace(/\.md$/i, ""),
           folder: (relativeDir || "00_Inbox").replace(/\\/g, "/"),
           content: body,
           frontmatter,
