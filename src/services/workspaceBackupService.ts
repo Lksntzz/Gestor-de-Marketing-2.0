@@ -6,6 +6,10 @@ import {
 } from "../domain/workspaceProtection";
 import type { EditorialItem, ObsidianApiConfig } from "../types";
 import { APP_VERSION, localDateKey } from "../utils/reliability";
+import {
+  ensureAIConnectionMetadataMigration,
+  importAIConnectionMetadata,
+} from "./ai/AIConnectionMetadataStore";
 import { APP_STATE_KEYS, StorageManager } from "./storage/StorageManager";
 
 const storage = StorageManager.getInstance();
@@ -40,6 +44,7 @@ async function readEditorialItemsForBackup(): Promise<EditorialItem[]> {
 export async function prepareWorkspaceBackup(config: ObsidianApiConfig): Promise<WorkspaceBackupSummary> {
   const editorialItems = await readEditorialItemsForBackup();
   const validatedEditorialItems = AppStateSchemas.editorialItems.parse(editorialItems);
+  const aiConnection = ensureAIConnectionMetadataMigration(config);
   const jsonString = serializeWorkspaceBackup({
     version: APP_VERSION,
     notes: loadArrayState(APP_STATE_KEYS.NOTES, AppStateSchemas.notes),
@@ -56,7 +61,10 @@ export async function prepareWorkspaceBackup(config: ObsidianApiConfig): Promise
     weeklyRoutine: loadArrayState(APP_STATE_KEYS.WEEKLY_ROUTINE, AppStateSchemas.weeklyRoutine),
     engineMode: storage.loadTextState(APP_STATE_KEYS.ENGINE_MODE, "local", AppStateSchemas.engineMode),
     editorialItems: validatedEditorialItems,
-    apiConfig: config,
+    apiConfig: {
+      ...config,
+      aiConnection,
+    },
   });
 
   return {
@@ -137,9 +145,10 @@ export async function restoreWorkspaceBackupText(
 
   let restoredApiConfig: ObsidianApiConfig | undefined;
   if (plan.apiConfig) {
+    const { aiConnection, ...importedApiConfig } = plan.apiConfig;
     restoredApiConfig = {
       ...currentConfig,
-      ...plan.apiConfig,
+      ...importedApiConfig,
       apiKey: currentConfig.apiKey || "",
       geminiApiKey: currentConfig.geminiApiKey || "",
       openaiApiKey: currentConfig.openaiApiKey || "",
@@ -147,6 +156,12 @@ export async function restoreWorkspaceBackupText(
       errorMessage: undefined,
     };
     await storage.saveApiConfig(restoredApiConfig);
+
+    if (aiConnection) {
+      importAIConnectionMetadata(aiConnection);
+    } else {
+      ensureAIConnectionMetadataMigration(restoredApiConfig);
+    }
   }
 
   return { plan, restoredApiConfig, editorialItemsMerged };

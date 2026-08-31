@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { PersistedAIConnectionSchema } from "./aiConnection";
 
 const StringArray = z.array(z.string());
 const FrontmatterSchema = z.record(z.string(), z.unknown());
@@ -267,6 +268,7 @@ const ImportedApiConfigSchema = z.object({
   allowSelfSignedCerts: z.boolean().optional(),
   aiProvider: z.enum(["gemini", "openai"]).optional(),
   aiModel: z.string().optional(),
+  aiConnection: PersistedAIConnectionSchema.optional(),
   apiKey: z.unknown().optional(),
   geminiApiKey: z.unknown().optional(),
   openaiApiKey: z.unknown().optional(),

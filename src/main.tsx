@@ -4,6 +4,7 @@ import { FolderLock, Settings, ShieldCheck } from "lucide-react";
 import App from "./App.tsx";
 import "./index.css";
 import { api } from "./services/api";
+import { ensureAIConnectionMetadataMigration } from "./services/ai/AIConnectionMetadataStore";
 import { installLegacyTaskImportGuard } from "./services/legacyTaskImportGuard";
 import {
   OBSIDIAN_CONNECTED_EVENT,
@@ -89,6 +90,7 @@ function ObsidianRuntimeGate({ children }: { children: ReactNode }) {
     void (async () => {
       try {
         const config = await storage.loadApiConfig(DEFAULT_API_CONFIG);
+        ensureAIConnectionMetadataMigration(config);
         const vaultPath = window.electronAPI ? await window.electronAPI.getVaultPath() : null;
 
         if (config.endpoint?.trim() && config.apiKey?.trim() && (!window.electronAPI || vaultPath)) {
