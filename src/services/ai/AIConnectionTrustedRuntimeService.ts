@@ -8,6 +8,7 @@ import {
 } from "../../domain/aiConnection";
 import {
   AIConnectionDiscoveryService,
+  type AIProviderDiscoveryFailure,
   type AIProviderDiscoveryResult,
   type DiscoveredAIModel,
 } from "./AIConnectionDiscoveryService";
@@ -94,7 +95,10 @@ function cloneProposal(proposal: AIConnectionRuntimeProposal | null): AIConnecti
   if (!proposal) return undefined;
   return {
     provider: proposal.provider,
-    state: { ...proposal.state, capabilities: proposal.state.capabilities ? [...proposal.state.capabilities] : undefined },
+    state: {
+      ...proposal.state,
+      ...(proposal.state.capabilities ? { capabilities: [...proposal.state.capabilities] } : {}),
+    },
     models: cloneModels(proposal.models),
   };
 }
@@ -110,6 +114,10 @@ function missingSecretState(provider: AIConnectionProvider): PersistedAIConnecti
 function isCredentialRejection(result: AIProviderDiscoveryResult | AIModelValidationResult): boolean {
   if (result.state.status === "CHAVE_INVALIDA") return true;
   return "code" in result && result.code === "CHAVE_INVALIDA";
+}
+
+function isDiscoveryFailure(result: AIProviderDiscoveryResult): result is AIProviderDiscoveryFailure {
+  return result.success === false;
 }
 
 function isValidationFailure(result: AIModelValidationResult): result is AIModelValidationFailure {
@@ -144,9 +152,10 @@ export class AIConnectionTrustedRuntimeService {
   async getSnapshot(): Promise<AIConnectionRuntimeSnapshot> {
     return this.exclusive(async () => {
       const state = await this.loadValidatedState();
+      const proposal = cloneProposal(this.proposal);
       return {
         state,
-        ...(cloneProposal(this.proposal) ? { proposal: cloneProposal(this.proposal) } : {}),
+        ...(proposal ? { proposal } : {}),
       };
     });
   }
@@ -183,7 +192,7 @@ export class AIConnectionTrustedRuntimeService {
         secretRef,
       });
 
-      if (!discovered.success) {
+      if (isDiscoveryFailure(discovered)) {
         this.proposal = null;
 
         if (isActive(current)) {
@@ -225,12 +234,13 @@ export class AIConnectionTrustedRuntimeService {
       const state = isActive(current)
         ? current
         : await this.persistState(proposalState);
+      const proposal = cloneProposal(this.proposal);
 
       return {
         success: true,
         provider,
         state,
-        proposal: cloneProposal(this.proposal),
+        ...(proposal ? { proposal } : {}),
       };
     });
   }
@@ -292,7 +302,7 @@ export class AIConnectionTrustedRuntimeService {
         currentState: proposal.state,
       });
 
-      if (result.success) {
+      if (!isValidationFailure(result)) {
         const state = await this.persistState(result.state);
         this.proposal = null;
         return {
@@ -303,59 +313,63 @@ export class AIConnectionTrustedRuntimeService {
         };
       }
 
+      const failure = result;
+
       if (isActive(current)) {
-        const shouldInvalidateActive = sameCredential(current, provider, secretRef) && isCredentialRejection(result);
+        const shouldInvalidateActive = sameCredential(current, provider, secretRef) && isCredentialRejection(failure);
         if (shouldInvalidateActive) {
-          const state = await this.persistState(result.state);
+          const state = await this.persistState(failure.state);
           this.proposal = null;
           return {
             success: false,
             provider,
-            model: result.model,
+            model: failure.model,
             state,
-            message: result.message,
-            code: result.code,
+            message: failure.message,
+            code: failure.code,
           };
         }
 
-        if (isValidationFailure(result) && result.code === "CHAVE_INVALIDA") {
+        if (failure.code === "CHAVE_INVALIDA") {
           this.proposal = null;
         } else {
           this.proposal = {
             ...proposal,
-            state: result.state,
+            state: failure.state,
           };
         }
 
+        const retainedProposal = cloneProposal(this.proposal);
         return {
           success: false,
           provider,
-          model: result.model,
+          model: failure.model,
           state: current,
-          ...(cloneProposal(this.proposal) ? { proposal: cloneProposal(this.proposal) } : {}),
-          message: result.message,
-          code: result.code,
+          ...(retainedProposal ? { proposal: retainedProposal } : {}),
+          message: failure.message,
+          code: failure.code,
         };
       }
 
-      const state = await this.persistState(result.state);
-      if (result.code === "CHAVE_INVALIDA" || result.code === "MISSING_KEY" || result.code === "INVALID_STATE") {
+      const state = await this.persistState(failure.state);
+      if (failure.code === "CHAVE_INVALIDA" || failure.code === "MISSING_KEY" || failure.code === "INVALID_STATE") {
         this.proposal = null;
       } else {
         this.proposal = {
           ...proposal,
-          state: result.state,
+          state: failure.state,
         };
       }
 
+      const retainedProposal = cloneProposal(this.proposal);
       return {
         success: false,
         provider,
-        model: result.model,
+        model: failure.model,
         state,
-        ...(cloneProposal(this.proposal) ? { proposal: cloneProposal(this.proposal) } : {}),
-        message: result.message,
-        code: result.code,
+        ...(retainedProposal ? { proposal: retainedProposal } : {}),
+        message: failure.message,
+        code: failure.code,
       };
     });
   }
