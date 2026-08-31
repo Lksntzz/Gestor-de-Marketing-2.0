@@ -53,6 +53,18 @@ function defaultSecretRef(provider: AIConnectionProvider): AISecretReference {
   return provider === "openai" ? "legacy:openaiApiKey" : "legacy:geminiApiKey";
 }
 
+function resolveSecretRef(
+  provider: AIConnectionProvider,
+  requested: AISecretReference | undefined,
+  current: AISecretReference | undefined,
+): AISecretReference {
+  const candidate = requested || current;
+  if (candidate === "active:aiConnectionKey") return candidate;
+  if (provider === "openai" && candidate === "legacy:openaiApiKey") return candidate;
+  if (provider === "gemini" && candidate === "legacy:geminiApiKey") return candidate;
+  return defaultSecretRef(provider);
+}
+
 function sanitizeText(value: unknown): string {
   return typeof value === "string" ? value.trim() : "";
 }
@@ -105,7 +117,7 @@ function failureMessage(status: AIProviderDiscoveryFailure["state"]["status"]): 
     case "CHAVE_INVALIDA":
       return "A credencial foi rejeitada pelo provedor selecionado.";
     case "SEM_PERMISSAO":
-      return "A credencial não possui permissão suficiente para listar os modelos disponíveis.";
+      return "A credencial não possui acesso a modelos de geração utilizáveis.";
     case "LIMITE_OU_COTA":
       return "O provedor recusou temporariamente a descoberta por limite ou cota.";
     default:
@@ -193,7 +205,7 @@ export class AIConnectionDiscoveryService {
     request: AIProviderDiscoveryRequest,
   ): Promise<AIProviderDiscoveryResult> {
     const apiKey = request.apiKey.trim();
-    const secretRef = request.secretRef || request.currentState?.secretRef || defaultSecretRef(request.provider);
+    const secretRef = resolveSecretRef(request.provider, request.secretRef, request.currentState?.secretRef);
 
     if (!apiKey) {
       return {
@@ -213,6 +225,17 @@ export class AIConnectionDiscoveryService {
       const models = request.provider === "openai"
         ? await this.discoverOpenAIModels(apiKey)
         : await this.discoverGeminiModels(apiKey);
+
+      if (models.length === 0) {
+        const status = "SEM_PERMISSAO" as const;
+        return {
+          success: false,
+          provider: request.provider,
+          models: [],
+          state: failureState(request.provider, status, secretRef, request.currentState),
+          message: failureMessage(status),
+        };
+      }
 
       const state: PersistedAIConnectionState = {
         schemaVersion: AI_CONNECTION_SCHEMA_VERSION,
