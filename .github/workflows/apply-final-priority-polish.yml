@@ -1,0 +1,37 @@
+name: Apply Final Priority Polish
+
+on:
+  push:
+    branches: [ "refactor/product-consolidation" ]
+    paths:
+      - "scripts/apply-final-priority-polish.mjs"
+      - ".github/workflows/apply-final-priority-polish.yml"
+
+permissions:
+  contents: write
+
+jobs:
+  apply:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Checkout branch
+        uses: actions/checkout@v4
+        with:
+          ref: refactor/product-consolidation
+          fetch-depth: 0
+
+      - name: Apply final polish
+        run: node scripts/apply-final-priority-polish.mjs
+
+      - name: Commit changes
+        run: |
+          if git diff --quiet; then
+            echo "No polish pending."
+            exit 0
+          fi
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add src/utils/dashboardIntelligence.ts src/components/CampaignExecutionHub.tsx
+          git commit -m "fix: expose undefined task priority explicitly"
+          git push origin HEAD:refactor/product-consolidation
