@@ -36,28 +36,39 @@ export function markObsidianRuntimeDisconnected(reason?: string): void {
   }
 }
 
-function mergeSnapshotWithPersistedNotes(notes: ObsidianNote[]): ObsidianNote[] {
-  if (typeof window === "undefined") return notes;
+function normalizedPath(value: unknown): string {
+  return String(value || "").replace(/\\/g, "/").replace(/\/{2,}/g, "/").replace(/^\/+/, "");
+}
 
-  let persisted: ObsidianNote[] = [];
+/**
+ * The physical Vault is the canonical document source. A fresh snapshot
+ * replaces previously synchronized documents so deleted/renamed Markdown does
+ * not remain available to search or AI context. Only explicitly unsynchronized
+ * local drafts are preserved until they are written or discarded.
+ */
+function reconcileSnapshotWithLocalDrafts(notes: ObsidianNote[]): ObsidianNote[] {
+  const byPath = new Map<string, ObsidianNote>();
+
+  for (const note of notes) {
+    const path = normalizedPath(note.path);
+    if (!path) continue;
+    byPath.set(path, { ...note, path, syncedWithApi: true });
+  }
+
+  if (typeof window === "undefined") return Array.from(byPath.values());
+
   try {
     const raw = window.localStorage?.getItem(OBSIDIAN_NOTES_STATE_KEY);
-    const parsed = raw ? JSON.parse(raw) : [];
-    if (Array.isArray(parsed)) persisted = parsed as ObsidianNote[];
-  } catch {
-    persisted = [];
-  }
-
-  const byPath = new Map<string, ObsidianNote>();
-  for (const note of persisted) {
-    if (note && typeof note.path === "string" && note.path.trim()) {
-      byPath.set(note.path.replace(/\\/g, "/"), note);
+    const persisted = raw ? JSON.parse(raw) : [];
+    if (Array.isArray(persisted)) {
+      for (const candidate of persisted as ObsidianNote[]) {
+        const path = normalizedPath(candidate?.path);
+        if (!path || candidate?.syncedWithApi !== false || byPath.has(path)) continue;
+        byPath.set(path, { ...candidate, path, syncedWithApi: false });
+      }
     }
-  }
-  for (const note of notes) {
-    if (!note || typeof note.path !== "string" || !note.path.trim()) continue;
-    const normalizedPath = note.path.replace(/\\/g, "/");
-    byPath.set(normalizedPath, { ...note, path: normalizedPath });
+  } catch {
+    // Invalid legacy state is ignored; the physical snapshot remains authoritative.
   }
 
   return Array.from(byPath.values());
@@ -66,12 +77,12 @@ function mergeSnapshotWithPersistedNotes(notes: ObsidianNote[]): ObsidianNote[] 
 function publishNotesIntoPersistentAppState(notes: ObsidianNote[]): void {
   if (typeof window === "undefined") return;
 
-  const mergedNotes = mergeSnapshotWithPersistedNotes(notes);
+  const reconciledNotes = reconcileSnapshotWithLocalDrafts(notes);
   window.dispatchEvent(
     new CustomEvent(PERSISTENT_STATE_EVENT, {
       detail: {
         key: OBSIDIAN_NOTES_STATE_KEY,
-        value: mergedNotes,
+        value: reconciledNotes,
         sourceId: SNAPSHOT_SOURCE_ID,
       },
     })
@@ -90,8 +101,8 @@ export function publishObsidianSnapshot(notes: ObsidianNote[], folders: string[]
     .filter((note) => note && typeof note.path === "string" && note.path.trim())
     .map((note) => ({
       ...note,
-      path: note.path.replace(/\\/g, "/"),
-      folder: String(note.folder || "00_Inbox").replace(/\\/g, "/"),
+      path: normalizedPath(note.path),
+      folder: normalizedPath(note.folder || "00_Inbox") || "00_Inbox",
       content: typeof note.content === "string" ? note.content : "",
       syncedWithApi: true,
     }));
@@ -102,7 +113,7 @@ export function publishObsidianSnapshot(notes: ObsidianNote[], folders: string[]
     new CustomEvent(OBSIDIAN_SNAPSHOT_EVENT, {
       detail: {
         notes: normalizedNotes,
-        folders: Array.from(new Set(folders.map((folder) => folder.replace(/\\/g, "/")))).sort(),
+        folders: Array.from(new Set(folders.map(normalizedPath).filter(Boolean))).sort(),
       },
     })
   );
