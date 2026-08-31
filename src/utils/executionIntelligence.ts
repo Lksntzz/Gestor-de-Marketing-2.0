@@ -18,6 +18,7 @@ const priorityRank: Record<TaskPriority, number> = {
   high: 1,
   medium: 2,
   low: 3,
+  unspecified: 4,
 };
 
 export function editorialIdFromTask(taskOrId: MarketingTask | string): string | null {
