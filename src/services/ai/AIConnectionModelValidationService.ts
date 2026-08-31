@@ -72,13 +72,19 @@ function secretRefMatchesProvider(provider: AIConnectionProvider, secretRef: AIS
   return secretRef === "legacy:geminiApiKey";
 }
 
-function sanitizeModel(value: unknown): string {
+/**
+ * Normalizes only insignificant surrounding whitespace. Model identifiers are
+ * immutable external identifiers: overlong values fail closed instead of being
+ * truncated into a different identifier.
+ */
+function normalizeModel(value: unknown): string {
   if (typeof value !== "string") return "";
-  return value.trim().slice(0, 200);
+  const model = value.trim();
+  return model.length > 200 ? "" : model;
 }
 
 function isDiscoveredModel(model: string, discoveredModels: readonly DiscoveredAIModel[]): boolean {
-  return discoveredModels.some((item) => sanitizeModel(item?.id) === model);
+  return discoveredModels.some((item) => normalizeModel(item?.id) === model);
 }
 
 function isConfirmedProviderState(
@@ -173,7 +179,7 @@ export class AIConnectionModelValidationService {
 
   async validateAndActivate(request: AIModelValidationRequest): Promise<AIModelValidationResult> {
     const parsedState = parsePersistedAIConnection(request.currentState);
-    const model = sanitizeModel(request.model);
+    const model = normalizeModel(request.model);
     const apiKey = typeof request.apiKey === "string" ? request.apiKey.trim() : "";
 
     if (!parsedState || !isConfirmedProviderState(parsedState, request.provider)) {
