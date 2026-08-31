@@ -61,6 +61,9 @@ jobs:
             $requested = "${{ inputs.version }}".Trim()
             $releaseTag = if ([string]::IsNullOrWhiteSpace($requested)) { "v$pkgVersion" } else { $requested }
             $shouldPublish = if ("${{ inputs.publish }}" -eq "true") { "true" } else { "false" }
+            if ($shouldPublish -eq "true" -and "${{ github.ref_name }}" -ne "main") {
+              throw "Publicação manual estável só é permitida a partir da branch main. Ref atual: ${{ github.ref_name }}"
+            }
           } elseif ("${{ github.event_name }}" -eq "pull_request") {
             $releaseTag = "v$pkgVersion"
             $shouldPublish = "false"
