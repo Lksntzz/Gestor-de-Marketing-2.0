@@ -121,7 +121,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
 
   return (
     <div className="w-full h-full min-h-0 overflow-y-auto no-scrollbar text-text-primary">
-      <div className="max-w-6xl mx-auto w-full flex flex-col gap-5 pb-6">
+      <div className="w-full flex flex-col gap-5 pb-6">
         <header className="flex items-start justify-between gap-4 pb-3 border-b border-outline-border">
           <div>
             <h1 className="text-2xl sm:text-3xl font-black text-text-primary tracking-tight">O que fazer agora?</h1>
