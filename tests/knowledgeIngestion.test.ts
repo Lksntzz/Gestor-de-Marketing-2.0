@@ -21,19 +21,30 @@ describe("knowledge ingestion v2 etapa 3", () => {
     expect(types).toContain("commitKnowledge:");
   });
 
-  test("PDF e imagem preservam o asset quando há Vault físico e não fingem preservação no fluxo REST", async () => {
+  test("PDF, imagem e áudio preservam o original no fluxo físico e no REST sem sobrescrever", async () => {
     const desktop = await read("electron-main.ts");
     const knowledge = await read("src/components/AddKnowledgeView.tsx");
+    const api = await read("src/services/api.ts");
+    const server = await read("server.ts");
 
     expect(desktop).toContain('frontmatter.source_type = "curated_asset"');
     expect(desktop).toContain("frontmatter.asset_path");
     expect(desktop).toContain("frontmatter.asset_mtime");
     expect(desktop).toContain("## Fonte original");
+    expect(desktop).toContain('".mp3"');
+    expect(desktop).toContain('"audio"');
+
     expect(knowledge).toContain("asset: isBinarySource");
     expect(knowledge).toContain("Fonte original preservada");
     expect(knowledge).toContain("physicalVaultPath");
-    expect(knowledge).toContain('source_preservation: "analysis_only_rest_stage1"');
-    expect(knowledge).not.toContain("A preservação do arquivo original exige o runtime desktop");
+    expect(knowledge).toContain("api.pushBinaryAssetToObsidian");
+    expect(knowledge).toContain('source_preservation: "rest_binary_preserved"');
+    expect(knowledge).toContain("api.deleteObsidianPath");
+
+    expect(api).toContain("pushBinaryAssetToObsidian");
+    expect(api).toContain("Já existe um asset com o mesmo caminho no Obsidian");
+    expect(server).toContain("Tipo binário não autorizado para o proxy do Obsidian");
+    expect(server).toContain("Asset binário excede o limite de 20 MB");
   });
 
   test("curadoria manual evita duplicar o mesmo asset no índice automático enquanto a versão não mudou", async () => {
