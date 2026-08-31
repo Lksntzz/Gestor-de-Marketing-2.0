@@ -1,10 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import type { CreativeScript, IdeaItem, ObsidianNote } from "../src/types";
 import {
-  BASE_ONBOARDING_SECTIONS,
-  canonicalBasePath,
-} from "../src/domain/baseOnboarding";
-import {
   creationBriefingBaseStatus,
   validateCreationBriefing,
 } from "../src/domain/creationBriefing";
@@ -15,27 +11,44 @@ import {
   reconcileEditorialTask,
 } from "../src/utils/editorialWorkflow";
 
-function confirmedBaseNotes(): ObsidianNote[] {
-  return BASE_ONBOARDING_SECTIONS.map((section, index) => ({
-    id: `base-${index}`,
-    path: canonicalBasePath(section),
-    title: section.fileTitle,
-    folder: "00_Base",
-    content: `# ${section.title}\n\nConteúdo confirmado pelo usuário.`,
-    frontmatter: {
-      tipo: "Base Inicial",
-      status: "OFICIAL",
-      epistemic_status: "CONFIRMADO",
+function confirmedKnowledgeNotes(): ObsidianNote[] {
+  return [
+    {
+      id: "strategy-positioning",
+      path: "Nisti Marketing/01_Estrategia/Posicionamento.md",
+      title: "Posicionamento",
+      folder: "Nisti Marketing/01_Estrategia",
+      content: "# Posicionamento\n\nDiretrizes confirmadas pelo usuário.",
+      frontmatter: {
+        tipo: "Estratégia",
+        status: "OFICIAL",
+        epistemic_status: "CONFIRMADO",
+      },
+      tags: ["estrategia"],
+      wikilinks: [],
+      lastModified: "2026-08-31 18:00",
     },
-    tags: ["base-inicial"],
-    wikilinks: [],
-    lastModified: "2026-08-29 09:00",
-  }));
+    {
+      id: "product-catalog",
+      path: "Nisti Marketing/02_Produtos/Catalogo.md",
+      title: "Catálogo",
+      folder: "Nisti Marketing/02_Produtos",
+      content: "# Catálogo\n\nInformações confirmadas sobre o produto.",
+      frontmatter: {
+        tipo: "Produto",
+        status: "OFICIAL",
+        epistemic_status: "CONFIRMADO",
+      },
+      tags: ["produto"],
+      wikilinks: [],
+      lastModified: "2026-08-31 18:00",
+    },
+  ];
 }
 
 describe("v1 marketing workflow integration", () => {
-  test("Base → Briefing → Ideia → Aprovado → Planejado → Publicado preserva fontes de verdade", () => {
-    const notes = confirmedBaseNotes();
+  test("Conhecimento → Briefing → Ideia → Aprovado → Planejado → Publicado preserva fontes de verdade", () => {
+    const notes = confirmedKnowledgeNotes();
     expect(creationBriefingBaseStatus(notes)).toEqual({
       ready: true,
       missingDocuments: 0,
@@ -124,7 +137,6 @@ describe("v1 marketing workflow integration", () => {
     expect(completed[0]?.status).toBe("done");
     expect(completed[0]?.completedAt).toBeTruthy();
 
-    // Workflow approval/planning/publication never rewrites epistemic truth.
     expect(script.tags).toContain("workflow:approved");
     expect(notes.every((note) => note.frontmatter.epistemic_status === "CONFIRMADO")).toBe(true);
   });
