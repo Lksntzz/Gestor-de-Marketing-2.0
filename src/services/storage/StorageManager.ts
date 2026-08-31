@@ -161,35 +161,39 @@ export class StorageManager implements IStorageService {
         }
 
         const files = await window.electronAPI!.readNotes();
-        return files.map((f: any) => ({
-          id: f.frontmatter?.id || `note_${generateFastHash("n", f.title)}`,
-          path: `${f.folder}/${f.title}.md`,
-          title: f.title,
-          folder: normalizeTaxonomyFolder(f.folder),
-          content: f.content,
-          tags: Array.isArray(f.frontmatter?.tags) ? f.frontmatter.tags : [],
-          wikilinks: [],
-          frontmatter: {
-            id: f.frontmatter?.id || `note_${generateFastHash("n", f.title)}`,
-            tipo: f.frontmatter?.tipo || "Documento PKM",
-            status: f.frontmatter?.status || "PENDENTE",
-            owner: f.frontmatter?.owner || "Gestor de Marketing Nisti Print",
-            created_at: f.frontmatter?.created_at || new Date().toISOString(),
-            updated_at: f.frontmatter?.updated_at || new Date().toISOString(),
-            confidencialidade: f.frontmatter?.confidencialidade || "Interno",
-            produto: f.frontmatter?.produto || "Não classificado",
-            nicho: f.frontmatter?.nicho || "Não classificado",
-            canal: f.frontmatter?.canal || "Não classificado",
-            projeto: f.frontmatter?.projeto || "Geral",
+        return files.map((f: any) => {
+          const sourcePath = `${f.folder || "00_Inbox"}/${f.title}.md`;
+          const fallbackId = `note_${generateFastHash("n", sourcePath)}`;
+          return {
+            id: f.frontmatter?.id || fallbackId,
+            path: sourcePath,
+            title: f.title,
+            folder: normalizeTaxonomyFolder(f.folder),
+            content: f.content,
             tags: Array.isArray(f.frontmatter?.tags) ? f.frontmatter.tags : [],
-            origem: f.frontmatter?.origem || "Obsidian Local Vault",
-            approved_by: f.frontmatter?.approved_by || "",
-            hash: f.frontmatter?.hash || generateFastHash("h", f.title),
-          },
-          lastModified: new Date(f.mtime || Date.now()).toISOString().substring(0, 16),
-          syncedWithApi: true,
-          isDemoData: false,
-        }));
+            wikilinks: [],
+            frontmatter: {
+              id: f.frontmatter?.id || fallbackId,
+              tipo: f.frontmatter?.tipo || "Documento PKM",
+              status: f.frontmatter?.status || "PENDENTE",
+              owner: f.frontmatter?.owner || "Gestor de Marketing Nisti Print",
+              created_at: f.frontmatter?.created_at || new Date().toISOString(),
+              updated_at: f.frontmatter?.updated_at || new Date().toISOString(),
+              confidencialidade: f.frontmatter?.confidencialidade || "Interno",
+              produto: f.frontmatter?.produto || "Não classificado",
+              nicho: f.frontmatter?.nicho || "Não classificado",
+              canal: f.frontmatter?.canal || "Não classificado",
+              projeto: f.frontmatter?.projeto || "Geral",
+              tags: Array.isArray(f.frontmatter?.tags) ? f.frontmatter.tags : [],
+              origem: f.frontmatter?.origem || "Obsidian Local Vault",
+              approved_by: f.frontmatter?.approved_by || "",
+              hash: f.frontmatter?.hash || generateFastHash("h", sourcePath),
+            },
+            lastModified: new Date(f.mtime || Date.now()).toISOString().substring(0, 16),
+            syncedWithApi: true,
+            isDemoData: false,
+          };
+        });
       } catch (err) {
         console.warn("Desktop Vault read failed closed:", err);
         return [];

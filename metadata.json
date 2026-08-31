@@ -1,6 +1,6 @@
 {
-  "name": "Gestor de Marketing Obsidian AI",
-  "description": "Gestor de marketing inteligente integrado ao Obsidian com rotina de ideias e roteiros baseada em emoções, nichos e métricas reais, centralizando histórico, relatórios pós-morte e aprendizados.",
+  "name": "Nisti Marketing",
+  "description": "Aplicativo local-first de gestão de marketing integrado ao Obsidian e a provedores de IA configurados pelo usuário.",
   "requestFramePermissions": [],
   "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
 }

@@ -1,6 +1,6 @@
 # Release Readiness — Nisti Marketing 2.2.0
 
-Status: **release candidate preparado; ainda não publicado**.
+Status: **publicado em 30/08/2026 no commit `b7f51b4`**.
 
 Este documento registra os gates técnicos e de produto para a primeira release do fluxo consolidado do Nisti Marketing após a auditoria de ferramentas e a refatoração do V1.
 
@@ -51,8 +51,8 @@ Principais entregas desde 2.1.11:
 - [x] Testes Node cobrindo integração desktop/filesystem/SQLite.
 - [x] Build Web/backend/Electron validado pela Quality Gate.
 - [x] Smoke do backend empacotado validado pela Quality Gate.
-- [ ] Quality Gate verde no commit exato da versão 2.2.0.
-- [ ] Windows Desktop Runtime Test verde no commit exato da versão 2.2.0.
+- [x] Quality Gate verde no commit exato da versão 2.2.0.
+- [x] Windows Desktop Runtime Test verde no commit exato da versão 2.2.0.
 
 Os dois itens acima são atualizados pelo CI após o commit de preparação da versão. A publicação não deve ocorrer se qualquer um falhar.
 
@@ -66,7 +66,7 @@ Os dois itens acima são atualizados pelo CI após o commit de preparação da v
 - [x] updater stable não aceita downgrade nem prerelease.
 - [x] ciclo real 2.1.10 → 2.1.11 já validou download, instalação silenciosa e reabertura.
 
-A próxima tag válida é **`v2.2.0`**. Não reutilizar `v2.1.11` e não publicar a mesma versão novamente.
+A release **`v2.2.0`** foi publicada. A próxima correção prevista é **`v2.2.1`**; não republicar nem mover a tag `v2.2.0`.
 
 ## Authenticode
 
@@ -80,13 +80,13 @@ Classificação para 2.2.0: **não bloqueante**, desde que o risco de UX do Smar
 
 A remoção física desses handlers é dívida técnica posterior e não deve ser misturada ao release se exigir reescrever o compositor central sem ganho de segurança em runtime.
 
-## Critério de GO
+## Registro do GO
 
-A 2.2.0 pode receber tag/release somente quando:
+A 2.2.0 recebeu tag/release após:
 
 1. `package.json` e `APP_VERSION` estiverem em `2.2.0`;
 2. Quality Gate e Windows Desktop Runtime Test estiverem verdes no mesmo head;
 3. não existir regression crítica aberta no fluxo `Base → Criar → Planejar → Executar`;
-4. houver decisão explícita de publicar `v2.2.0`.
+4. decisão explícita de publicar `v2.2.0`.
 
-Até essa decisão, o repositório fica em estado **release candidate**, sem tag e sem atualização distribuída aos usuários.
+Os quatro critérios foram atendidos e a atualização foi distribuída pelo GitHub Releases. Pendências posteriores pertencem à estabilização 2.2.1.

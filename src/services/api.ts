@@ -793,50 +793,6 @@ export const api = {
     return await res.json();
   },
 
-  async generateIdeas(payload: any) {
-    const { knowledgeSources } = await selectMarketingKnowledge(
-      payload.knowledgeNotes,
-      `Ideias de conteúdo: objetivo ${payload.objective}, formato ${payload.format} para ${payload.channel}`,
-      []
-    );
-    const res = await fetch("/api/ai/generate-ideas", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ ...payload, knowledgeSources }),
-    });
-    if (!res.ok) throw new Error("Falha ao gerar ideias");
-    return res.json();
-  },
-
-  async planWeek(payload: any) {
-    const { knowledgeSources } = await selectMarketingKnowledge(
-      [],
-      `Planejamento semanal: ${payload.count} conteúdos, plataformas: ${payload.platforms?.join(',')}`,
-      []
-    );
-    const res = await fetch("http://localhost:3000/api/ai/plan-week", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ ...payload, knowledgeSources }),
-    });
-    return res.json();
-  },
-
-  async generateScript(payload: any) {
-    const { knowledgeSources } = await selectMarketingKnowledge(
-      payload.knowledgeNotes,
-      `Roteiro para ideia: ${payload.idea}, formato ${payload.format} na plataforma ${payload.platform}`,
-      []
-    );
-    const res = await fetch("/api/ai/generate-script", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ ...payload, knowledgeSources }),
-    });
-    if (!res.ok) throw new Error("Falha ao gerar roteiro");
-    return res.json();
-  },
-
   async generateCampaign(payload: GenerateCampaignPayload) {
     const headers = await getAIRequestHeaders();
     const { knowledgeNotes, preferredSourcePaths, ...requestPayload } = payload;

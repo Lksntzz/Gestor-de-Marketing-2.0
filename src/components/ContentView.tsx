@@ -34,6 +34,8 @@ import {
   resolveCreativeScriptType,
 } from "../utils/contentWorkflow";
 
+const IDEA_GENERATION_COUNT = 5;
+
 interface ContentViewProps {
   ideas: IdeaItem[];
   scripts: CreativeScript[];
@@ -242,7 +244,7 @@ export const ContentView: React.FC<ContentViewProps> = ({
         channel: normalizedBriefing.channel,
         theme: normalizedBriefing.theme,
         customInstructions: briefingInstructions,
-        count: 3,
+        count: IDEA_GENERATION_COUNT,
         engineMode,
         knowledgeNotes: notes,
       });
@@ -673,7 +675,7 @@ export const ContentView: React.FC<ContentViewProps> = ({
               <h2 className="font-bold text-base">Briefing confirmado</h2>
               <dl className="mt-4 space-y-3 text-xs"><div><dt className="text-text-secondary">Objetivo</dt><dd className="font-bold mt-0.5">{normalizedBriefing.objective}</dd></div><div><dt className="text-text-secondary">Formato</dt><dd className="font-bold mt-0.5">{normalizedBriefing.format}</dd></div><div><dt className="text-text-secondary">Canal</dt><dd className="font-bold mt-0.5">{normalizedBriefing.channel}</dd></div>{normalizedBriefing.theme && <div><dt className="text-text-secondary">Tema</dt><dd className="font-bold mt-0.5">{normalizedBriefing.theme}</dd></div>}{normalizedBriefing.instructions && <div><dt className="text-text-secondary">Restrições</dt><dd className="mt-0.5 leading-relaxed">{normalizedBriefing.instructions}</dd></div>}</dl>
               <button onClick={() => setStage("briefing")} className="mt-4 text-[11px] font-bold text-pink-300 hover:underline">Editar briefing</button>
-              <button disabled={isGenerating} onClick={() => void handleGenerateIdeas()} className="w-full mt-5 bg-pink-600 hover:bg-pink-500 text-white rounded-xl py-3 font-bold text-sm flex items-center justify-center disabled:opacity-40">{isGenerating ? <Loader2 className="w-5 h-5 animate-spin" /> : <><Sparkles className="w-4 h-4 mr-2" />Gerar 3 ideias</>}</button>
+              <button disabled={isGenerating} onClick={() => void handleGenerateIdeas()} className="w-full mt-5 bg-pink-600 hover:bg-pink-500 text-white rounded-xl py-3 font-bold text-sm flex items-center justify-center disabled:opacity-40">{isGenerating ? <Loader2 className="w-5 h-5 animate-spin" /> : <><Sparkles className="w-4 h-4 mr-2" />Gerar {IDEA_GENERATION_COUNT} ideias</>}</button>
               <SourceTrace sources={sources} warning={contextWarning} />
             </aside>
             <section className="bg-surface-card border border-outline-border p-5 rounded-2xl min-h-[420px]">

@@ -1,5 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import type { MarketingTask } from "../src/types";
+import { generateFastHash } from "../src/utils/crypto";
 import {
   dateForRoutineDay,
   isReminderDue,
@@ -28,6 +29,12 @@ function task(overrides: Partial<MarketingTask> = {}): MarketingTask {
 }
 
 describe("reliability utilities", () => {
+  test("generates deterministic fallback IDs and separates equal titles by path", () => {
+    const first = generateFastHash("n", "00_Base/Empresa.md");
+    expect(generateFastHash("n", "00_Base/Empresa.md")).toBe(first);
+    expect(generateFastHash("n", "00_Inbox/Empresa.md")).not.toBe(first);
+  });
+
   test("uses local calendar date without UTC conversion", () => {
     expect(localDateKey(new Date(2026, 7, 26, 23, 59, 0))).toBe("2026-08-26");
   });

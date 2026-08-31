@@ -24,14 +24,15 @@ export async function sha256(content: string): Promise<string> {
 }
 
 export function generateFastHash(prefix: string, content: string): string {
-  let hash = 0;
+  // FNV-1a 64-bit keeps fallback identifiers deterministic while making
+  // collisions materially less likely than the previous signed 32-bit hash.
+  let hash = 0xcbf29ce484222325n;
   for (let i = 0; i < content.length; i++) {
-    const char = content.charCodeAt(i);
-    hash = (hash << 5) - hash + char;
-    hash |= 0;
+    hash ^= BigInt(content.charCodeAt(i));
+    hash = BigInt.asUintN(64, hash * 0x100000001b3n);
   }
   const cleanPrefix = prefix.replace(/[^a-zA-Z0-9]/g, "").slice(0, 4) || "np";
-  return `${cleanPrefix}_${Math.abs(hash).toString(36)}_${Date.now().toString(36).slice(-4)}`;
+  return `${cleanPrefix}_${hash.toString(36)}_${content.length.toString(36)}`;
 }
 
 export function generateUUID(): string {
@@ -116,7 +117,7 @@ async function getEncryptionKey(): Promise<CryptoKey> {
 
 /**
  * Encrypts credentials with a random non-extractable AES-GCM key.
- * Falls back to a safe base64-based encoding if IndexedDB or Web Crypto is blocked by an iframe sandbox.
+ * Fails closed when the browser cannot provide the required secure primitives.
  */
 export async function encryptSecret(plainText: string): Promise<string> {
   if (!plainText) return "";
@@ -132,33 +133,16 @@ export async function encryptSecret(plainText: string): Promise<string> {
     };
     return `enc_v3:${btoa(JSON.stringify(payload))}`;
   } catch (err) {
-    console.warn("Secure encryption failed, falling back to base64 encoding due to iframe sandbox:", err);
-    try {
-      return `fallback_b64:${btoa(unescape(encodeURIComponent(plainText)))}`;
-    } catch (e) {
-      return `fallback_plain:${plainText}`;
-    }
+    console.warn("Secure encryption is unavailable; credential persistence was blocked.", err);
+    throw new Error("Não foi possível proteger a credencial neste ambiente.");
   }
 }
 
 /**
- * Accepts both AES-GCM (enc_v3) and fallback sandbox encodings (fallback_b64, fallback_plain).
+ * Accepts only AES-GCM payloads. Reversible legacy fallbacks are rejected.
  */
 export async function decryptSecret(cipherText: string): Promise<string> {
   if (!cipherText) return "";
-  
-  if (cipherText.startsWith("fallback_b64:")) {
-    try {
-      return decodeURIComponent(escape(atob(cipherText.slice("fallback_b64:".length))));
-    } catch (err) {
-      console.warn("Failed to decode fallback_b64 secret:", err);
-      return "";
-    }
-  }
-
-  if (cipherText.startsWith("fallback_plain:")) {
-    return cipherText.slice("fallback_plain:".length);
-  }
 
   if (!cipherText.startsWith("enc_v3:")) return "";
 

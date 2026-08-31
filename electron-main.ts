@@ -1,8 +1,9 @@
-import { app, BrowserWindow, ipcMain, dialog, Menu, safeStorage } from "electron";
+import { app, BrowserWindow, ipcMain, dialog, Menu, safeStorage, shell } from "electron";
 import * as path from "path";
 import * as fs from "fs/promises";
 import { existsSync } from "fs";
 import crypto from "crypto";
+import { pathToFileURL } from "url";
 import { DEFAULT_AI_MODELS, executeWithModelFallback } from "./src/services/ai/AIProviderFactory";
 import type { AIProviderName } from "./src/services/ai/AIProvider";
 import { KnowledgeIndex } from "./src/services/knowledge/index/KnowledgeIndex";
@@ -10,6 +11,11 @@ import { VaultIndexer } from "./src/services/knowledge/index/VaultIndexer";
 import { VaultWatcher } from "./src/services/knowledge/index/VaultWatcher";
 import { knowledgeContextService } from "./src/services/knowledge/KnowledgeContextService";
 import { AutoUpdateService } from "./src/electron/update/AutoUpdateService";
+import {
+  assertTrustedIpcSender,
+  isAllowedExternalUrl,
+  isTrustedRendererUrl,
+} from "./src/electron/security/trustedRenderer";
 
 let mainWindow: BrowserWindow | null = null;
 let selectedVaultPath: string | null = null;
@@ -115,22 +121,23 @@ async function loadConfig() {
   }
 }
 
-async function saveConfig(updates: any) {
-  try {
-    let currentConfig: any = {};
-    if (existsSync(configFilePath)) {
-      currentConfig = JSON.parse(await fs.readFile(configFilePath, "utf8"));
-    }
-    const safeUpdates = { ...updates };
-    delete safeUpdates.apiKey;
-    delete safeUpdates.geminiApiKey;
-    delete safeUpdates.openaiApiKey;
-    delete safeUpdates.token;
-    delete safeUpdates.authorization;
-    await fs.writeFile(configFilePath, JSON.stringify({ ...currentConfig, ...safeUpdates }, null, 2), "utf8");
-  } catch (err) {
-    console.error("Failed to save config:", err);
+async function saveConfig(updates: Record<string, unknown>): Promise<void> {
+  let currentConfig: Record<string, unknown> = {};
+  if (existsSync(configFilePath)) {
+    currentConfig = JSON.parse(await fs.readFile(configFilePath, "utf8"));
   }
+  const safeUpdates = { ...updates };
+  delete safeUpdates.apiKey;
+  delete safeUpdates.geminiApiKey;
+  delete safeUpdates.openaiApiKey;
+  delete safeUpdates.token;
+  delete safeUpdates.authorization;
+  await fs.mkdir(configDir, { recursive: true });
+  await fs.writeFile(
+    configFilePath,
+    JSON.stringify({ ...currentConfig, ...safeUpdates }, null, 2),
+    { encoding: "utf8", mode: 0o600 },
+  );
 }
 
 async function loadAssetIndex(): Promise<AssetIndex> {
@@ -181,7 +188,8 @@ async function getAIConfig(): Promise<{ provider: AIProviderName; model: string;
   };
 }
 
-ipcMain.handle("ai:config:set", async (_, config: { provider?: string; model?: string }) => {
+ipcMain.handle("ai:config:set", async (event, config: { provider?: string; model?: string }) => {
+  assertTrustedIpcSender(event);
   const provider = config?.provider === "openai" ? "openai" : "gemini";
   await saveConfig({ aiProvider: provider, aiModel: String(config?.model || "").trim() });
   return { success: true };
@@ -549,6 +557,50 @@ async function scanVaultKnowledge(): Promise<any[]> {
   return notes;
 }
 
+async function writeRuntimeHealthProbe(window: BrowserWindow): Promise<void> {
+  const requestedPath = String(process.env.NISTI_RUNTIME_HEALTH_FILE || "").trim();
+  if (!requestedPath) return;
+
+  const healthPath = path.resolve(requestedPath);
+  let rendererState: {
+    title?: string;
+    location?: string;
+    rendererReady?: boolean;
+    preloadReady?: boolean;
+  } = {};
+
+  for (let attempt = 0; attempt < 40; attempt += 1) {
+    rendererState = await window.webContents.executeJavaScript(`(() => {
+      const root = document.getElementById("root");
+      return {
+        title: document.title,
+        location: window.location.href,
+        rendererReady: Boolean(root && root.childElementCount > 0),
+        preloadReady: Boolean(window.electronAPI),
+      };
+    })()`, true);
+    if (rendererState.rendererReady && rendererState.preloadReady) break;
+    await new Promise((resolve) => setTimeout(resolve, 250));
+  }
+
+  const rendererUrl = String(rendererState.location || "");
+  const backendReady = (() => {
+    try {
+      const parsed = new URL(rendererUrl);
+      return parsed.protocol === "http:" && parsed.hostname === "127.0.0.1";
+    } catch {
+      return false;
+    }
+  })();
+
+  await fs.mkdir(path.dirname(healthPath), { recursive: true });
+  await fs.writeFile(healthPath, JSON.stringify({
+    ...rendererState,
+    backendReady,
+    checkedAt: new Date().toISOString(),
+  }, null, 2), { encoding: "utf8", mode: 0o600 });
+}
+
 function createWindow() {
   const baseDir = __dirname.endsWith("dist") ? __dirname : path.join(__dirname, "dist");
   const indexPath = path.join(baseDir, "index.html");
@@ -569,6 +621,33 @@ function createWindow() {
     }
   });
   mainWindow.setMenuBarVisibility(false);
+
+  const handleExternalNavigation = (event: Electron.Event, url: string) => {
+    const currentUrl = mainWindow?.webContents.getURL() || "";
+    const isSameAppOrigin = (() => {
+      if (!isTrustedRendererUrl(url) || !isTrustedRendererUrl(currentUrl)) return false;
+      try {
+        return new URL(url).origin === new URL(currentUrl).origin;
+      } catch {
+        return false;
+      }
+    })();
+    if (isSameAppOrigin || url === pathToFileURL(indexPath).href) return;
+    event.preventDefault();
+    if (isAllowedExternalUrl(url)) {
+      void shell.openExternal(url);
+    }
+  };
+
+  mainWindow.webContents.on("will-navigate", handleExternalNavigation);
+  mainWindow.webContents.on("will-redirect", handleExternalNavigation);
+  mainWindow.webContents.setWindowOpenHandler(({ url }) => {
+    if (isAllowedExternalUrl(url)) {
+      void shell.openExternal(url);
+    }
+    return { action: "deny" };
+  });
+
   if (process.env.NODE_ENV === "development") {
     mainWindow.loadURL("http://localhost:3000");
   } else {
@@ -577,6 +656,11 @@ function createWindow() {
   mainWindow.webContents.on("did-fail-load", (_event, errorCode, errorDescription) => console.error("Falha ao carregar conteúdo:", errorCode, errorDescription));
   mainWindow.webContents.on("did-finish-load", () => {
     AutoUpdateService.getInstance().startBackgroundChecks();
+    if (mainWindow) {
+      void writeRuntimeHealthProbe(mainWindow).catch((error) => {
+        console.error("Falha ao gravar o probe de runtime do Electron:", error);
+      });
+    }
   });
   mainWindow.on("closed", () => { mainWindow = null; });
 }
@@ -615,7 +699,8 @@ app.on("before-quit", () => {
   }
 });
 
-ipcMain.handle("vault:select", async () => {
+ipcMain.handle("vault:select", async (event) => {
+  assertTrustedIpcSender(event);
   if (!mainWindow) return null;
   const result = await dialog.showOpenDialog(mainWindow, {
     title: "Selecione a pasta raiz do Vault do Obsidian — Nisti Marketing",
@@ -623,20 +708,28 @@ ipcMain.handle("vault:select", async () => {
   });
   if (result.canceled || result.filePaths.length === 0) return null;
   const vaultPath = path.resolve(result.filePaths[0]);
-  selectedVaultPath = vaultPath;
-  startVaultWatcher(vaultPath);
   await ensureStandardFolders(vaultPath);
   await saveConfig({ vaultPath });
+  selectedVaultPath = vaultPath;
+  startVaultWatcher(vaultPath);
   return { vaultPath, foldersCreated: STANDARD_FOLDERS };
 });
 
-ipcMain.handle("vault:get-path", () => selectedVaultPath);
-ipcMain.handle("vault:connection-state", (_event, connected: boolean) => {
+ipcMain.handle("vault:get-path", (event) => {
+  assertTrustedIpcSender(event);
+  return selectedVaultPath;
+});
+ipcMain.handle("vault:connection-state", (event, connected: boolean) => {
+  assertTrustedIpcSender(event);
   obsidianConnectionAuthorized = connected === true;
   return { success: true, connected: obsidianConnectionAuthorized };
 });
-ipcMain.handle("vault:list-folders", async () => await listVaultFolders());
-ipcMain.handle("knowledge:query", async (_, query: string, preferredPaths?: string[]) => {
+ipcMain.handle("vault:list-folders", async (event) => {
+  assertTrustedIpcSender(event);
+  return await listVaultFolders();
+});
+ipcMain.handle("knowledge:query", async (event, query: string, preferredPaths?: string[]) => {
+  assertTrustedIpcSender(event);
   if (!selectedVaultPath) return { sources: [] };
   const vaultId = crypto.createHash("sha256").update(selectedVaultPath).digest("hex");
   const index = requireKnowledgeIndex();
@@ -663,9 +756,13 @@ ipcMain.handle("knowledge:query", async (_, query: string, preferredPaths?: stri
 
   return { sources: selection.sources, warning: selection.warning };
 });
-ipcMain.handle("notes:read-all", async () => await scanVaultKnowledge());
+ipcMain.handle("notes:read-all", async (event) => {
+  assertTrustedIpcSender(event);
+  return await scanVaultKnowledge();
+});
 
-ipcMain.handle("knowledge:commit", async (_, payload: KnowledgeCommitPayload) => {
+ipcMain.handle("knowledge:commit", async (event, payload: KnowledgeCommitPayload) => {
+  assertTrustedIpcSender(event);
   let persistedAssetPath: string | null = null;
   try {
     const folder = await requireExistingVaultFolder(payload.folder);
@@ -740,7 +837,8 @@ ipcMain.handle("knowledge:commit", async (_, payload: KnowledgeCommitPayload) =>
   }
 });
 
-ipcMain.handle("notes:write", async (_, payload: { folder: string; title: string; content: string; frontmatter?: any }) => {
+ipcMain.handle("notes:write", async (event, payload: { folder: string; title: string; content: string; frontmatter?: any }) => {
+  assertTrustedIpcSender(event);
   try {
     const filename = payload.title.endsWith(".md") ? payload.title : `${payload.title}.md`;
     const resolvedPath = validateAndResolvePath(payload.folder, filename);
@@ -753,7 +851,8 @@ ipcMain.handle("notes:write", async (_, payload: { folder: string; title: string
   }
 });
 
-ipcMain.handle("notes:append", async (_, payload: { folder: string; title: string; contentToAppend: string }) => {
+ipcMain.handle("notes:append", async (event, payload: { folder: string; title: string; contentToAppend: string }) => {
+  assertTrustedIpcSender(event);
   try {
     const filename = payload.title.endsWith(".md") ? payload.title : `${payload.title}.md`;
     const resolvedPath = validateAndResolvePath(payload.folder, filename);
@@ -768,7 +867,8 @@ ipcMain.handle("notes:append", async (_, payload: { folder: string; title: strin
   }
 });
 
-ipcMain.handle("notes:upsert-section", async (_, payload: { folder: string; title: string; sectionId: string; heading: string; content: string }) => {
+ipcMain.handle("notes:upsert-section", async (event, payload: { folder: string; title: string; sectionId: string; heading: string; content: string }) => {
+  assertTrustedIpcSender(event);
   try {
     const filename = payload.title.endsWith(".md") ? payload.title : `${payload.title}.md`;
     const resolvedPath = validateAndResolvePath(payload.folder, filename);
@@ -782,7 +882,8 @@ ipcMain.handle("notes:upsert-section", async (_, payload: { folder: string; titl
   }
 });
 
-ipcMain.handle("notes:delete", async (_, payload: { folder: string; title: string }) => {
+ipcMain.handle("notes:delete", async (event, payload: { folder: string; title: string }) => {
+  assertTrustedIpcSender(event);
   try {
     const filename = payload.title.endsWith(".md") ? payload.title : `${payload.title}.md`;
     const resolvedPath = validateAndResolvePath(payload.folder, filename);
@@ -796,7 +897,8 @@ ipcMain.handle("notes:delete", async (_, payload: { folder: string; title: strin
   }
 });
 
-ipcMain.handle("editorial:list", async () => {
+ipcMain.handle("editorial:list", async (event) => {
+  assertTrustedIpcSender(event);
   const index = requireKnowledgeIndex();
   return index.getEditorialItems().map(row => ({
     id: row.id,
@@ -818,35 +920,43 @@ ipcMain.handle("editorial:list", async () => {
   }));
 });
 
-ipcMain.handle("editorial:upsert", async (_, item: any) => {
+ipcMain.handle("editorial:upsert", async (event, item: any) => {
+  assertTrustedIpcSender(event);
   const index = requireKnowledgeIndex();
   index.upsertEditorialItem(item);
   return { success: true };
 });
 
-ipcMain.handle("editorial:delete", async (_, id: string) => {
+ipcMain.handle("editorial:delete", async (event, id: string) => {
+  assertTrustedIpcSender(event);
   const index = requireKnowledgeIndex();
   index.deleteEditorialItem(id);
   return { success: true };
 });
 
-ipcMain.handle("system:status", () => ({
-  os: process.platform,
-  appName: "Nisti Marketing",
-  vaultPath: selectedVaultPath,
-  obsidianConnectionAuthorized,
-  runtime: "electron",
-  isDesktop: true,
-}));
+ipcMain.handle("system:status", (event) => {
+  assertTrustedIpcSender(event);
+  return {
+    os: process.platform,
+    appName: "Nisti Marketing",
+    vaultPath: selectedVaultPath,
+    obsidianConnectionAuthorized,
+    runtime: "electron",
+    isDesktop: true,
+  };
+});
 
-ipcMain.handle("update:get-status", async () => {
+ipcMain.handle("update:get-status", async (event) => {
+  assertTrustedIpcSender(event);
   return AutoUpdateService.getInstance().getState();
 });
 
-ipcMain.handle("update:check", async () => {
+ipcMain.handle("update:check", async (event) => {
+  assertTrustedIpcSender(event);
   return AutoUpdateService.getInstance().checkForUpdates();
 });
 
-ipcMain.handle("update:install", async () => {
+ipcMain.handle("update:install", async (event) => {
+  assertTrustedIpcSender(event);
   return AutoUpdateService.getInstance().installUpdate();
 });
