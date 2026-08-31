@@ -93,10 +93,23 @@ describe("AI connection stage 1 contract", () => {
     )).toEqual(createEmptyAIConnection());
   });
 
-  test("active state requires the minimum confirmed identifiers", () => {
+  test("legacy migration drops overlong model hints instead of truncating identifiers", () => {
+    const overlongModel = `model-${"x".repeat(210)}`;
+    const result = migrateAIConnectionConfig(
+      { aiProvider: "openai", aiModel: overlongModel },
+      { legacySecrets: { openai: true } },
+    );
+
+    expect(result.status).toBe("PROVEDOR_POSSIVEL");
+    expect(result.providerCandidate).toBe("openai");
+    expect(result.modelCandidate).toBeUndefined();
+  });
+
+  test("active state requires identity and both confirmation timestamps", () => {
     expect(parsePersistedAIConnection({
       schemaVersion: 1,
       status: "CONEXAO_ATIVA",
+      connectionId: "conn_test",
       provider: "openai",
       model: "gpt-5-mini",
       secretRef: "active:aiConnectionKey",
@@ -109,7 +122,27 @@ describe("AI connection stage 1 contract", () => {
       provider: "openai",
       model: "gpt-5-mini",
       secretRef: "active:aiConnectionKey",
+      credentialConfirmedAt: "2026-08-31T00:00:00.000Z",
+      modelConfirmedAt: "2026-08-31T00:01:00.000Z",
     })?.status).toBe("CONEXAO_ATIVA");
+  });
+
+  test("provider and legacy secret reference must remain compatible", () => {
+    expect(parsePersistedAIConnection({
+      schemaVersion: 1,
+      status: "AGUARDANDO_MODELO",
+      connectionId: "conn_mismatch",
+      provider: "openai",
+      secretRef: "legacy:geminiApiKey",
+      credentialConfirmedAt: "2026-08-31T00:00:00.000Z",
+    })).toBeNull();
+
+    expect(parsePersistedAIConnection({
+      schemaVersion: 1,
+      status: "PROVEDOR_POSSIVEL",
+      providerCandidate: "gemini",
+      secretRef: "legacy:openaiApiKey",
+    })).toBeNull();
   });
 
   test("backup import removes trust claims and secret references", () => {

@@ -32,6 +32,15 @@ export type AISecretReference = z.infer<typeof AISecretReferenceSchema>;
 
 const IsoTimestampSchema = z.string().datetime({ offset: true });
 
+function legacySecretRefMatchesProvider(
+  provider: AIConnectionProvider,
+  secretRef: AISecretReference,
+): boolean {
+  if (secretRef === "active:aiConnectionKey") return true;
+  if (provider === "openai") return secretRef === "legacy:openaiApiKey";
+  return secretRef === "legacy:geminiApiKey";
+}
+
 /**
  * Persisted metadata for the single AI connection.
  *
@@ -61,11 +70,30 @@ export const PersistedAIConnectionSchema = z.object({
     }
   }
 
+  const referencedProvider = state.provider ?? state.providerCandidate;
+  if (
+    referencedProvider &&
+    state.secretRef &&
+    !legacySecretRefMatchesProvider(referencedProvider, state.secretRef)
+  ) {
+    ctx.addIssue({
+      code: "custom",
+      message: "secretRef legado deve corresponder ao provedor associado à conexão.",
+    });
+  }
+
   if (state.status === "CONEXAO_ATIVA") {
-    if (!state.connectionId || !state.provider || !state.model || !state.secretRef) {
+    if (
+      !state.connectionId ||
+      !state.provider ||
+      !state.model ||
+      !state.secretRef ||
+      !state.credentialConfirmedAt ||
+      !state.modelConfirmedAt
+    ) {
       ctx.addIssue({
         code: "custom",
-        message: "CONEXAO_ATIVA exige connectionId, provider, model e secretRef.",
+        message: "CONEXAO_ATIVA exige identidade, provedor, modelo, secretRef e timestamps de confirmação.",
       });
     }
   }
@@ -108,7 +136,8 @@ function normalizeLegacyProvider(value: unknown): AIConnectionProvider | undefin
 function normalizeLegacyModel(value: unknown): string | undefined {
   if (typeof value !== "string") return undefined;
   const model = value.trim();
-  return model ? model.slice(0, 200) : undefined;
+  if (!model || model.length > 200) return undefined;
+  return model;
 }
 
 function legacySecretRef(provider: AIConnectionProvider): AISecretReference {
