@@ -30,6 +30,15 @@ contextBridge.exposeInMainWorld("electronAPI", {
   deleteSecret: (name: string) => ipcRenderer.invoke("secret:delete", name),
   setAIConfig: (config: { provider: "gemini" | "openai"; model?: string }) => ipcRenderer.invoke("ai:config:set", config),
 
+  // New single-connection bridge. Credentials and discovered model lists never
+  // cross from the renderer into these IPC calls.
+  getAIConnectionState: () => ipcRenderer.invoke("ai-connection:get-state"),
+  resetAIConnectionState: () => ipcRenderer.invoke("ai-connection:reset"),
+  confirmAIProvider: (provider: "gemini" | "openai") =>
+    ipcRenderer.invoke("ai-connection:confirm-provider", { provider }),
+  validateAIModel: (provider: "gemini" | "openai", model: string) =>
+    ipcRenderer.invoke("ai-connection:validate-model", { provider, model }),
+
   getSystemStatus: () => ipcRenderer.invoke("system:status"),
   getUpdateStatus: () => ipcRenderer.invoke("update:get-status"),
   checkForUpdates: () => ipcRenderer.invoke("update:check"),
