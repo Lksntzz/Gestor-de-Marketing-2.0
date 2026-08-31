@@ -49,6 +49,10 @@ type RuntimeOptions = {
   validator?: Validator;
 };
 
+function legacySecretRef(provider: AIConnectionProvider): AISecretReference {
+  return provider === "openai" ? "legacy:openaiApiKey" : "legacy:geminiApiKey";
+}
+
 function secretRefMatchesProvider(provider: AIConnectionProvider, secretRef: AISecretReference | undefined): boolean {
   if (!secretRef) return false;
   if (secretRef === "active:aiConnectionKey") return true;
@@ -62,13 +66,18 @@ function resolveSecretRef(
 ): AISecretReference {
   const stateProvider = state.provider ?? state.providerCandidate;
 
-  // Explicit legacy references remain valid for migrated workspaces. Fresh
-  // connections — and provider switches that do not carry an explicit matching
-  // legacy reference — use the canonical single credential slot.
+  // Explicit matching references are authoritative. Canonical connections and
+  // states without a secret reference use the single active slot. A workspace
+  // that still carries an explicit legacy reference remains on the legacy
+  // compatibility path until the user provisions the new single credential;
+  // that operation resets the old trust chain before writing aiConnectionKey.
   if (stateProvider === provider && secretRefMatchesProvider(provider, state.secretRef)) {
     return state.secretRef as AISecretReference;
   }
-  return "active:aiConnectionKey";
+  if (state.secretRef === "active:aiConnectionKey" || !state.secretRef) {
+    return "active:aiConnectionKey";
+  }
+  return legacySecretRef(provider);
 }
 
 function sameCredential(
