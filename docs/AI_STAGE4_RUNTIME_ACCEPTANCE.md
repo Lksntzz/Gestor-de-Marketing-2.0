@@ -1,6 +1,6 @@
 # Etapa 4 — Runtime confiável da conexão única de IA
 
-Status: **em implementação após conclusão da Etapa 3**.
+Status: **implementação concluída; aguardando gates finais**.
 
 ## Objetivo
 
@@ -26,9 +26,12 @@ Esta etapa cria a ponte segura entre o contrato de domínio das Etapas 1–3 e o
 14. rejeição de uma credencial candidata de outro provedor não destrói a conexão ativa anterior;
 15. falha transitória, cota, permissão ou modelo inválido não destroem conexão ativa anterior;
 16. não existe fallback automático entre providers nem entre modelos;
-17. os slots legados `geminiApiKey` e `openaiApiKey` permanecem nesta etapa;
-18. `active:aiConnectionKey` continua somente como referência de domínio; a migração física do segredo fica fora desta etapa;
-19. nenhuma release é publicada nesta etapa.
+17. mudança ou exclusão real de uma credencial revoga primeiro metadata/proposta que dependam daquele `secretRef`;
+18. regravar exatamente a mesma credencial é idempotente e não revoga uma conexão ativa;
+19. reset da conexão limpa a metadata canônica e a proposta efêmera na mesma fila exclusiva das operações de descoberta/validação;
+20. os slots legados `geminiApiKey` e `openaiApiKey` permanecem nesta etapa;
+21. `active:aiConnectionKey` continua somente como referência de domínio; a migração física do segredo fica fora desta etapa;
+22. nenhuma release é publicada nesta etapa.
 
 ## Persistência confiável
 
@@ -70,16 +73,42 @@ A descoberta bem-sucedida cria somente uma proposta em memória. A metadata pers
 
 Se a proposta usa o mesmo provedor/segredo da conexão ativa, a identidade `connectionId` existente deve ser preservada.
 
+## Ciclo de vida da credencial
+
+Os handlers legados `secret:set` e `secret:delete` continuam existindo nesta etapa, mas passam a respeitar a nova metadata canônica.
+
+### `secret:set`
+
+Antes de alterar um slot de IA:
+
+1. o processo principal descriptografa o valor já armazenado apenas para comparação local;
+2. se o valor novo for exatamente igual, a operação termina de forma idempotente;
+3. se houver mudança real, o runtime revoga metadata/proposta dependente do `secretRef` correspondente;
+4. somente depois a nova credencial é gravada no armazenamento seguro.
+
+Se a revogação falhar, a credencial antiga não é alterada. Se a gravação posterior falhar, a metadata já estará revogada, preservando comportamento fail-closed.
+
+### `secret:delete`
+
+A revogação do `secretRef` ocorre antes da remoção do slot seguro. Isso vale mesmo se o slot já estiver ausente ou ilegível, pois pode existir metadata residual que ainda dependa dele.
+
+Apagar uma credencial de outro provedor não revoga uma conexão ativa que usa um `secretRef` diferente.
+
+Estados `SEM_CHAVE` sem referência válida podem ser removidos durante a revogação de um slot de IA para impedir metadata canônica órfã depois de reset/limpeza.
+
 ## IPC novo
 
 Contrato mínimo:
 
 - `ai-connection:get-state`
+- `ai-connection:reset`
 - `ai-connection:confirm-provider`
 - `ai-connection:validate-model`
 
 Entradas permitidas:
 
+- consultar estado: sem payload;
+- resetar conexão: sem payload;
 - confirmar provedor: somente `{ provider }`;
 - validar modelo: somente `{ provider, model }`.
 
@@ -106,8 +135,14 @@ Os handlers concretos ficam no composition root auditado (`electron-bootstrap.ts
 15. metadata persistida passa pelo schema estrito e usa arquivo dedicado;
 16. bridge IPC não aceita `apiKey` nem lista de modelos;
 17. handlers IPC permanecem únicos e validam o sender;
-18. TypeScript, Bun, Node, build e backend smoke verdes;
-19. Windows Desktop Runtime Test verde no head final.
+18. `secret:set` idêntico é idempotente;
+19. mudança real de segredo revoga metadata antes da escrita;
+20. exclusão do segredo ativo limpa a metadata canônica;
+21. exclusão de segredo de outro provedor preserva conexão ativa não relacionada;
+22. reset confiável limpa a proposta em memória;
+23. metadata `SEM_CHAVE` órfã pode ser eliminada pelo ciclo de revogação;
+24. TypeScript, Bun, Node, build e backend smoke verdes;
+25. Windows Desktop Runtime Test verde no head final.
 
 ## Fora de escopo
 
@@ -127,6 +162,9 @@ A Etapa 4 runtime só pode ser integrada quando:
 - a descoberta usada na validação não é controlada pelo renderer;
 - troca de provedor/modelo é transacional em relação à conexão ativa;
 - ausência de leitura do segredo não é confundida com rejeição explícita;
+- mudança/exclusão de credencial invalida primeiro a metadata que depende dela;
+- regravação idêntica de credencial não invalida conexão ativa;
+- reset e revogação compartilham a mesma serialização exclusiva do runtime;
 - persistência canônica ocorre no processo principal, em arquivo dedicado e secret-free;
 - o writer novo não disputa `nisti_config.json` com o caminho legado;
 - todos os testes automatizados passam;
