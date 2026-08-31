@@ -5,7 +5,7 @@ on:
     branches:
       - feat/3.1-smart-knowledge-stage1
     paths:
-      - scripts/apply-stage1-smart-knowledge.mjs
+      - scripts/apply-stage1-smart-knowledge.py
       - .github/workflows/apply-stage1-smart-knowledge.yml
 
 permissions:
@@ -21,15 +21,12 @@ jobs:
           ref: feat/3.1-smart-knowledge-stage1
           fetch-depth: 0
 
-      - uses: actions/setup-node@v4
-        with:
-          node-version: 22
-
       - name: Apply deterministic Stage 1 migration
-        run: node scripts/apply-stage1-smart-knowledge.mjs
+        run: python3 scripts/apply-stage1-smart-knowledge.py
 
       - name: Remove temporary migration machinery
         run: |
+          rm -f scripts/apply-stage1-smart-knowledge.py
           rm -f scripts/apply-stage1-smart-knowledge.mjs
           rm -f .github/workflows/apply-stage1-smart-knowledge.yml
 
