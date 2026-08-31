@@ -4,6 +4,7 @@ on:
   push:
     branches:
       - "main"
+      - "build/windows-installer-20260831"
     paths:
       - "electron-main.ts"
       - "electron-bootstrap.ts"
@@ -119,5 +120,10 @@ jobs:
             Write-Host ("{0} | {1} bytes | SHA256 {2}" -f $exe.Name, $exe.Length, $hash)
           }
 
-      # Os instaladores de teste continuam descartáveis. Apenas a captura PNG da
-      # interface é mantida por poucos dias para revisão visual de PRs de UI.
+      - name: Upload Windows Installer for Manual Validation
+        uses: actions/upload-artifact@v4
+        with:
+          name: nisti-marketing-windows-installer-${{ github.run_number }}
+          path: dist-electron/Nisti-Marketing-Setup-*.exe
+          retention-days: 3
+          if-no-files-found: error
