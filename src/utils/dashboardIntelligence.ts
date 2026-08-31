@@ -4,7 +4,7 @@ import type {
   ObsidianApiConfig,
   ObsidianNote,
 } from "../types";
-import { assessBaseReadiness } from "../domain/baseOnboarding";
+import { assessSmartKnowledgeReadiness } from "../domain/smartKnowledgeStage2";
 
 export type DashboardActionKind =
   | "task"
@@ -130,21 +130,14 @@ function taskSortTimestamp(task: MarketingTask): number {
 }
 
 function baseReadinessDetail(notes: ObsidianNote[]): string {
-  const readiness = assessBaseReadiness(notes);
-  const missing = readiness.missingSectionIds.length;
-  const pending = readiness.pendingPaths.length;
-  const parts: string[] = [];
-
-  if (missing > 0) {
-    parts.push(`${missing} ${missing === 1 ? "documento canônico ainda não existe" : "documentos canônicos ainda não existem"}`);
+  const readiness = assessSmartKnowledgeReadiness(notes);
+  if (readiness.ready) {
+    return `Conhecimento operacional pronto com ${readiness.strategicSources} fonte(s) estratégica(s) utilizável(is).`;
   }
-  if (pending > 0) {
-    parts.push(`${pending} ${pending === 1 ? "documento precisa de revisão" : "documentos precisam de revisão"}`);
+  if (readiness.pendingSources > 0) {
+    return `Há ${readiness.pendingSources} fonte(s) pendente(s) e nenhuma evidência estratégica utilizável. Revise a Inbox ou as fontes em validação antes de planejar.`;
   }
-
-  return parts.length > 0
-    ? `${parts.join(" e ")}. Complete ou revise a Base antes de depender dela para decisões de marketing.`
-    : "A Base Inicial está pronta.";
+  return "Adicione ao menos uma fonte real em Estratégia, Produtos, Conteúdos, Pesquisas ou Aprendizados antes de depender da IA para planejamento.";
 }
 
 export function buildDashboardBlockers(
@@ -162,12 +155,12 @@ export function buildDashboardBlockers(
     ];
   }
 
-  const readiness = assessBaseReadiness(notes);
-  if (!readiness.complete) {
+  const readiness = assessSmartKnowledgeReadiness(notes);
+  if (!readiness.ready) {
     return [
       {
         id: "base-not-ready",
-        title: readiness.missingSectionIds.length > 0 ? "Base Inicial incompleta" : "Base Inicial precisa de revisão",
+        title: readiness.pendingSources > 0 ? "Conhecimento precisa de revisão" : "Conhecimento estratégico ausente",
         detail: baseReadinessDetail(notes),
         destination: "base",
       },
@@ -190,32 +183,32 @@ export function selectPriorityAction(
       kind: "connect-obsidian",
       title: "Conecte o Obsidian para liberar a Base",
       subtitle:
-        "O Nisti só usa o conhecimento depois que a conexão e a pasta física do Vault são validadas.",
+        "O Nisti só usa o conhecimento depois que a conexão REST com o Vault ativo é validada.",
       badgeLabel: "Configuração necessária",
       tone: "info",
     };
   }
 
-  const readiness = assessBaseReadiness(notes);
-  if (!readiness.complete) {
-    if (readiness.missingSectionIds.length > 0) {
+  const readiness = assessSmartKnowledgeReadiness(notes);
+  if (!readiness.ready) {
+    if (readiness.pendingSources > 0) {
       return {
-        id: "complete-base",
-        kind: "complete-base",
-        title: "Complete a Base Inicial antes de planejar",
+        id: "review-base",
+        kind: "review-base",
+        title: "Revise o conhecimento pendente antes de planejar",
         subtitle: baseReadinessDetail(notes),
-        badgeLabel: "Base incompleta",
-        tone: "info",
+        badgeLabel: "Conhecimento em revisão",
+        tone: "high",
       };
     }
 
     return {
-      id: "review-base",
-      kind: "review-base",
-      title: "Revise as pendências da Base Inicial",
+      id: "complete-base",
+      kind: "complete-base",
+      title: "Adicione conhecimento real antes de planejar",
       subtitle: baseReadinessDetail(notes),
-      badgeLabel: "Base em revisão",
-      tone: "high",
+      badgeLabel: "Conhecimento ausente",
+      tone: "info",
     };
   }
 

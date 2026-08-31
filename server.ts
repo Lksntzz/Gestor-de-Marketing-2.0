@@ -1021,7 +1021,7 @@ app.post(["/api/ai/process-knowledge", "/api/gemini/process-knowledge"], async (
           console.warn("PDF extraction failed:", err);
         }
       }
-      const fallback = () => safePdfData(fileName, extractedText);
+      const fallback = () => applyObservedSocialMetrics(safePdfData(fileName, extractedText), extractedText);
       if (engineMode === "local") {
         return res.json({ success: true, data: fallback(), usedModel: "local-grounded-engine", wasFallback: false });
       }
@@ -1041,7 +1041,7 @@ Retorne title, summary, content, category, keywords, wikilinks, evidence, hypoth
         fallback,
         "analyzeDocument"
       );
-      return sendAISuccess(req, res, result);
+      return sendAISuccess(req, res, { ...result, data: applyObservedSocialMetrics(result.data as Record<string, any>, cleanText) });
     }
 
     if (type === "site") {
@@ -1058,7 +1058,7 @@ Retorne title, summary, content, category, keywords, wikilinks, evidence, hypoth
           console.warn("Web content extraction unavailable:", err);
         }
       }
-      const fallback = () => safeSiteData(siteUrl, pageTitle, pageContent);
+      const fallback = () => applyObservedSocialMetrics(safeSiteData(siteUrl, pageTitle, pageContent), pageContent);
       if (engineMode === "local" || !pageContent.trim()) {
         return res.json({ success: true, data: fallback(), usedModel: engineMode === "local" ? "local-grounded-engine" : "no-page-text", wasFallback: false });
       }
@@ -1075,7 +1075,7 @@ Retorne title, summary, content, category, keywords, wikilinks, evidence, hypoth
         fallback,
         "analyzeDocument"
       );
-      return sendAISuccess(req, res, result);
+      return sendAISuccess(req, res, { ...result, data: applyObservedSocialMetrics(result.data as Record<string, any>, pageContent) });
     }
 
     if (type === "image") {
@@ -1100,7 +1100,7 @@ Retorne title, summary, content, category, keywords, wikilinks, evidence, hypoth
         fallback,
         "analyzeDocument"
       );
-      return sendAISuccess(req, res, result);
+      return sendAISuccess(req, res, { ...result, data: applyObservedSocialMetrics(result.data as Record<string, any>, JSON.stringify(result.data)) });
     }
 
     if (type === "text") {
@@ -1738,37 +1738,16 @@ app.post(["/api/ai/synthesize-learnings", "/api/gemini/synthesize-learnings"], a
     } = req.body || {};
 
     const fallback = () => {
-      const confirmedCount = Array.isArray(existingLearnings)
-        ? existingLearnings.filter((l: any) => l.verdict === "CONFIRMADO").length
-        : 0;
+      const publications = Array.isArray(postHistory) ? postHistory.length : 0;
+      const registeredLearnings = Array.isArray(existingLearnings) ? existingLearnings.length : 0;
       return {
-        executiveSummary: `Análise consolidada baseada em ${Array.isArray(postHistory) ? postHistory.length : 0} publicações e ${Array.isArray(existingLearnings) ? existingLearnings.length : 0} aprendizados registrados.`,
-        strengthsAndWins: [
-          "Formatos com métricas completas de conversão demonstram previsibilidade superior.",
-          "Canais ativos mantêm consistência na entrega de resultados de alcance.",
-        ],
-        weaknessesAndRisks: [
-          "Necessidade de reforçar o registro sistemático de CTR e taxa de conversão em todos os canais.",
-        ],
-        validatedRules: [
-          {
-            title: "Consistência de formato e proposta de valor",
-            category: "formato",
-            verdict: "EM_TESTE",
-            ruleOfThumb: "Mantenha a frequência semanal nos formatos com medições ativas.",
-            evidenceData: `${postHistory.length} publicações registradas no histórico recente (requer validação contínua de conversão).`,
-            suggestedAction: "Incorporar hipótese no briefing e monitorar taxa de conversão.",
-          }
-        ],
-        hypothesesToTest: [
-          "Carrosséis educativos com estudo de caso superam posts estáticos em taxa de cliques.",
-          "Publicações com chamada para ação direta no início geram mais conversões no direct/WhatsApp."
-        ],
-        nextCyclePriorities: [
-          "Priorizar canais com maior retorno comprovado em conversão.",
-          "Validar hipóteses pendentes com testes A/B estruturados."
-        ],
-        epistemicStatus: "HIPÓTESE"
+        executiveSummary: `Há ${publications} publicação(ões) e ${registeredLearnings} aprendizado(s) registrados. A síntese automática não está disponível; nenhum padrão de performance foi inferido localmente.`,
+        strengthsAndWins: [],
+        weaknessesAndRisks: [],
+        validatedRules: [],
+        hypothesesToTest: [],
+        nextCyclePriorities: [],
+        epistemicStatus: "PENDENTE"
       };
     };
 
@@ -1918,7 +1897,16 @@ app.post("/api/obsidian/proxy", async (req, res) => {
       && typeof (body as any).mimeType === "string"
       ? body as { __nistiBinaryBase64: string; mimeType: string }
       : null;
-    if (binaryPayload) forwardHeaders["Content-Type"] = binaryPayload.mimeType;
+    if (binaryPayload) {
+      const allowedBinaryMime = /^(application\/pdf|image\/(png|jpeg|webp)|audio\/(mpeg|mp3|wav|x-wav|mp4|aac|ogg|webm))$/i;
+      if (!allowedBinaryMime.test(binaryPayload.mimeType)) {
+        return res.status(400).json({ success: false, error: "Tipo binário não autorizado para o proxy do Obsidian." });
+      }
+      if (Buffer.byteLength(binaryPayload.__nistiBinaryBase64, "base64") > 20 * 1024 * 1024) {
+        return res.status(413).json({ success: false, error: "Asset binário excede o limite de 20 MB." });
+      }
+      forwardHeaders["Content-Type"] = binaryPayload.mimeType;
+    }
     else if (body && typeof body === "string") forwardHeaders["Content-Type"] = "text/markdown; charset=utf-8";
     else if (body && typeof body === "object") forwardHeaders["Content-Type"] = "application/json";
 

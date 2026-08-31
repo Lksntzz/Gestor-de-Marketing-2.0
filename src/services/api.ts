@@ -517,8 +517,8 @@ async function triageNistiInbox(config: ObsidianApiConfig): Promise<InboxTriageR
       if (targetProbe.response.ok && targetProbe.data?.success) {
         result.pending.push({
           path: note.path,
-          confidence: classification.confidence,
-          suggestion: classification.folder,
+          confidence,
+          suggestion: destinationFolder,
           reason: "Já existe uma nota com o mesmo nome no destino; revisão humana necessária.",
         });
         continue;
@@ -832,6 +832,8 @@ export const api = {
     if (!verified.success) throw new Error(verified.message);
     const match = String(dataUrl || "").match(/^data:([^;]+);base64,(.+)$/);
     if (!match) throw new Error("O arquivo binário não está em um Data URL válido.");
+    const allowedMime = /^(application\/pdf|image\/(png|jpeg|webp)|audio\/(mpeg|mp3|wav|x-wav|mp4|aac|ogg|webm))$/i;
+    if (!allowedMime.test(match[1])) throw new Error("Tipo binário não autorizado para persistência no Vault.");
     const cleanPath = String(filePath || "").replace(/\\/g, "/").replace(/^\/+/, "");
     if (!cleanPath.startsWith(`${NISTI_VAULT_ROOT}/`)) throw new Error("Asset fora da raiz gerenciada pelo Nisti.");
     const targetPath = `/vault/${encodeVaultRelativePath(cleanPath)}`;
