@@ -26,6 +26,7 @@ import {
   downloadWorkspaceBackup,
   restoreWorkspaceBackupText,
 } from "../services/workspaceBackupService";
+import { AIConnectionSettingsPanel } from "./AIConnectionSettingsPanel";
 
 interface ObsidianApiSettingsModalProps {
   isOpen: boolean;
@@ -51,9 +52,6 @@ export const ObsidianApiSettingsModal: React.FC<ObsidianApiSettingsModalProps> =
   const [activeTab, setActiveTab] = useState<SettingsTab>("ai");
   const [formData, setFormData] = useState<ObsidianApiConfig>({ ...config });
 
-  const [isTestingAi, setIsTestingAi] = useState(false);
-  const [aiTestResult, setAiTestResult] = useState<{ success: boolean; message: string } | null>(null);
-
   const [isTesting, setIsTesting] = useState(false);
   const [testResult, setTestResult] = useState<{ success: boolean; message: string } | null>(null);
 
@@ -78,7 +76,6 @@ export const ObsidianApiSettingsModal: React.FC<ObsidianApiSettingsModalProps> =
         errorMessage: runtimeConnected ? undefined : config.errorMessage,
       });
       setIsDriveConnected(googleDriveService.isAuthenticated());
-      setAiTestResult(null);
       setTestResult(null);
       setConfirmClear(false);
       setBackupResult(null);
@@ -170,30 +167,6 @@ export const ObsidianApiSettingsModal: React.FC<ObsidianApiSettingsModalProps> =
   };
 
   if (!isOpen) return null;
-
-  const handleTestAI = async () => {
-    setIsTestingAi(true);
-    setAiTestResult(null);
-    try {
-      const provider = formData.aiProvider || "gemini";
-      const apiKey = provider === "openai" ? formData.openaiApiKey || "" : formData.geminiApiKey || "";
-      const result = await api.testAIConnection({ provider, apiKey, model: formData.aiModel });
-      setAiTestResult(result);
-      if (result.success) {
-        onSaveConfig({
-          ...formData,
-          connectionStatus: api.isObsidianSessionVerified() ? "connected" : "disconnected",
-        });
-      }
-    } catch (err: any) {
-      setAiTestResult({
-        success: false,
-        message: err.message || "Erro desconhecido ao testar o provedor de IA.",
-      });
-    } finally {
-      setIsTestingAi(false);
-    }
-  };
 
   const handleTestObsidian = async () => {
     setIsTesting(true);
@@ -336,123 +309,7 @@ export const ObsidianApiSettingsModal: React.FC<ObsidianApiSettingsModalProps> =
         </div>
 
         <div className="p-6 overflow-y-auto flex-1 min-h-[340px] max-h-[50vh] space-y-5">
-          {activeTab === "ai" && (
-            <div className="space-y-4 animate-fadeIn">
-              <div className="space-y-1.5">
-                <h3 className="text-sm font-bold text-text-primary flex items-center gap-1.5">
-                  <Brain className="w-4 h-4 text-pink-500" />
-                  <span>Configuração da IA</span>
-                </h3>
-                <p className="text-xs text-text-secondary leading-normal">
-                  Escolha o provedor e o modelo. O Gemini permanece selecionado por padrão para preservar o comportamento atual.
-                </p>
-              </div>
-
-              <div className="p-4 bg-pink-500/5 border border-pink-500/30 rounded-xl space-y-3.5">
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                  <div className="space-y-1.5">
-                    <label className="block text-xs font-bold text-text-primary uppercase tracking-wider">Provedor ativo</label>
-                    <select
-                      value={formData.aiProvider || "gemini"}
-                      onChange={(e) => {
-                        const provider = e.target.value as "gemini" | "openai";
-                        setFormData({ ...formData, aiProvider: provider, aiModel: "" });
-                        setAiTestResult(null);
-                      }}
-                      className="w-full px-3 py-2.5 bg-[#0f131c] border border-pink-500/30 rounded-lg text-xs focus:outline-none focus:ring-1 focus:ring-pink-500"
-                    >
-                      <option value="gemini">Google Gemini</option>
-                      <option value="openai">OpenAI</option>
-                    </select>
-                  </div>
-                  <div className="space-y-1.5">
-                    <label className="block text-xs font-bold text-text-primary uppercase tracking-wider">Modelo</label>
-                    <input
-                      type="text"
-                      value={formData.aiModel || ""}
-                      onChange={(e) => {
-                        setFormData({ ...formData, aiModel: e.target.value });
-                        setAiTestResult(null);
-                      }}
-                      className="w-full px-3 py-2.5 bg-[#0f131c] border border-pink-500/30 rounded-lg text-xs font-mono focus:outline-none focus:ring-1 focus:ring-pink-500"
-                      placeholder={(formData.aiProvider || "gemini") === "openai" ? "gpt-5-mini (padrão)" : "gemini-flash-latest (padrão)"}
-                    />
-                  </div>
-                </div>
-
-                <div className="space-y-1.5">
-                  <label className="block text-xs font-bold text-text-primary uppercase tracking-wider flex items-center gap-1.5">
-                    <Key className="w-3.5 h-3.5 text-pink-500" />
-                    <span>Chave de API do Google Gemini</span>
-                  </label>
-                  <input
-                    type="password"
-                    value={formData.geminiApiKey || ""}
-                    onChange={(e) => {
-                      setFormData({ ...formData, geminiApiKey: e.target.value });
-                      setAiTestResult(null);
-                    }}
-                    className="w-full px-3 py-2.5 bg-[#0f131c] border border-pink-500/30 rounded-lg text-xs font-mono focus:outline-none focus:ring-1 focus:ring-pink-500 focus:border-pink-500 transition-shadow"
-                    placeholder="Cole sua API Key do Google AI Studio (AIzaSy...)"
-                  />
-                </div>
-
-                <div className="space-y-1.5">
-                  <label className="block text-xs font-bold text-text-primary uppercase tracking-wider flex items-center gap-1.5">
-                    <Key className="w-3.5 h-3.5 text-pink-500" />
-                    <span>Chave de API da OpenAI</span>
-                  </label>
-                  <input
-                    type="password"
-                    value={formData.openaiApiKey || ""}
-                    onChange={(e) => {
-                      setFormData({ ...formData, openaiApiKey: e.target.value });
-                      setAiTestResult(null);
-                    }}
-                    className="w-full px-3 py-2.5 bg-[#0f131c] border border-pink-500/30 rounded-lg text-xs font-mono focus:outline-none focus:ring-1 focus:ring-pink-500 focus:border-pink-500 transition-shadow"
-                    placeholder="Cole sua API Key da OpenAI (sk-...)"
-                  />
-                </div>
-
-                <button
-                  type="button"
-                  onClick={handleTestAI}
-                  disabled={isTestingAi || !((formData.aiProvider || "gemini") === "openai" ? formData.openaiApiKey : formData.geminiApiKey)?.trim()}
-                  className="w-full py-2.5 bg-pink-600 hover:bg-pink-700 disabled:opacity-50 disabled:cursor-not-allowed text-white text-xs font-semibold rounded-lg transition-colors flex items-center justify-center gap-2 cursor-pointer"
-                >
-                  <RefreshCw className={`w-3.5 h-3.5 ${isTestingAi ? "animate-spin" : ""}`} />
-                  <span>{isTestingAi ? "Validando provedor..." : `Testar e Ativar ${(formData.aiProvider || "gemini") === "openai" ? "OpenAI" : "Gemini"}`}</span>
-                </button>
-
-                {aiTestResult && (
-                  <div
-                    className={`p-3 rounded-lg border text-xs flex items-start gap-2 ${
-                      aiTestResult.success
-                        ? "bg-emerald-500/10 text-emerald-400 border-emerald-500/30"
-                        : "bg-amber-500/10 text-amber-400 border-amber-500/30"
-                    }`}
-                  >
-                    {aiTestResult.success ? (
-                      <CheckCircle2 className="w-4 h-4 text-emerald-400 shrink-0 mt-0.5" />
-                    ) : (
-                      <AlertCircle className="w-4 h-4 text-amber-400 shrink-0 mt-0.5" />
-                    )}
-                    <div className="text-[11px] leading-relaxed">{aiTestResult.message}</div>
-                  </div>
-                )}
-
-                <div className="text-[11px] text-pink-200 leading-relaxed bg-pink-500/10 p-3 rounded-lg border border-pink-500/20">
-                  <p className="font-bold mb-1">🔐 Armazenamento da chave</p>
-                  <p>
-                    No aplicativo desktop, as chaves são protegidas pelo armazenamento seguro do sistema operacional. No modo web, elas permanecem apenas em memória durante a sessão e não são gravadas no localStorage.
-                  </p>
-                  <p className="mt-2">
-                    Para obter uma chave, acesse o <a href="https://aistudio.google.com/" target="_blank" rel="noreferrer" className="text-pink-500 hover:text-text-primary underline font-semibold">Google AI Studio</a> e use a opção <strong>Get API Key</strong>.
-                  </p>
-                </div>
-              </div>
-            </div>
-          )}
+          {activeTab === "ai" && <AIConnectionSettingsPanel />}
 
           {activeTab === "obsidian" && (
             <div className="space-y-4 animate-fadeIn">
