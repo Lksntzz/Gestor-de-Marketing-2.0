@@ -1,13 +1,87 @@
 param(
   [Parameter(Mandatory = $true)]
   [string]$ExecutablePath,
-  [int]$TimeoutSeconds = 45
+  [int]$TimeoutSeconds = 45,
+  [string]$ScreenshotPath = ""
 )
 
 $resolvedExecutable = (Resolve-Path $ExecutablePath -ErrorAction Stop).Path
 $healthPath = Join-Path $env:RUNNER_TEMP ("nisti-electron-health-{0}-{1}.json" -f $PID, (Get-Random))
 $previousHealthPath = $env:NISTI_RUNTIME_HEALTH_FILE
 $process = $null
+
+function Save-WindowScreenshot {
+  param(
+    [Parameter(Mandatory = $true)]
+    [System.Diagnostics.Process]$TargetProcess,
+    [Parameter(Mandatory = $true)]
+    [string]$OutputPath
+  )
+
+  Add-Type -AssemblyName System.Drawing
+  if (-not ([System.Management.Automation.PSTypeName]'NistiWindowCapture').Type) {
+    Add-Type @"
+using System;
+using System.Runtime.InteropServices;
+
+public static class NistiWindowCapture {
+    [StructLayout(LayoutKind.Sequential)]
+    public struct RECT {
+        public int Left;
+        public int Top;
+        public int Right;
+        public int Bottom;
+    }
+
+    [DllImport("user32.dll")]
+    public static extern bool GetWindowRect(IntPtr hWnd, out RECT lpRect);
+
+    [DllImport("user32.dll")]
+    public static extern bool PrintWindow(IntPtr hWnd, IntPtr hdcBlt, uint nFlags);
+}
+"@
+  }
+
+  $TargetProcess.Refresh()
+  $handle = $TargetProcess.MainWindowHandle
+  if ($handle -eq [IntPtr]::Zero) {
+    throw "Não foi possível obter o handle da janela principal para a captura visual."
+  }
+
+  $rect = New-Object NistiWindowCapture+RECT
+  if (-not [NistiWindowCapture]::GetWindowRect($handle, [ref]$rect)) {
+    throw "GetWindowRect falhou durante a captura visual."
+  }
+
+  $width = [Math]::Max(1, $rect.Right - $rect.Left)
+  $height = [Math]::Max(1, $rect.Bottom - $rect.Top)
+  $bitmap = New-Object System.Drawing.Bitmap($width, $height)
+  $graphics = [System.Drawing.Graphics]::FromImage($bitmap)
+  $hdc = $graphics.GetHdc()
+
+  try {
+    if (-not [NistiWindowCapture]::PrintWindow($handle, $hdc, 2)) {
+      throw "PrintWindow falhou durante a captura visual."
+    }
+  }
+  finally {
+    $graphics.ReleaseHdc($hdc)
+    $graphics.Dispose()
+  }
+
+  try {
+    $resolvedOutput = [System.IO.Path]::GetFullPath($OutputPath)
+    $directory = [System.IO.Path]::GetDirectoryName($resolvedOutput)
+    if ($directory) {
+      [System.IO.Directory]::CreateDirectory($directory) | Out-Null
+    }
+    $bitmap.Save($resolvedOutput, [System.Drawing.Imaging.ImageFormat]::Png)
+    Write-Host ("Preview visual salvo em {0} ({1}x{2})" -f $resolvedOutput, $width, $height)
+  }
+  finally {
+    $bitmap.Dispose()
+  }
+}
 
 try {
   Remove-Item $healthPath -Force -ErrorAction SilentlyContinue
@@ -37,6 +111,12 @@ try {
       }
 
       Write-Host ("Electron runtime OK | {0} | {1}" -f $health.title, $health.location)
+
+      if ($ScreenshotPath.Trim()) {
+        Start-Sleep -Milliseconds 1200
+        Save-WindowScreenshot -TargetProcess $process -OutputPath $ScreenshotPath
+      }
+
       exit 0
     }
 
