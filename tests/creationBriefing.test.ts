@@ -1,10 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import type { ObsidianNote } from "../src/types";
 import {
-  BASE_ONBOARDING_SECTIONS,
-  canonicalBasePath,
-} from "../src/domain/baseOnboarding";
-import {
   buildCreationBriefingInstructions,
   creationBriefingBaseStatus,
   normalizeCreationBriefing,
@@ -22,12 +18,8 @@ function note(path: string, epistemicStatus = "CONFIRMADO"): ObsidianNote {
     frontmatter: { epistemic_status: epistemicStatus },
     tags: [],
     wikilinks: [],
-    lastModified: "2026-08-29 09:00",
+    lastModified: "2026-08-31 18:00",
   };
-}
-
-function confirmedBase(): ObsidianNote[] {
-  return BASE_ONBOARDING_SECTIONS.map((section) => note(canonicalBasePath(section)));
 }
 
 describe("creation briefing", () => {
@@ -65,24 +57,27 @@ describe("creation briefing", () => {
     expect(instructions).not.toContain("Engajamento");
   });
 
-  test("só libera o briefing quando a Base Inicial canônica está pronta", () => {
-    expect(creationBriefingBaseStatus([note("00_Inbox/solta.md")])).toEqual({
+  test("libera o briefing com conhecimento estratégico real e não com 00_Base fabricada", () => {
+    expect(creationBriefingBaseStatus([note("00_Base/Empresa.md")])).toEqual({
       ready: false,
-      missingDocuments: 9,
+      missingDocuments: 1,
       pendingDocuments: 0,
     });
 
-    expect(creationBriefingBaseStatus(confirmedBase())).toEqual({
+    expect(creationBriefingBaseStatus([
+      note("Nisti Marketing/01_Estrategia/Posicionamento.md"),
+      note("Nisti Marketing/02_Produtos/Catalogo.md"),
+    ])).toEqual({
       ready: true,
       missingDocuments: 0,
       pendingDocuments: 0,
     });
 
-    const pending = confirmedBase();
-    pending[0] = note(pending[0].path, "HIPÓTESE");
-    expect(creationBriefingBaseStatus(pending)).toEqual({
+    expect(creationBriefingBaseStatus([
+      note("Nisti Marketing/01_Estrategia/Posicionamento.md", "PENDENTE"),
+    ])).toEqual({
       ready: false,
-      missingDocuments: 0,
+      missingDocuments: 1,
       pendingDocuments: 1,
     });
   });
