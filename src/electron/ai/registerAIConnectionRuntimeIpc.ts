@@ -12,43 +12,60 @@ import {
 } from "../../domain/aiConnection";
 import { AIConnectionTrustedRuntimeService } from "../../services/ai/AIConnectionTrustedRuntimeService";
 
-const CONFIG_FILE_NAME = "nisti_config.json";
+const LEGACY_CONFIG_FILE_NAME = "nisti_config.json";
+const AI_CONNECTION_FILE_NAME = "nisti_ai_connection.json";
 const SECRETS_FILE_NAME = "nisti_secure_secrets.json";
 const ALLOWED_PROVIDER_KEYS = new Set(["provider"]);
 const ALLOWED_MODEL_KEYS = new Set(["provider", "model"]);
 
-type ConfigRecord = Record<string, unknown> & {
+type LegacyConfigRecord = Record<string, unknown> & {
   aiConnection?: unknown;
   aiProvider?: unknown;
   aiModel?: unknown;
 };
 
-function configFilePath(): string {
-  return path.join(app.getPath("userData"), CONFIG_FILE_NAME);
+function legacyConfigFilePath(): string {
+  return path.join(app.getPath("userData"), LEGACY_CONFIG_FILE_NAME);
+}
+
+function connectionFilePath(): string {
+  return path.join(app.getPath("userData"), AI_CONNECTION_FILE_NAME);
 }
 
 function secretsFilePath(): string {
   return path.join(app.getPath("userData"), SECRETS_FILE_NAME);
 }
 
-async function readConfig(): Promise<ConfigRecord> {
-  const filePath = configFilePath();
+async function readLegacyConfig(): Promise<LegacyConfigRecord> {
+  const filePath = legacyConfigFilePath();
   if (!existsSync(filePath)) return {};
-  const raw = await fs.readFile(filePath, "utf8");
-  const parsed = JSON.parse(raw);
-  return parsed && typeof parsed === "object" && !Array.isArray(parsed)
-    ? parsed as ConfigRecord
-    : {};
+  try {
+    const raw = await fs.readFile(filePath, "utf8");
+    const parsed = JSON.parse(raw);
+    return parsed && typeof parsed === "object" && !Array.isArray(parsed)
+      ? parsed as LegacyConfigRecord
+      : {};
+  } catch {
+    return {};
+  }
 }
 
-function stripSecretFields(input: Record<string, unknown>): Record<string, unknown> {
-  const output = { ...input };
-  delete output.apiKey;
-  delete output.geminiApiKey;
-  delete output.openaiApiKey;
-  delete output.token;
-  delete output.authorization;
-  return output;
+async function readConnectionFile(): Promise<{
+  exists: boolean;
+  state: PersistedAIConnectionState | null;
+}> {
+  const filePath = connectionFilePath();
+  if (!existsSync(filePath)) return { exists: false, state: null };
+
+  try {
+    const raw = JSON.parse(await fs.readFile(filePath, "utf8"));
+    return {
+      exists: true,
+      state: parsePersistedAIConnection(raw),
+    };
+  } catch {
+    return { exists: true, state: null };
+  }
 }
 
 async function persistConnectionState(
@@ -57,12 +74,11 @@ async function persistConnectionState(
   const parsed = parsePersistedAIConnection(input);
   if (!parsed) throw new Error("Invalid AI connection metadata.");
 
-  const current = stripSecretFields(await readConfig());
-  const filePath = configFilePath();
+  const filePath = connectionFilePath();
   await fs.mkdir(path.dirname(filePath), { recursive: true });
   await fs.writeFile(
     filePath,
-    JSON.stringify({ ...current, aiConnection: parsed }, null, 2),
+    JSON.stringify(parsed, null, 2),
     { encoding: "utf8", mode: 0o600 },
   );
   return parsed;
@@ -94,16 +110,22 @@ async function readSecret(secretRef: AISecretReference): Promise<string> {
 }
 
 async function loadConnectionState(): Promise<PersistedAIConnectionState> {
-  const config = await readConfig();
-  const existing = parsePersistedAIConnection(config.aiConnection);
-  if (existing) return existing;
+  const persisted = await readConnectionFile();
+  if (persisted.state) return persisted.state;
 
-  // Preserve unknown/corrupted/future metadata on passive reads. Opening the
-  // connection UI must not destructively downgrade a state this binary cannot
-  // understand. An explicit successful reconfiguration may replace it later.
-  if (config.aiConnection !== undefined) {
-    return createEmptyAIConnection();
-  }
+  // A present but unreadable/future canonical file is preserved on passive
+  // reads. This binary fails closed without destructively downgrading metadata
+  // it does not understand.
+  if (persisted.exists) return createEmptyAIConnection();
+
+  const legacyConfig = await readLegacyConfig();
+
+  // Transitional compatibility for development builds that may already have
+  // written V1 metadata inside nisti_config.json before the dedicated file was
+  // introduced. The legacy file is read-only for the new runtime.
+  const embeddedState = parsePersistedAIConnection(legacyConfig.aiConnection);
+  if (embeddedState) return persistConnectionState(embeddedState);
+  if (legacyConfig.aiConnection !== undefined) return createEmptyAIConnection();
 
   const [geminiSecret, openaiSecret] = await Promise.all([
     readEncryptedSecretByStoreKey("geminiApiKey"),
@@ -112,8 +134,8 @@ async function loadConnectionState(): Promise<PersistedAIConnectionState> {
 
   const migrated = migrateAIConnectionConfig(
     {
-      aiProvider: config.aiProvider,
-      aiModel: config.aiModel,
+      aiProvider: legacyConfig.aiProvider,
+      aiModel: legacyConfig.aiModel,
     },
     {
       legacySecrets: {
@@ -123,7 +145,9 @@ async function loadConnectionState(): Promise<PersistedAIConnectionState> {
     },
   );
 
-  return persistConnectionState(migrated);
+  return migrated.status === "SEM_CHAVE"
+    ? migrated
+    : persistConnectionState(migrated);
 }
 
 const runtime = new AIConnectionTrustedRuntimeService({
