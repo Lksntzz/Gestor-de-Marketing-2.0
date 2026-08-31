@@ -185,7 +185,7 @@ export class AIConnectionTrustedRuntimeService {
         this.proposal = null;
       }
 
-      if (current.secretRef === secretRef) {
+      if (current.secretRef === secretRef || (current.status === "SEM_CHAVE" && !current.secretRef)) {
         if (!this.resetState) {
           throw new Error("Trusted AI connection reset is not configured.");
         }
