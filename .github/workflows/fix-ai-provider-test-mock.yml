@@ -1,0 +1,32 @@
+name: Fix AI Provider Test Mock
+
+on:
+  push:
+    branches:
+      - "feat/3.1-smart-knowledge-stage2"
+    paths:
+      - "scripts/fix-ai-provider-test-mock.mjs"
+      - ".github/workflows/fix-ai-provider-test-mock.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  fix:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: feat/3.1-smart-knowledge-stage2
+          fetch-depth: 0
+      - run: node scripts/fix-ai-provider-test-mock.mjs
+      - run: |
+          rm scripts/fix-ai-provider-test-mock.mjs
+          rm .github/workflows/fix-ai-provider-test-mock.yml
+      - run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -A
+          git commit -m "test: implement audio contract in provider mock"
+          git push origin HEAD:feat/3.1-smart-knowledge-stage2
