@@ -25,12 +25,10 @@ function replaceOnce(content, from, to, label) {
 {
   const path = "src/domain/appStateSchemas.ts";
   let content = read(path);
-  content = replaceOnce(
-    content,
-    'priority: z.enum(["low", "medium", "high", "urgent"]),',
-    'priority: z.enum(["unspecified", "low", "medium", "high", "urgent"]),',
-    "task priority schema",
-  );
+  const from = 'priority: z.enum(["low", "medium", "high", "urgent"]),';
+  const to = 'priority: z.enum(["unspecified", "low", "medium", "high", "urgent"]),';
+  if (!content.includes(from)) throw new Error("Pattern not found: priority schemas");
+  content = content.replaceAll(from, to);
   write(path, content);
 }
 
