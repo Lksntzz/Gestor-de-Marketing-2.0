@@ -1,0 +1,70 @@
+name: Release Publish Request Bridge
+
+on:
+  create:
+
+permissions:
+  contents: read
+  actions: write
+
+jobs:
+  dispatch-stable-release:
+    if: github.ref_type == 'branch' && startsWith(github.ref_name, 'release-publish/v')
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    steps:
+      - name: Checkout Requested Release Ref
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Validate Release Request Branch
+        shell: bash
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+
+          pkg_version="$(node -p "require('./package.json').version")"
+          expected_branch="release-publish/v${pkg_version}"
+          requested_branch="${GITHUB_REF_NAME}"
+          release_tag="v${pkg_version}"
+
+          if [[ ! "${pkg_version}" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            echo "package.json deve usar SemVer estável X.Y.Z. Valor atual: ${pkg_version}" >&2
+            exit 1
+          fi
+
+          if [[ "${requested_branch}" != "${expected_branch}" ]]; then
+            echo "Branch de publicação inválida. Esperado '${expected_branch}', recebido '${requested_branch}'." >&2
+            exit 1
+          fi
+
+          git fetch origin main --depth=1
+          main_sha="$(git rev-parse origin/main)"
+          if [[ "${GITHUB_SHA}" != "${main_sha}" ]]; then
+            echo "A branch de publicação deve apontar exatamente para a main atual. main=${main_sha} request=${GITHUB_SHA}" >&2
+            exit 1
+          fi
+
+          if gh api "repos/${GITHUB_REPOSITORY}/releases/tags/${release_tag}" >/dev/null 2>&1; then
+            echo "A release ${release_tag} já existe; publicação duplicada bloqueada." >&2
+            exit 1
+          fi
+
+          echo "RELEASE_TAG=${release_tag}" >> "${GITHUB_ENV}"
+          echo "Release request validado: ${requested_branch} -> ${main_sha} -> ${release_tag}"
+
+      - name: Dispatch Validated Stable Release Workflow
+        shell: bash
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          gh workflow run release-windows.yml \
+            --repo "${GITHUB_REPOSITORY}" \
+            --ref main \
+            --field version="${RELEASE_TAG}" \
+            --field publish=true
+          echo "Workflow de release estável disparado para ${RELEASE_TAG}."
