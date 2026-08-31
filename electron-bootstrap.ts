@@ -9,6 +9,7 @@ import * as path from "path";
 import {
   confirmAIConnectionProvider,
   getAIConnectionRuntimeState,
+  resetAIConnectionRuntimeState,
   validateAIConnectionModel,
 } from "./src/electron/ai/registerAIConnectionRuntimeIpc";
 import { assertTrustedIpcSender } from "./src/electron/security/trustedRenderer";
@@ -86,6 +87,11 @@ ipcMain.handle("secret:delete", async (event, name: string) => {
 ipcMain.handle("ai-connection:get-state", async (event) => {
   assertTrustedIpcSender(event);
   return getAIConnectionRuntimeState();
+});
+
+ipcMain.handle("ai-connection:reset", async (event) => {
+  assertTrustedIpcSender(event);
+  return resetAIConnectionRuntimeState();
 });
 
 ipcMain.handle("ai-connection:confirm-provider", async (event, input: unknown) => {
