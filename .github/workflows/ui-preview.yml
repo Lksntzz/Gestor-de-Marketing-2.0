@@ -10,6 +10,7 @@ on:
       - "src/App.tsx"
       - "src/main.tsx"
       - "scripts/windows-electron-smoke.ps1"
+      - "scripts/windows-ui-gallery.ps1"
       - ".github/workflows/ui-preview.yml"
   workflow_dispatch:
 
@@ -63,10 +64,16 @@ jobs:
         shell: pwsh
         run: pwsh -NoProfile -ExecutionPolicy Bypass -File scripts/windows-electron-smoke.ps1 -ExecutablePath "dist-electron/win-unpacked/Nisti Marketing.exe" -ScreenshotPath "artifacts/nisti-ui-preview.png"
 
+      - name: Capture All Primary Tools
+        shell: pwsh
+        run: pwsh -NoProfile -ExecutionPolicy Bypass -File scripts/windows-ui-gallery.ps1 -ExecutablePath "dist-electron/win-unpacked/Nisti Marketing.exe" -OutputDirectory "artifacts/gallery"
+
       - name: Upload Real UI Preview
         uses: actions/upload-artifact@v4
         with:
           name: nisti-ui-preview-${{ github.run_number }}
-          path: artifacts/nisti-ui-preview.png
+          path: |
+            artifacts/nisti-ui-preview.png
+            artifacts/gallery/*.png
           retention-days: 3
           if-no-files-found: error
