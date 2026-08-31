@@ -22,6 +22,7 @@ app.setName("Nisti Marketing");
 
 const LOOPBACK_HOST = "127.0.0.1";
 const ALLOWED_SECRET_NAMES = new Set(["obsidianApiKey", "geminiApiKey", "openaiApiKey"]);
+const AI_CONNECTION_SECRET_NAME = "aiConnectionKey";
 let backendProcess: ChildProcess | null = null;
 let appUrl = "";
 let backendInstanceId = "";
@@ -110,6 +111,43 @@ ipcMain.handle("secret:delete", async (event, name: string) => {
 
   const store = await readSecretStore();
   delete store[name];
+  await writeSecretStore(store);
+  return { success: true };
+});
+
+ipcMain.handle("ai-connection:set-credential", async (event, value: unknown) => {
+  assertTrustedIpcSender(event);
+  if (!safeStorage.isEncryptionAvailable()) throw new Error("OS secure storage is unavailable.");
+  if (typeof value !== "string") throw new Error("AI credential must be a string.");
+
+  const nextValue = value.trim();
+  if (!nextValue || nextValue.length > 4096) throw new Error("AI credential is invalid.");
+
+  const store = await readSecretStore();
+  const previousValue = readStoredSecretValue(store, AI_CONNECTION_SECRET_NAME);
+
+  // Re-saving the same active credential must not destroy a validated
+  // connection. This makes Save/close/reopen cycles idempotent.
+  if (previousValue === nextValue) return { success: true, changed: false };
+
+  // A new single credential starts a new trust chain. Clear canonical metadata
+  // before persisting the secret so a write failure cannot leave stale trust.
+  const reset = await resetAIConnectionRuntimeState();
+  if (!reset.success) throw new Error(reset.message || "Could not reset AI connection metadata.");
+
+  store[AI_CONNECTION_SECRET_NAME] = safeStorage.encryptString(nextValue).toString("base64");
+  await writeSecretStore(store);
+  return { success: true, changed: true };
+});
+
+ipcMain.handle("ai-connection:clear-credential", async (event) => {
+  assertTrustedIpcSender(event);
+
+  const reset = await resetAIConnectionRuntimeState();
+  if (!reset.success) throw new Error(reset.message || "Could not reset AI connection metadata.");
+
+  const store = await readSecretStore();
+  delete store[AI_CONNECTION_SECRET_NAME];
   await writeSecretStore(store);
   return { success: true };
 });
