@@ -1,4 +1,4 @@
-import { app, ipcMain, safeStorage } from "electron";
+import { app, safeStorage } from "electron";
 import * as fs from "fs/promises";
 import { existsSync } from "fs";
 import * as path from "path";
@@ -11,14 +11,11 @@ import {
   type PersistedAIConnectionState,
 } from "../../domain/aiConnection";
 import { AIConnectionTrustedRuntimeService } from "../../services/ai/AIConnectionTrustedRuntimeService";
-import { assertTrustedIpcSender } from "../security/trustedRenderer";
 
 const CONFIG_FILE_NAME = "nisti_config.json";
 const SECRETS_FILE_NAME = "nisti_secure_secrets.json";
 const ALLOWED_PROVIDER_KEYS = new Set(["provider"]);
 const ALLOWED_MODEL_KEYS = new Set(["provider", "model"]);
-
-let registered = false;
 
 type ConfigRecord = Record<string, unknown> & {
   aiConnection?: unknown;
@@ -169,65 +166,55 @@ async function invalidRequest(message: string) {
   };
 }
 
-export function registerAIConnectionRuntimeIpc(): void {
-  if (registered) return;
-  registered = true;
-
-  ipcMain.handle("ai-connection:get-state", async (event) => {
-    assertTrustedIpcSender(event);
-    try {
-      return await runtime.getSnapshot();
-    } catch {
-      return {
-        state: createEmptyAIConnection(),
-        code: "RUNTIME_ERROR",
-        message: "Não foi possível carregar o estado da conexão de IA.",
-      };
-    }
-  });
-
-  ipcMain.handle("ai-connection:confirm-provider", async (event, input: unknown) => {
-    assertTrustedIpcSender(event);
-    const parsed = parseProviderInput(input);
-    if (!parsed) {
-      return invalidRequest("A confirmação aceita somente um provedor válido.");
-    }
-
-    try {
-      return await runtime.confirmProvider(parsed.provider);
-    } catch {
-      const snapshot = await safeSnapshot();
-      return {
-        success: false,
-        ...snapshot,
-        provider: parsed.provider,
-        code: "RUNTIME_ERROR",
-        message: "Não foi possível confirmar o provedor neste momento.",
-      };
-    }
-  });
-
-  ipcMain.handle("ai-connection:validate-model", async (event, input: unknown) => {
-    assertTrustedIpcSender(event);
-    const parsed = parseModelInput(input);
-    if (!parsed) {
-      return invalidRequest("A validação aceita somente provedor e modelo válidos.");
-    }
-
-    try {
-      return await runtime.validateModel(parsed.provider, parsed.model);
-    } catch {
-      const snapshot = await safeSnapshot();
-      return {
-        success: false,
-        ...snapshot,
-        provider: parsed.provider,
-        model: parsed.model,
-        code: "RUNTIME_ERROR",
-        message: "Não foi possível validar o modelo neste momento.",
-      };
-    }
-  });
+export async function getAIConnectionRuntimeState() {
+  try {
+    return await runtime.getSnapshot();
+  } catch {
+    return {
+      state: createEmptyAIConnection(),
+      code: "RUNTIME_ERROR",
+      message: "Não foi possível carregar o estado da conexão de IA.",
+    };
+  }
 }
 
-registerAIConnectionRuntimeIpc();
+export async function confirmAIConnectionProvider(input: unknown) {
+  const parsed = parseProviderInput(input);
+  if (!parsed) {
+    return invalidRequest("A confirmação aceita somente um provedor válido.");
+  }
+
+  try {
+    return await runtime.confirmProvider(parsed.provider);
+  } catch {
+    const snapshot = await safeSnapshot();
+    return {
+      success: false,
+      ...snapshot,
+      provider: parsed.provider,
+      code: "RUNTIME_ERROR",
+      message: "Não foi possível confirmar o provedor neste momento.",
+    };
+  }
+}
+
+export async function validateAIConnectionModel(input: unknown) {
+  const parsed = parseModelInput(input);
+  if (!parsed) {
+    return invalidRequest("A validação aceita somente provedor e modelo válidos.");
+  }
+
+  try {
+    return await runtime.validateModel(parsed.provider, parsed.model);
+  } catch {
+    const snapshot = await safeSnapshot();
+    return {
+      success: false,
+      ...snapshot,
+      provider: parsed.provider,
+      model: parsed.model,
+      code: "RUNTIME_ERROR",
+      message: "Não foi possível validar o modelo neste momento.",
+    };
+  }
+}
