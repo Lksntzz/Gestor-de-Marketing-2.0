@@ -21,6 +21,16 @@ describe("Windows release updater artifacts", () => {
     expect(workflow).not.toContain("uses: actions/upload-artifact");
   });
 
+  test("manual and PR release runs are dry-run unless publication is explicit", async () => {
+    const workflow = await read(".github/workflows/release-windows.yml");
+    expect(workflow).toContain("publish:");
+    expect(workflow).toContain("default: false");
+    expect(workflow).toContain('$shouldPublish = "false"');
+    expect(workflow).toContain("SHOULD_PUBLISH=$shouldPublish");
+    expect(workflow).toContain("if: env.SHOULD_PUBLISH == 'true'");
+    expect(workflow).toContain("Dry Run Complete — Release Not Published");
+  });
+
   test("NSIS smoke retries only the known hosted-runner access violation and remains fail-closed", async () => {
     const workflow = await read(".github/workflows/release-windows.yml");
     expect(workflow).toContain("$accessViolationExitCode = -1073741819");
@@ -39,6 +49,7 @@ describe("Windows release updater artifacts", () => {
     for (const workflow of [releaseWorkflow, windowsWorkflow]) {
       expect(workflow).toContain("windows-electron-smoke.ps1");
     }
+    expect(releaseWorkflow).toContain("pull_request:");
     expect(windowsWorkflow).toContain("pull_request:");
     expect(smoke).toContain("rendererReady");
     expect(smoke).toContain("preloadReady");
