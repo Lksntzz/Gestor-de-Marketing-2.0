@@ -10,6 +10,7 @@ import {
   confirmAIConnectionProvider,
   getAIConnectionRuntimeState,
   resetAIConnectionRuntimeState,
+  revokeAIConnectionSecretStoreKey,
   validateAIConnectionModel,
 } from "./src/electron/ai/registerAIConnectionRuntimeIpc";
 import { assertTrustedIpcSender } from "./src/electron/security/trustedRenderer";
@@ -45,16 +46,40 @@ async function writeSecretStore(store: Record<string, string>): Promise<void> {
   await fs.writeFile(filePath, JSON.stringify(store, null, 2), { encoding: "utf8", mode: 0o600 });
 }
 
+function readStoredSecretValue(store: Record<string, string>, name: string): string | null {
+  const encrypted = store[name];
+  if (!encrypted) return "";
+  try {
+    return safeStorage.decryptString(Buffer.from(encrypted, "base64"));
+  } catch {
+    // An unreadable previous value cannot be proven equivalent to the new one.
+    // Treat it as a credential change and revoke dependent AI metadata first.
+    return null;
+  }
+}
+
 ipcMain.handle("secret:set", async (event, name: string, value: string) => {
   assertTrustedIpcSender(event);
   if (!ALLOWED_SECRET_NAMES.has(name)) throw new Error("Secret name not allowed.");
   if (!safeStorage.isEncryptionAvailable()) throw new Error("OS secure storage is unavailable.");
 
   const store = await readSecretStore();
-  if (!value) {
+  const previousValue = readStoredSecretValue(store, name);
+  const nextValue = value || "";
+
+  // Re-saving the exact same secret is idempotent. This matters while legacy
+  // settings code still persists configuration more than once.
+  if (previousValue === nextValue) return { success: true };
+
+  // Revoke metadata/proposals before changing the credential. If revocation
+  // fails, the secret is left untouched; if the subsequent write fails, the
+  // runtime remains safely disconnected rather than trusting stale metadata.
+  await revokeAIConnectionSecretStoreKey(name);
+
+  if (!nextValue) {
     delete store[name];
   } else {
-    store[name] = safeStorage.encryptString(value).toString("base64");
+    store[name] = safeStorage.encryptString(nextValue).toString("base64");
   }
   await writeSecretStore(store);
   return { success: true };
@@ -78,6 +103,11 @@ ipcMain.handle("secret:get", async (event, name: string) => {
 ipcMain.handle("secret:delete", async (event, name: string) => {
   assertTrustedIpcSender(event);
   if (!ALLOWED_SECRET_NAMES.has(name)) throw new Error("Secret name not allowed.");
+
+  // Always revoke first: metadata may still reference a key even when the
+  // encrypted slot is already absent or unreadable.
+  await revokeAIConnectionSecretStoreKey(name);
+
   const store = await readSecretStore();
   delete store[name];
   await writeSecretStore(store);
