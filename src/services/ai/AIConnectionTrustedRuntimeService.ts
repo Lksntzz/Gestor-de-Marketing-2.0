@@ -168,10 +168,9 @@ export class AIConnectionTrustedRuntimeService {
 
       if (!apiKey) {
         this.proposal = null;
-        const empty = missingSecretState(provider);
-        const state = isActive(current) && !sameCredential(current, provider, secretRef)
+        const state = isActive(current)
           ? current
-          : await this.persistState(empty);
+          : await this.persistState(missingSecretState(provider));
         return {
           success: false,
           provider,
@@ -280,10 +279,9 @@ export class AIConnectionTrustedRuntimeService {
       const apiKey = (await this.readSecret(secretRef)).trim();
       if (!apiKey) {
         this.proposal = null;
-        const empty = missingSecretState(provider);
-        const state = isActive(current) && !sameCredential(current, provider, secretRef)
+        const state = isActive(current)
           ? current
-          : await this.persistState(empty);
+          : await this.persistState(missingSecretState(provider));
         return {
           success: false,
           provider,
