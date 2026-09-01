@@ -76,3 +76,5 @@ jobs:
           git diff --cached --check
           git commit -m "fix: reconcile Obsidian sync state and folder UI (3.1.5)"
           git push origin HEAD:hotfix/3.1.5-obsidian-sync-ui
+
+# retry: scoped crawler replacement
