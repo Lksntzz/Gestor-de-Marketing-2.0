@@ -1,7 +1,7 @@
 import { app, BrowserWindow, ipcMain, safeStorage } from "electron";
 import { spawn, ChildProcess } from "child_process";
 import * as fs from "fs/promises";
-import { existsSync } from "fs";
+import { existsSync, readFileSync, unlinkSync } from "fs";
 import http from "http";
 import net from "net";
 import crypto from "crypto";
@@ -22,6 +22,8 @@ app.setPath("userData", stableUserDataPath);
 app.setName("Nisti Marketing");
 
 const LOOPBACK_HOST = "127.0.0.1";
+const STABLE_RENDERER_PORT = 47831;
+const UPDATE_RENDERER_STATE_FILE = "nisti_update_renderer_state.enc";
 const ALLOWED_SECRET_NAMES = new Set(["obsidianApiKey", "geminiApiKey", "openaiApiKey"]);
 const AI_CONNECTION_SECRET_NAME = "aiConnectionKey";
 const STARTUP_LOG_MAX_BYTES = 512 * 1024;
@@ -33,8 +35,12 @@ let backendInstanceId = "";
 let internalSyncToken = "";
 let apiSessionToken = "";
 let startupWindow: BrowserWindow | null = null;
-let startupTitle = "Iniciando Nisti Marketing";
-let startupMessage = "Preparando o backend local e carregando suas configurações...";
+let startupTitle = existsSync(path.join(stableUserDataPath, UPDATE_RENDERER_STATE_FILE))
+  ? "Atualizando Nisti Marketing"
+  : "Iniciando Nisti Marketing";
+let startupMessage = existsSync(path.join(stableUserDataPath, UPDATE_RENDERER_STATE_FILE))
+  ? "Concluindo a atualização e restaurando suas configurações e conexões..."
+  : "Preparando o backend local e carregando suas configurações...";
 let startupError = false;
 
 if (!hasSingleInstanceLock) {
@@ -66,6 +72,10 @@ app.on("certificate-error", (event, _webContents, requestUrl, _error, _certifica
 
 function getSecretsFilePath(): string {
   return path.join(app.getPath("userData"), "nisti_secure_secrets.json");
+}
+
+function getUpdateRendererStateFilePath(): string {
+  return path.join(app.getPath("userData"), UPDATE_RENDERER_STATE_FILE);
 }
 
 function getStartupLogPath(): string {
@@ -277,6 +287,48 @@ async function syncAllSecretsWithBackend(): Promise<void> {
   }
 }
 
+// The snapshot is encrypted with Electron safeStorage by AutoUpdateService.
+// Preload consumes it synchronously before React starts and this handler deletes
+// it immediately, so stale update state can never overwrite a later session.
+ipcMain.on("renderer-state:bootstrap", (event) => {
+  try {
+    assertTrustedIpcSender(event);
+    const filePath = getUpdateRendererStateFilePath();
+    if (!existsSync(filePath) || !safeStorage.isEncryptionAvailable()) {
+      event.returnValue = null;
+      return;
+    }
+
+    const encrypted = readFileSync(filePath, "utf8").trim();
+    unlinkSync(filePath);
+    if (!encrypted) {
+      event.returnValue = null;
+      return;
+    }
+
+    const decrypted = safeStorage.decryptString(Buffer.from(encrypted, "base64"));
+    const parsed = JSON.parse(decrypted);
+    const values = parsed?.localStorage;
+    if (parsed?.schemaVersion !== 1 || !values || typeof values !== "object" || Array.isArray(values)) {
+      event.returnValue = null;
+      return;
+    }
+
+    const sanitized: Record<string, string> = {};
+    let count = 0;
+    for (const [key, value] of Object.entries(values)) {
+      if (count >= 5000) break;
+      if (typeof key !== "string" || typeof value !== "string") continue;
+      if (key.length > 512 || value.length > 5_000_000) continue;
+      sanitized[key] = value;
+      count += 1;
+    }
+    event.returnValue = { schemaVersion: 1, localStorage: sanitized };
+  } catch {
+    event.returnValue = null;
+  }
+});
+
 ipcMain.handle("secret:set", async (event, name: string, value: string) => {
   assertTrustedIpcSender(event);
   if (!ALLOWED_SECRET_NAMES.has(name)) throw new Error("Secret name not allowed.");
@@ -397,21 +449,31 @@ ipcMain.handle("ai-connection:validate-model", async (event, input: unknown) => 
 
 registerVaultIpcHandlers(ipcMain);
 
-async function reserveEphemeralPort(): Promise<number> {
+function reservePort(port: number): Promise<number> {
   return new Promise((resolve, reject) => {
     const server = net.createServer();
     server.unref();
     server.once("error", reject);
-    server.listen(0, LOOPBACK_HOST, () => {
+    server.listen(port, LOOPBACK_HOST, () => {
       const address = server.address();
-      const port = typeof address === "object" && address ? address.port : 0;
+      const reservedPort = typeof address === "object" && address ? address.port : 0;
       server.close((err) => {
         if (err) reject(err);
-        else if (!port) reject(new Error("Não foi possível reservar uma porta local para o backend."));
-        else resolve(port);
+        else if (!reservedPort) reject(new Error("Não foi possível reservar uma porta local para o backend."));
+        else resolve(reservedPort);
       });
     });
   });
+}
+
+async function reserveEphemeralPort(): Promise<number> {
+  try {
+    return await reservePort(STABLE_RENDERER_PORT);
+  } catch (error: any) {
+    if (error?.code !== "EADDRINUSE") throw error;
+    await appendStartupLog(`Stable renderer port ${STABLE_RENDERER_PORT} is occupied; using ephemeral fallback.`);
+    return reservePort(0);
+  }
 }
 
 function waitForBackend(timeoutMs = 12000): Promise<void> {
