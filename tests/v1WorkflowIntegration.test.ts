@@ -4,6 +4,7 @@ import {
   creationBriefingBaseStatus,
   validateCreationBriefing,
 } from "../src/domain/creationBriefing";
+import { BASE_ONBOARDING_SECTIONS, canonicalBasePath } from "../src/domain/baseOnboarding";
 import { buildCreativeLibrary } from "../src/domain/creativeLibrary";
 import {
   approvedScriptToEditorialDraft,
@@ -12,42 +13,25 @@ import {
 } from "../src/utils/editorialWorkflow";
 
 function confirmedKnowledgeNotes(): ObsidianNote[] {
-  return [
-    {
-      id: "strategy-positioning",
-      path: "Nisti Marketing/01_Estrategia/Posicionamento.md",
-      title: "Posicionamento",
-      folder: "Nisti Marketing/01_Estrategia",
-      content: "# Posicionamento\n\nDiretrizes confirmadas pelo usuário.",
-      frontmatter: {
-        tipo: "Estratégia",
-        status: "OFICIAL",
-        epistemic_status: "CONFIRMADO",
-      },
-      tags: ["estrategia"],
-      wikilinks: [],
-      lastModified: "2026-08-31 18:00",
+  return BASE_ONBOARDING_SECTIONS.map((section) => ({
+    id: `base-${section.id}`,
+    path: `Nisti Marketing/${canonicalBasePath(section)}`,
+    title: section.fileTitle,
+    folder: "Nisti Marketing/00_Base",
+    content: `# ${section.title}\n\nDiretriz canônica confirmada pelo usuário.`,
+    frontmatter: {
+      tipo: "Base Inicial",
+      status: "OFICIAL",
+      epistemic_status: "CONFIRMADO",
     },
-    {
-      id: "product-catalog",
-      path: "Nisti Marketing/02_Produtos/Catalogo.md",
-      title: "Catálogo",
-      folder: "Nisti Marketing/02_Produtos",
-      content: "# Catálogo\n\nInformações confirmadas sobre o produto.",
-      frontmatter: {
-        tipo: "Produto",
-        status: "OFICIAL",
-        epistemic_status: "CONFIRMADO",
-      },
-      tags: ["produto"],
-      wikilinks: [],
-      lastModified: "2026-08-31 18:00",
-    },
-  ];
+    tags: ["base-inicial", section.id],
+    wikilinks: [],
+    lastModified: "2026-08-31 18:00",
+  }));
 }
 
 describe("v1 marketing workflow integration", () => {
-  test("Conhecimento → Briefing → Ideia → Aprovado → Planejado → Publicado preserva fontes de verdade", () => {
+  test("Base Inicial → Briefing → Ideia → Aprovado → Planejado → Publicado preserva fontes de verdade", () => {
     const notes = confirmedKnowledgeNotes();
     expect(creationBriefingBaseStatus(notes)).toEqual({
       ready: true,
