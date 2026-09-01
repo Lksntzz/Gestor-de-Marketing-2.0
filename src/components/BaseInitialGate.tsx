@@ -6,6 +6,7 @@ import {
   BASE_ONBOARDING_STORAGE_KEY,
   assessBaseReadiness,
   buildBaseDocumentPlans,
+  countUnreviewedBaseAnswers,
   createEmptyBaseOnboardingDraft,
   type BaseEpistemicStatus,
   type BaseOnboardingDraft,
@@ -85,17 +86,7 @@ export function BaseInitialGate({ children }: { children: ReactNode }) {
   const normalizedNotes = useMemo(() => normalizeBaseNotes(notes), [notes]);
   const readiness = useMemo(() => assessBaseReadiness(normalizedNotes), [normalizedNotes]);
   const plans = useMemo(() => buildBaseDocumentPlans(draft, normalizedNotes), [draft, normalizedNotes]);
-
-  const blockers = useMemo(() => {
-    let count = 0;
-    for (const section of BASE_ONBOARDING_SECTIONS) {
-      for (const question of section.questions) {
-        const answer = draft.answers[question.id];
-        if (!answer?.value?.trim() || answer.status !== "CONFIRMADO") count += 1;
-      }
-    }
-    return count;
-  }, [draft]);
+  const blockers = useMemo(() => countUnreviewedBaseAnswers(draft), [draft]);
 
   const persistDraft = (next: BaseOnboardingDraft) => {
     const persisted = { ...next, updatedAt: new Date().toISOString() };
@@ -133,7 +124,7 @@ export function BaseInitialGate({ children }: { children: ReactNode }) {
     };
   }, []);
 
-  if (readiness.complete) return <>{children}</>;
+  if (readiness.structurallyComplete) return <>{children}</>;
 
   const currentSection = BASE_ONBOARDING_SECTIONS[step];
 
@@ -169,7 +160,7 @@ export function BaseInitialGate({ children }: { children: ReactNode }) {
     if (blockers > 0) {
       setMessage({
         type: "error",
-        text: `Ainda existem ${blockers} resposta(s) sem confirmação. Revise-as antes de criar os documentos canônicos.`,
+        text: `Ainda existem ${blockers} resposta(s) sem revisão/classificação. Revise cada item como CONFIRMADO, HIPÓTESE ou PENDENTE antes de gravar.`,
       });
       return;
     }
@@ -191,9 +182,9 @@ export function BaseInitialGate({ children }: { children: ReactNode }) {
 
       const verifiedNotes = await api.syncWebObsidianNotes(config);
       const verifiedReadiness = assessBaseReadiness(normalizeBaseNotes(verifiedNotes));
-      if (!verifiedReadiness.complete) {
+      if (!verifiedReadiness.structurallyComplete) {
         throw new Error(
-          `A gravação terminou, mas a releitura ainda aponta ${verifiedReadiness.missingSectionIds.length} documento(s) ausente(s) e ${verifiedReadiness.pendingPaths.length} pendente(s).`,
+          `A gravação terminou, mas a releitura ainda aponta ${verifiedReadiness.missingSectionIds.length} documento(s) canônico(s) ausente(s).`,
         );
       }
 
@@ -201,7 +192,10 @@ export function BaseInitialGate({ children }: { children: ReactNode }) {
       setNotes(verifiedNotes);
       localStorage.removeItem(BASE_ONBOARDING_STORAGE_KEY);
       setDraft(createEmptyBaseOnboardingDraft());
-      setMessage({ type: "success", text: "Base Inicial confirmada pelo Obsidian. O restante do Nisti foi liberado." });
+      setMessage({
+        type: "success",
+        text: "Base Inicial gravada e verificada pelo Obsidian. Hipóteses e pendências permanecem rotuladas e não são promovidas a fatos.",
+      });
     } catch (error: any) {
       setMessage({ type: "error", text: error?.message || "Falha ao gravar e verificar a Base Inicial." });
     } finally {
@@ -219,7 +213,7 @@ export function BaseInitialGate({ children }: { children: ReactNode }) {
             </div>
             <h1 className="text-2xl font-black mt-2">Onboarding da Base Inicial</h1>
             <p className="text-xs text-text-secondary mt-1 max-w-2xl">
-              O Nisti só libera geração depois que os documentos canônicos forem criados e confirmados por você. Nenhuma informação é inventada automaticamente.
+              O Nisti só libera geração depois que os documentos canônicos forem criados e revisados por você. CONFIRMADO, HIPÓTESE e PENDENTE continuam distintos; nenhuma informação é inventada automaticamente.
             </p>
           </div>
           <div className={`text-[11px] font-bold px-3 py-2 rounded-xl border ${connected ? "border-emerald-500/30 bg-emerald-500/10 text-emerald-300" : "border-amber-500/30 bg-amber-500/10 text-amber-200"}`}>
@@ -246,7 +240,7 @@ export function BaseInitialGate({ children }: { children: ReactNode }) {
                 className={`w-full text-left px-3 py-2.5 rounded-xl text-xs border ${review ? "border-emerald-500/30 bg-emerald-500/10" : "border-transparent text-text-secondary hover:bg-surface-container-low"}`}
               >
                 <strong className="block">Revisar e gravar</strong>
-                <span className="text-[10px] opacity-70">{blockers} confirmação(ões) pendente(s)</span>
+                <span className="text-[10px] opacity-70">{blockers} revisão(ões) pendente(s)</span>
               </button>
             </div>
           </aside>
@@ -262,7 +256,7 @@ export function BaseInitialGate({ children }: { children: ReactNode }) {
             {review ? (
               <div className="space-y-5">
                 <div>
-                  <span className="text-[10px] uppercase tracking-wider font-black text-emerald-400">Confirmação humana</span>
+                  <span className="text-[10px] uppercase tracking-wider font-black text-emerald-400">Revisão humana</span>
                   <h2 className="text-xl font-black mt-1">Revisar antes de criar a Base</h2>
                   <p className="text-xs text-text-secondary mt-1">
                     A gravação é REST-first, bloqueia colisões e só mostra sucesso depois de reler cada arquivo no mesmo Vault autenticado.
@@ -270,12 +264,16 @@ export function BaseInitialGate({ children }: { children: ReactNode }) {
                 </div>
                 <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
                   <div className="rounded-xl border border-outline-border p-4"><span className="text-[10px] text-text-secondary uppercase">Canônicos ausentes</span><strong className="block text-2xl mt-1">{readiness.missingSectionIds.length}</strong></div>
-                  <div className="rounded-xl border border-outline-border p-4"><span className="text-[10px] text-text-secondary uppercase">Respostas a confirmar</span><strong className="block text-2xl mt-1">{blockers}</strong></div>
+                  <div className="rounded-xl border border-outline-border p-4"><span className="text-[10px] text-text-secondary uppercase">Respostas a revisar</span><strong className="block text-2xl mt-1">{blockers}</strong></div>
                   <div className="rounded-xl border border-outline-border p-4"><span className="text-[10px] text-text-secondary uppercase">Arquivos a gravar</span><strong className="block text-2xl mt-1">{plans.length}</strong></div>
                 </div>
-                {blockers > 0 && (
+                {blockers > 0 ? (
                   <div className="rounded-xl border border-amber-500/30 bg-amber-500/10 p-4 text-xs text-amber-100">
-                    Hipóteses e pendências podem permanecer no rascunho, mas não são promovidas silenciosamente a documentos canônicos CONFIRMADOS. Confirme somente o que você realmente sabe antes de finalizar.
+                    Revise cada pergunta. Você pode manter uma informação como HIPÓTESE ou PENDENTE; somente CONFIRMADO será tratado como fato. O que não pode ficar é uma pergunta sem revisão/classificação.
+                  </div>
+                ) : (
+                  <div className="rounded-xl border border-emerald-500/30 bg-emerald-500/10 p-4 text-xs text-emerald-100">
+                    Todas as perguntas foram revisadas. Hipóteses e pendências serão gravadas com seus próprios estados e continuarão fora da categoria de fato confirmado.
                   </div>
                 )}
                 <div className="flex justify-between gap-3 pt-4 border-t border-outline-border">
@@ -311,7 +309,7 @@ export function BaseInitialGate({ children }: { children: ReactNode }) {
                           onChange={(event) => updateAnswer(question.id, { value: event.target.value })}
                           rows={3}
                           className="mt-3 w-full rounded-xl border border-outline-border bg-surface-card px-3 py-2 text-sm outline-none focus:border-pink-500/50"
-                          placeholder="Escreva apenas informação real conhecida por você."
+                          placeholder="Escreva apenas informação real conhecida por você; se não souber, deixe vazio e classifique como PENDENTE."
                         />
                         <div className="flex flex-wrap gap-2 mt-3">
                           {(["CONFIRMADO", "HIPÓTESE", "PENDENTE"] as BaseEpistemicStatus[]).map((status) => (
