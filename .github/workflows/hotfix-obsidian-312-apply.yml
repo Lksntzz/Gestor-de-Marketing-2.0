@@ -1,0 +1,27 @@
+name: Apply Obsidian 3.1.2 Secure Reconnect Hotfix
+
+on:
+  push:
+    branches:
+      - hotfix/3.1.2-obsidian-secure-reconnect
+
+permissions:
+  contents: write
+
+jobs:
+  apply:
+    if: ${{ github.actor != 'github-actions[bot]' }}
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Apply secure desktop Obsidian routing
+        run: node scripts/apply-obsidian-312-hotfix.mjs
+      - name: Commit hotfix
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add src/services/api.ts server.ts tests/obsidianSecureDesktopRouting.test.ts
+          git commit -m "fix: route desktop Obsidian through secure backend"
+          git push origin HEAD:hotfix/3.1.2-obsidian-secure-reconnect
