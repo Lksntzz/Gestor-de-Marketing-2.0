@@ -76,7 +76,13 @@ async function selectKnowledge(
   if (typeof window !== "undefined" && window.electronAPI?.queryKnowledge) {
     try {
       const response = await window.electronAPI.queryKnowledge(query, preferredSourcePaths);
-      return { knowledgeSources: response.sources, knowledgeWarning: response.warning };
+      if (Array.isArray(response?.sources) && response.sources.length > 0) {
+        return { knowledgeSources: response.sources, knowledgeWarning: response.warning };
+      }
+      if (notes.length === 0) {
+        return { knowledgeSources: [], knowledgeWarning: response?.warning };
+      }
+      console.warn("Electron knowledge index returned no sources; using the REST Vault snapshot in memory.");
     } catch (error) {
       console.warn("Creation knowledge query via IPC failed; using in-memory selector.", error);
     }

@@ -204,6 +204,14 @@ export function assessSmartKnowledgeReadiness(notes: ObsidianNote[]): {
   strategicSources: number;
 } {
   const managed = notes.filter((note) => normalizedPath(note).startsWith(`${NISTI_VAULT_ROOT}/`));
+  const external = notes.filter((note) => {
+    const path = normalizedPath(note);
+    if (path.startsWith(`${NISTI_VAULT_ROOT}/`)) return false;
+    if (!String(note.content || "").trim()) return false;
+    const segments = path.split("/").map((segment) => segment.toLowerCase());
+    return !segments.some((segment) => [".obsidian", ".trash", ".git", ".hg", ".svn", "node_modules"].includes(segment));
+  });
+
   const usable = managed.filter((note) => {
     const path = normalizedPath(note);
     if (path.startsWith(`${NISTI_INBOX_FOLDER}/`) || path.includes("/99_Templates/")) return false;
@@ -211,15 +219,20 @@ export function assessSmartKnowledgeReadiness(notes: ObsidianNote[]): {
     return epistemic === "CONFIRMADO" || epistemic === "HIPÓTESE" || epistemic === "OFICIAL";
   });
   const strategic = usable.filter((note) => PLANNING_KNOWLEDGE_FOLDERS.some((folder) => normalizedPath(note).startsWith(`${folder}/`)));
-  const pendingSources = managed.filter((note) => {
+  const managedPending = managed.filter((note) => {
     const epistemic = String(note.frontmatter?.epistemic_status || note.frontmatter?.status || "PENDENTE").toUpperCase();
     return epistemic === "PENDENTE" || epistemic === "NOVO" || epistemic === "EM REVISÃO";
   }).length;
 
+  // Notes already present elsewhere in the active Obsidian Vault are legitimate
+  // discovered sources. They are available to retrieval immediately, but are not
+  // promoted to CONFIRMADO and are never moved unless they enter Nisti/00_Inbox.
+  const discoveredExternalSources = external.length;
+
   return {
-    ready: strategic.length > 0,
-    usableSources: usable.length,
-    pendingSources,
-    strategicSources: strategic.length,
+    ready: strategic.length > 0 || discoveredExternalSources > 0,
+    usableSources: usable.length + discoveredExternalSources,
+    pendingSources: managedPending + discoveredExternalSources,
+    strategicSources: strategic.length + discoveredExternalSources,
   };
 }
