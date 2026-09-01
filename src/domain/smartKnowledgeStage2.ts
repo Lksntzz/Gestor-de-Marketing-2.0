@@ -206,9 +206,12 @@ export function assessSmartKnowledgeReadiness(notes: ObsidianNote[]): {
   const managed = notes.filter((note) => normalizedPath(note).startsWith(`${NISTI_VAULT_ROOT}/`));
   const external = notes.filter((note) => {
     const path = normalizedPath(note);
+    const lowerPath = path.toLowerCase();
     if (path.startsWith(`${NISTI_VAULT_ROOT}/`)) return false;
+    if (lowerPath === "00_base" || lowerPath.startsWith("00_base/")) return false;
+    if (lowerPath === "00_base_conhecimento" || lowerPath.startsWith("00_base_conhecimento/")) return false;
     if (!String(note.content || "").trim()) return false;
-    const segments = path.split("/").map((segment) => segment.toLowerCase());
+    const segments = lowerPath.split("/");
     return !segments.some((segment) => [".obsidian", ".trash", ".git", ".hg", ".svn", "node_modules"].includes(segment));
   });
 
@@ -227,6 +230,8 @@ export function assessSmartKnowledgeReadiness(notes: ObsidianNote[]): {
   // Notes already present elsewhere in the active Obsidian Vault are legitimate
   // discovered sources. They are available to retrieval immediately, but are not
   // promoted to CONFIRMADO and are never moved unless they enter Nisti/00_Inbox.
+  // Legacy 00_Base trees are explicitly excluded so fabricated onboarding files
+  // cannot regain authority merely because the whole Vault is now discoverable.
   const discoveredExternalSources = external.length;
 
   return {
