@@ -33,6 +33,7 @@ const OBSIDIAN_HEARTBEAT_FAILURE_THRESHOLD = 3;
 const aiTriageAttemptCache = new Map<string, string>();
 let useDirectClientSideFetch = true;
 const OBSIDIAN_VAULT_IGNORED_SEGMENTS = new Set([".obsidian", ".trash", ".git", ".hg", ".svn", "node_modules"]);
+export const OBSIDIAN_VAULT_ROOT_LABEL = "Raiz do Vault";
 const storage = StorageManager.getInstance();
 
 export function normalizeObsidianEndpoint(endpoint?: string): string {
@@ -349,7 +350,7 @@ export async function syncWebObsidianNotes(
                 const pathParts = itemRelativePath.split("/");
                 const filename = pathParts.pop() || "Sem Título.md";
                 const title = filename.replace(/\.md$/i, "");
-                const folder = pathParts.join("/") || "00_Inbox";
+                const folder = pathParts.join("/") || OBSIDIAN_VAULT_ROOT_LABEL;
 
                 const parsed = parseMarkdownDocument(content);
                 const frontmatter = parsed.frontmatter;

@@ -11,6 +11,7 @@ import {
   Lightbulb,
   Menu,
   Plus,
+  RefreshCw,
   Settings,
   Sparkles,
   X,
@@ -54,6 +55,8 @@ export const Navbar: React.FC<NavbarProps> = ({
   setActiveTab,
   apiConfig,
   onOpenSettings,
+  onSyncNow,
+  isSyncing,
   onQuickNewCampaign,
   onQuickNewTask,
   onQuickNewNote,
@@ -137,6 +140,19 @@ export const Navbar: React.FC<NavbarProps> = ({
 
           <div className="flex items-center gap-2 sm:gap-3 shrink-0">
             <div className="hidden md:block">{connectionWarning}</div>
+
+            {isBaseConnected && (
+              <button
+                type="button"
+                onClick={onSyncNow}
+                disabled={isSyncing}
+                className="hidden sm:flex items-center gap-1.5 px-3 py-2 rounded-xl bg-surface-container-low hover:bg-surface-variant text-text-secondary hover:text-text-primary border border-outline-border transition-all text-[11px] font-bold disabled:opacity-50 disabled:cursor-wait"
+                title="Reler agora o Vault ativo do Obsidian"
+              >
+                <RefreshCw className={`w-3.5 h-3.5 ${isSyncing ? "animate-spin" : ""}`} />
+                <span className="hidden xl:inline">{isSyncing ? "Sincronizando..." : "Sincronizar agora"}</span>
+              </button>
+            )}
 
             <div className="relative">
               <button
@@ -319,6 +335,18 @@ export const Navbar: React.FC<NavbarProps> = ({
             <span className="text-[10px] font-bold text-text-secondary uppercase tracking-wider">Navegação</span>
             {connectionWarning}
           </div>
+
+          {isBaseConnected && (
+            <button
+              type="button"
+              onClick={onSyncNow}
+              disabled={isSyncing}
+              className="w-full px-3 py-2.5 rounded-xl bg-surface-container-low border border-outline-border text-text-primary text-xs font-bold flex items-center justify-center gap-2 disabled:opacity-50"
+            >
+              <RefreshCw className={`w-4 h-4 ${isSyncing ? "animate-spin" : ""}`} />
+              {isSyncing ? "Sincronizando..." : "Sincronizar agora"}
+            </button>
+          )}
 
           <div className="grid grid-cols-2 gap-2">
             {PRIMARY_NAVIGATION.map((item) => {
