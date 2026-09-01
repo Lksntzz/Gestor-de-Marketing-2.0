@@ -1,6 +1,8 @@
 import express from "express";
 import path from "path";
 import crypto from "crypto";
+import http from "http";
+import https from "https";
 import { createServer as createViteServer } from "vite";
 import dotenv from "dotenv";
 import * as pdfParseModule from "pdf-parse";
@@ -40,6 +42,78 @@ async function parsePdfBuffer(buffer: Buffer): Promise<string> {
     console.warn("PDF parsing notice:", err);
     return "";
   }
+}
+
+type ObsidianLoopbackResponse = {
+  ok: boolean;
+  status: number;
+  headers: { get(name: string): string | null };
+  json(): Promise<any>;
+  text(): Promise<string>;
+};
+
+function isOfficialObsidianSelfSignedEndpoint(target: URL): boolean {
+  const hostname = target.hostname.toLowerCase();
+  return target.protocol === "https:"
+    && target.port === "27124"
+    && (hostname === "127.0.0.1" || hostname === "localhost" || hostname === "[::1]" || hostname === "::1");
+}
+
+async function requestObsidianLoopback(
+  urlString: string,
+  options: RequestInit,
+  timeoutMs = 4_000,
+): Promise<ObsidianLoopbackResponse> {
+  const target = new URL(urlString);
+  const transport = target.protocol === "https:" ? https : http;
+  const trustOfficialLocalCertificate = isOfficialObsidianSelfSignedEndpoint(target);
+  const headers = (options.headers || {}) as Record<string, string>;
+
+  let requestBody: string | Buffer | undefined;
+  if (typeof options.body === "string") requestBody = options.body;
+  else if (Buffer.isBuffer(options.body)) requestBody = options.body;
+  else if (options.body instanceof Uint8Array) requestBody = Buffer.from(options.body);
+  else if (options.body != null) throw new Error("Payload não suportado na ponte segura do Obsidian.");
+
+  return await new Promise((resolve, reject) => {
+    const request = transport.request(target, {
+      method: String(options.method || "GET"),
+      headers,
+      ...(target.protocol === "https:"
+        ? { rejectUnauthorized: !trustOfficialLocalCertificate }
+        : {}),
+    }, (response) => {
+      const chunks: Buffer[] = [];
+      response.on("data", (chunk) => chunks.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk)));
+      response.on("end", () => {
+        const body = Buffer.concat(chunks).toString("utf8");
+        const status = response.statusCode || 0;
+        resolve({
+          ok: status >= 200 && status < 300,
+          status,
+          headers: {
+            get(name: string) {
+              const value = response.headers[name.toLowerCase()];
+              return Array.isArray(value) ? value.join(", ") : value == null ? null : String(value);
+            },
+          },
+          async json() {
+            return body ? JSON.parse(body) : {};
+          },
+          async text() {
+            return body;
+          },
+        });
+      });
+    });
+
+    request.on("error", reject);
+    request.setTimeout(timeoutMs, () => {
+      request.destroy(new Error("Tempo limite ao contatar o Obsidian Local REST API."));
+    });
+    if (requestBody !== undefined) request.write(requestBody);
+    request.end();
+  });
 }
 
 const app = express();
@@ -1862,11 +1936,10 @@ app.post("/api/obsidian/test-connection", async (req, res) => {
     const controller = new AbortController();
     const timeoutId = setTimeout(() => controller.abort(), 3_500);
     try {
-      const response = await fetch(`${parsedUrl.protocol}//${parsedUrl.host}/`, {
+      const response = await requestObsidianLoopback(`${parsedUrl.protocol}//${parsedUrl.host}/`, {
         method: "GET",
         headers: { Authorization: `Bearer ${finalApiKey}`, Accept: "application/json" },
-        signal: controller.signal,
-      });
+      }, 3_500);
       const payload = await response.json().catch(() => ({}));
       if (response.ok && payload?.authenticated === true) {
         return res.json({ success: true, message: "Conectado e autenticado com sucesso ao Obsidian Local REST API." });
@@ -1931,7 +2004,7 @@ app.post("/api/obsidian/proxy", async (req, res) => {
           : typeof body === "string" ? body : JSON.stringify(body);
       }
 
-      const obsidianRes = await fetch(fullUrl, fetchOptions);
+      const obsidianRes = await requestObsidianLoopback(fullUrl, fetchOptions, 4_000);
       const contentType = obsidianRes.headers.get("content-type") || "";
       const data = contentType.includes("application/json")
         ? await obsidianRes.json().catch(() => ({}))
