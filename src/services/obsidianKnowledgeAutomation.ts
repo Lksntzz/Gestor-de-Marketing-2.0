@@ -3,6 +3,7 @@ import type { ObsidianNote } from "../types";
 export const NISTI_VAULT_ROOT = "Nisti Marketing";
 export const NISTI_RELATIVE_FOLDERS = [
   "00_Inbox",
+  "00_Base",
   "01_Estrategia",
   "02_Produtos",
   "03_Conteudos",
