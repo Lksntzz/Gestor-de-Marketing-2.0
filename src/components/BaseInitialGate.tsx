@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState, type ReactNode } from "react";
+import React, { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { AlertTriangle, CheckCircle2, ChevronLeft, ChevronRight, Loader2, ShieldCheck } from "lucide-react";
 import type { ObsidianApiConfig, ObsidianNote } from "../types";
 import {
@@ -83,6 +83,7 @@ export function BaseInitialGate({ children }: { children: ReactNode }) {
   const [saving, setSaving] = useState(false);
   const [deferredForSession, setDeferredForSession] = useState(false);
   const [message, setMessage] = useState<{ type: "error" | "success"; text: string } | null>(null);
+  const refreshInFlightRef = useRef<Promise<void> | null>(null);
 
   const normalizedNotes = useMemo(() => normalizeBaseNotes(notes), [notes]);
   const readiness = useMemo(() => assessBaseReadiness(normalizedNotes), [normalizedNotes]);
@@ -95,16 +96,25 @@ export function BaseInitialGate({ children }: { children: ReactNode }) {
     storage.saveAppState(BASE_ONBOARDING_STORAGE_KEY, persisted);
   };
 
-  const refreshFromRest = async () => {
-    if (!api.isObsidianSessionVerified()) return;
-    try {
-      const config = await storage.loadApiConfig(DEFAULT_API_CONFIG);
-      const synchronized = await api.syncWebObsidianNotes(config);
-      setNotes(synchronized);
-      replacePersistentAppState(APP_STATE_KEYS.NOTES, synchronized);
-    } catch (error) {
-      console.warn("Não foi possível atualizar a Base Inicial pelo REST.", error);
-    }
+  const refreshFromRest = (): Promise<void> => {
+    if (!api.isObsidianSessionVerified()) return Promise.resolve();
+    if (refreshInFlightRef.current) return refreshInFlightRef.current;
+
+    const refresh = (async () => {
+      try {
+        const config = await storage.loadApiConfig(DEFAULT_API_CONFIG);
+        const synchronized = await api.syncWebObsidianNotes(config);
+        setNotes(synchronized);
+        replacePersistentAppState(APP_STATE_KEYS.NOTES, synchronized);
+      } catch (error) {
+        console.warn("Não foi possível atualizar a Base Inicial pelo REST.", error);
+      }
+    })().finally(() => {
+      refreshInFlightRef.current = null;
+    });
+
+    refreshInFlightRef.current = refresh;
+    return refresh;
   };
 
   useEffect(() => {
@@ -113,7 +123,11 @@ export function BaseInitialGate({ children }: { children: ReactNode }) {
       void refreshFromRest();
     };
     const onDisconnected = () => setConnected(false);
-    const onSnapshot = () => void refreshFromRest();
+    const onSnapshot = (event: Event) => {
+      const snapshot = (event as CustomEvent<{ notes?: ObsidianNote[] }>).detail?.notes;
+      if (!Array.isArray(snapshot)) return;
+      setNotes(snapshot);
+    };
     window.addEventListener(OBSIDIAN_CONNECTED_EVENT, onConnected);
     window.addEventListener(OBSIDIAN_DISCONNECTED_EVENT, onDisconnected);
     window.addEventListener(OBSIDIAN_SNAPSHOT_EVENT, onSnapshot);
