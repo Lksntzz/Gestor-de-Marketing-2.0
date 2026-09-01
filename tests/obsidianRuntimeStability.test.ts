@@ -23,6 +23,19 @@ describe("Obsidian runtime connection stability", () => {
     expect(block).not.toContain("api.disconnectObsidianSession");
   });
 
+  test("authenticated transport is not revoked by Base preparation failures", () => {
+    const source = normalize(readFileSync("src/services/api.ts", "utf8"));
+    const start = source.indexOf("async function verifyObsidianConnection");
+    const end = source.indexOf("async function requireVerifiedObsidian", start);
+    const block = source.slice(start, end);
+    const authBoundary = block.indexOf("markObsidianRuntimeConnected()");
+    const preparationBoundary = block.indexOf("ensureNistiRemoteStructure", authBoundary);
+    expect(authBoundary).toBeGreaterThan(-1);
+    expect(preparationBoundary).toBeGreaterThan(authBoundary);
+    expect(block.slice(preparationBoundary)).not.toContain("markObsidianRuntimeDisconnected");
+    expect(block).toContain("preparationWarnings");
+  });
+
   test("heartbeat is lightweight and tolerates transient failures", () => {
     const source = normalize(readFileSync("src/services/api.ts", "utf8"));
     const start = source.indexOf("function startObsidianHeartbeat");
