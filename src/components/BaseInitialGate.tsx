@@ -81,6 +81,7 @@ export function BaseInitialGate({ children }: { children: ReactNode }) {
   );
   const [review, setReview] = useState(false);
   const [saving, setSaving] = useState(false);
+  const [deferredForSession, setDeferredForSession] = useState(false);
   const [message, setMessage] = useState<{ type: "error" | "success"; text: string } | null>(null);
 
   const normalizedNotes = useMemo(() => normalizeBaseNotes(notes), [notes]);
@@ -125,6 +126,31 @@ export function BaseInitialGate({ children }: { children: ReactNode }) {
   }, []);
 
   if (readiness.structurallyComplete) return <>{children}</>;
+
+  if (deferredForSession) {
+    return (
+      <>
+        {children}
+        <div className="fixed bottom-4 left-1/2 -translate-x-1/2 z-50 w-[min(680px,calc(100vw-2rem))] rounded-2xl border border-amber-500/30 bg-[#111827]/95 shadow-2xl backdrop-blur-md p-4">
+          <div className="flex flex-col sm:flex-row sm:items-center gap-3">
+            <div className="flex-1 min-w-0">
+              <div className="text-xs font-black text-amber-200">Base Inicial ainda incompleta</div>
+              <p className="mt-1 text-[10px] leading-relaxed text-slate-400">
+                Você saiu do onboarding somente nesta sessão. A Base não foi marcada como concluída e os fluxos de criação continuam bloqueados até os 9 documentos canônicos serem gravados e verificados.
+              </p>
+            </div>
+            <button
+              type="button"
+              onClick={() => setDeferredForSession(false)}
+              className="shrink-0 px-4 py-2 rounded-xl border border-amber-500/30 bg-amber-500/10 text-amber-200 text-[10px] font-black"
+            >
+              Retomar onboarding
+            </button>
+          </div>
+        </div>
+      </>
+    );
+  }
 
   const currentSection = BASE_ONBOARDING_SECTIONS[step];
 
@@ -216,8 +242,17 @@ export function BaseInitialGate({ children }: { children: ReactNode }) {
               O Nisti só libera geração depois que os documentos canônicos forem criados e revisados por você. CONFIRMADO, HIPÓTESE e PENDENTE continuam distintos; nenhuma informação é inventada automaticamente.
             </p>
           </div>
-          <div className={`text-[11px] font-bold px-3 py-2 rounded-xl border ${connected ? "border-emerald-500/30 bg-emerald-500/10 text-emerald-300" : "border-amber-500/30 bg-amber-500/10 text-amber-200"}`}>
-            {connected ? "Obsidian REST conectado" : "Obsidian desconectado"}
+          <div className="flex flex-col sm:flex-row sm:items-center gap-2">
+            <button
+              type="button"
+              onClick={() => setDeferredForSession(true)}
+              className="text-[10px] font-black px-3 py-2 rounded-xl border border-outline-border text-text-secondary hover:text-text-primary bg-surface-container-low"
+            >
+              Continuar no Nisti por enquanto
+            </button>
+            <div className={`text-[11px] font-bold px-3 py-2 rounded-xl border ${connected ? "border-emerald-500/30 bg-emerald-500/10 text-emerald-300" : "border-amber-500/30 bg-amber-500/10 text-amber-200"}`}>
+              {connected ? "Obsidian REST conectado" : "Obsidian desconectado"}
+            </div>
           </div>
         </header>
 
