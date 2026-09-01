@@ -1,4 +1,9 @@
 import { contextBridge, ipcRenderer } from "electron";
+import {
+  creativeCommitCandidates,
+  isMissingCreativeFolderError,
+  requireSuccessfulCreativeCommit,
+} from "./services/creativeVaultPersistence";
 
 const UPDATE_OVERLAY_ID = "nisti-desktop-update-overlay";
 
@@ -69,6 +74,23 @@ function hideUpdateOverlay(): void {
   }
 }
 
+async function commitKnowledgeSafely(payload: any): Promise<any> {
+  const candidates = creativeCommitCandidates(payload || {});
+  let lastResult: any = null;
+
+  for (let index = 0; index < candidates.length; index += 1) {
+    lastResult = await ipcRenderer.invoke("knowledge:commit", candidates[index]);
+    if (lastResult?.success) return lastResult;
+
+    const canRetryInParent = index === 0
+      && candidates.length > 1
+      && isMissingCreativeFolderError(lastResult);
+    if (!canRetryInParent) break;
+  }
+
+  return requireSuccessfulCreativeCommit(lastResult);
+}
+
 // Preload runs before the React bundle. Restoring here guarantees that the new
 // version sees the previous renderer state on its first render, even if the
 // desktop backend origin changed between versions.
@@ -90,7 +112,7 @@ contextBridge.exposeInMainWorld("electronAPI", {
 
   readNotes: () => ipcRenderer.invoke("notes:read-all"),
   queryKnowledge: (query: string, preferredPaths?: string[]) => ipcRenderer.invoke("knowledge:query", query, preferredPaths),
-  commitKnowledge: (payload: any) => ipcRenderer.invoke("knowledge:commit", payload),
+  commitKnowledge: (payload: any) => commitKnowledgeSafely(payload),
   writeNote: (...args: any[]) => {
     // Compatibility for pre-v0.1.5 callers that still pass vaultPath first.
     // The renderer-provided root is deliberately discarded and never reaches IPC.
