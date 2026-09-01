@@ -62,7 +62,7 @@ describe("creation briefing", () => {
     expect(instructions).not.toContain("Engajamento");
   });
 
-  test("libera o briefing somente quando a Base Inicial canônica está completa e confirmada", () => {
+  test("libera o briefing quando os documentos canônicos existem, sem promover pendências a fato", () => {
     const complete = completeCanonicalBase();
     expect(creationBriefingBaseStatus(complete)).toEqual({
       ready: true,
@@ -77,13 +77,15 @@ describe("creation briefing", () => {
       pendingDocuments: 0,
     });
 
-    const pendingOne = complete.map((item, index) =>
-      index === 0 ? { ...item, frontmatter: { ...item.frontmatter, epistemic_status: "PENDENTE" } } : item,
-    );
-    expect(creationBriefingBaseStatus(pendingOne)).toEqual({
-      ready: false,
+    const mixedEpistemic = complete.map((item, index) => {
+      if (index === 0) return { ...item, frontmatter: { ...item.frontmatter, epistemic_status: "PENDENTE" } };
+      if (index === 1) return { ...item, frontmatter: { ...item.frontmatter, epistemic_status: "HIPÓTESE" } };
+      return item;
+    });
+    expect(creationBriefingBaseStatus(mixedEpistemic)).toEqual({
+      ready: true,
       missingDocuments: 0,
-      pendingDocuments: 1,
+      pendingDocuments: 2,
     });
   });
 
