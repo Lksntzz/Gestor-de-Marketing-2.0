@@ -64,7 +64,7 @@ export function creationBriefingBaseStatus(notes: ObsidianNote[]): {
 } {
   const readiness = assessBaseReadiness(normalizeBaseNotes(notes));
   return {
-    ready: readiness.complete,
+    ready: readiness.structurallyComplete,
     missingDocuments: readiness.missingSectionIds.length,
     pendingDocuments: readiness.pendingPaths.length,
   };
