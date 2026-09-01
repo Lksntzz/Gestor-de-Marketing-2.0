@@ -1,5 +1,6 @@
 import type { ObsidianNote } from "../types";
-import { assessSmartKnowledgeReadiness } from "./smartKnowledgeStage2";
+import { stripNistiKnowledgeRoot } from "../services/obsidianKnowledgeAutomation";
+import { assessBaseReadiness } from "./baseOnboarding";
 
 export interface CreationBriefing {
   objective: string;
@@ -16,6 +17,17 @@ export interface CreationBriefingValidation {
 
 function clean(value: unknown): string {
   return typeof value === "string" ? value.trim() : String(value || "").trim();
+}
+
+function normalizeBaseNotes(notes: ObsidianNote[]): ObsidianNote[] {
+  return notes.map((note) => {
+    const path = stripNistiKnowledgeRoot(note.path);
+    return {
+      ...note,
+      path,
+      folder: path.includes("/") ? path.slice(0, path.lastIndexOf("/")) : note.folder,
+    };
+  });
 }
 
 export function normalizeCreationBriefing(input: Partial<CreationBriefing>): CreationBriefing {
@@ -50,10 +62,10 @@ export function creationBriefingBaseStatus(notes: ObsidianNote[]): {
   missingDocuments: number;
   pendingDocuments: number;
 } {
-  const readiness = assessSmartKnowledgeReadiness(notes);
+  const readiness = assessBaseReadiness(normalizeBaseNotes(notes));
   return {
-    ready: readiness.ready,
-    missingDocuments: readiness.ready ? 0 : 1,
-    pendingDocuments: readiness.pendingSources,
+    ready: readiness.complete,
+    missingDocuments: readiness.missingSectionIds.length,
+    pendingDocuments: readiness.pendingPaths.length,
   };
 }

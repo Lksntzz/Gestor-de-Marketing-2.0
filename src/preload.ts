@@ -78,7 +78,11 @@ contextBridge.exposeInMainWorld("electronAPI", {
   isElectron: () => true,
 
   selectVault: () => ipcRenderer.invoke("vault:select"),
-  getVaultPath: () => ipcRenderer.invoke("vault:get-path"),
+  // 3.1.7: o renderer não usa mais um caminho físico como autoridade para
+  // decidir onde gravar. Escritas operacionais passam pela Local REST API
+  // autenticada; o caminho local permanece encapsulado no processo principal
+  // apenas para compatibilidade, indexação e manutenção do Vault.
+  getVaultPath: async () => null,
   setObsidianConnectionState: (connected: boolean) => ipcRenderer.invoke("vault:connection-state", connected),
   listVaultFolders: () => ipcRenderer.invoke("vault:list-folders"),
   auditVault: () => ipcRenderer.invoke("vault:audit"),
