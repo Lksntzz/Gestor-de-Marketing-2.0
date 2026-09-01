@@ -7,10 +7,10 @@ const bootstrap = readFileSync("electron-bootstrap.ts", "utf8");
 const updater = readFileSync("src/electron/update/AutoUpdateService.ts", "utf8");
 const preload = readFileSync("src/preload.ts", "utf8");
 
-describe("3.1.6 desktop update persistence", () => {
+describe("3.1.7 desktop update persistence", () => {
   test("keeps release versions aligned", () => {
-    expect(pkg.version).toBe("3.1.6");
-    expect(reliability).toContain('APP_VERSION = "3.1.6"');
+    expect(pkg.version).toBe("3.1.7");
+    expect(reliability).toContain('APP_VERSION = "3.1.7"');
   });
 
   test("uses a stable renderer origin with a safe fallback", () => {
