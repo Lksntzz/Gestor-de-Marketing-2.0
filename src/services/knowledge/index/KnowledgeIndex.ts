@@ -1,4 +1,5 @@
 import { DatabaseSync } from "node:sqlite";
+import { editorialItemSqlBindings } from "./sqliteBindings";
 
 export interface KnowledgeDocument {
   id: string;
@@ -159,12 +160,7 @@ export class KnowledgeIndex {
         notes = excluded.notes,
         updated_at = excluded.updated_at
     `);
-    stmt.run(
-      item.id, item.title, item.content_type || item.contentType, item.platform, item.objective,
-      item.scheduled_date || item.scheduledDate, item.scheduled_time || item.scheduledTime, item.status, item.priority,
-      item.idea_id || item.ideaId, item.script_id || item.scriptId, item.campaign_id || item.campaignId,
-      item.obsidian_path || item.obsidianPath, item.notes, item.created_at || item.createdAt, item.updated_at || item.updatedAt
-    );
+    stmt.run(...editorialItemSqlBindings(item));
   }
 
   deleteEditorialItem(id: string) {
