@@ -167,8 +167,8 @@ export const CopywritingGenerator: React.FC<CopywritingGeneratorProps> = ({
       );
 
       const cleanFileName = result.title.replace(/[<>:"/\\|?*]/g, "-").slice(0, 80);
-      await onSaveToVault(fullMarkdown, "02_Conteudo/Copies", cleanFileName);
-      setSavedPath(`02_Conteudo/Copies/${cleanFileName}.md`);
+      await onSaveToVault(fullMarkdown, "03_Conteudos/Copies", cleanFileName);
+      setSavedPath(`03_Conteudos/Copies/${cleanFileName}.md`);
     } catch (err: any) {
       setContextWarning(err?.message || "Falha ao salvar a copy no Vault.");
     } finally {

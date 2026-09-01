@@ -14,9 +14,14 @@ export interface CreativeCommitResult {
   [key: string]: unknown;
 }
 
+const CREATIVE_FOLDER_ALIASES: Record<string, string> = {
+  "02_Conteudo/Copies": "03_Conteudos/Copies",
+};
+
 const CREATIVE_FOLDER_FALLBACKS: Record<string, string> = {
   "03_Conteudos/Ideias": "03_Conteudos",
   "03_Conteudos/Roteiros": "03_Conteudos",
+  "03_Conteudos/Copies": "03_Conteudos",
 };
 
 function normalizeFolder(value: string): string {
@@ -24,7 +29,8 @@ function normalizeFolder(value: string): string {
 }
 
 export function creativeCommitCandidates(payload: CreativeCommitPayload): CreativeCommitPayload[] {
-  const folder = normalizeFolder(payload.folder);
+  const requestedFolder = normalizeFolder(payload.folder);
+  const folder = CREATIVE_FOLDER_ALIASES[requestedFolder] || requestedFolder;
   const normalized = { ...payload, folder };
   const fallbackFolder = CREATIVE_FOLDER_FALLBACKS[folder];
   if (!fallbackFolder) return [normalized];
