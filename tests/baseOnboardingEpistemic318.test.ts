@@ -26,7 +26,7 @@ describe("3.1.8 epistemic onboarding safeguards", () => {
     expect(gate).toContain("Continuar no Nisti por enquanto");
     expect(gate).toContain("Retomar onboarding");
     expect(gate).toContain("Você saiu do onboarding somente nesta sessão");
-    expect(gate).not.toContain("localStorage.setItem(\"nisti_base_onboarding_deferred");");
+    expect(gate).not.toContain("base_onboarding_deferred");
   });
 
   test("creation remains fail-closed while canonical Base is structurally incomplete", () => {
