@@ -28,6 +28,8 @@ import { normalizeAiTriageCandidate } from "../domain/smartKnowledgeStage2";
 let cachedSessionToken: string | null = null;
 let obsidianHeartbeat: ReturnType<typeof setInterval> | null = null;
 let obsidianHeartbeatBusy = false;
+let obsidianHeartbeatFailures = 0;
+const OBSIDIAN_HEARTBEAT_FAILURE_THRESHOLD = 3;
 const aiTriageAttemptCache = new Map<string, string>();
 let useDirectClientSideFetch = true;
 const storage = StorageManager.getInstance();
@@ -563,6 +565,13 @@ function stopObsidianHeartbeat(): void {
     clearInterval(obsidianHeartbeat);
     obsidianHeartbeat = null;
   }
+  obsidianHeartbeatFailures = 0;
+}
+
+async function disconnectObsidianAfterHeartbeatFailure(message: string): Promise<void> {
+  stopObsidianHeartbeat();
+  await setDesktopObsidianAuthorization(false);
+  markObsidianRuntimeDisconnected(message);
 }
 
 function startObsidianHeartbeat(config: { endpoint: string; apiKey: string }): void {
@@ -581,31 +590,51 @@ function startObsidianHeartbeat(config: { endpoint: string; apiKey: string }): v
     obsidianHeartbeatBusy = true;
     try {
       const { res, data } = await requestObsidianConnectionTest(liveConfig);
-      if (!res.ok || !data?.success) {
-        stopObsidianHeartbeat();
-        await setDesktopObsidianAuthorization(false);
-        markObsidianRuntimeDisconnected(
-          data?.message || "A conexão com o Obsidian foi perdida. Reconecte para acessar o banco de conhecimento.",
-        );
+      if (res.ok && data?.success) {
+        obsidianHeartbeatFailures = 0;
         return;
       }
 
-      try {
-        await triageNistiInbox(liveConfig);
-        await publishCurrentDesktopVaultSnapshot([...NISTI_KNOWLEDGE_FOLDERS], liveConfig);
-      } catch (automationError) {
-        console.warn("Obsidian connected, but automatic knowledge triage failed:", automationError);
+      const status = Number((res as Response)?.status || data?.status || 0);
+      const message = data?.message || "A conexão com o Obsidian não respondeu ao heartbeat.";
+      if (status === 429) {
+        console.warn("Obsidian heartbeat adiado por limitação temporária do backend local.");
+        return;
+      }
+
+      obsidianHeartbeatFailures += 1;
+      const definitiveAuthenticationFailure = status === 401 || status === 403;
+      if (definitiveAuthenticationFailure || obsidianHeartbeatFailures >= OBSIDIAN_HEARTBEAT_FAILURE_THRESHOLD) {
+        await disconnectObsidianAfterHeartbeatFailure(message);
+      } else {
+        console.warn(
+          "Heartbeat do Obsidian falhou temporariamente (" +
+          obsidianHeartbeatFailures +
+          "/" +
+          OBSIDIAN_HEARTBEAT_FAILURE_THRESHOLD +
+          "): " +
+          message,
+        );
       }
     } catch (err: any) {
-      stopObsidianHeartbeat();
-      await setDesktopObsidianAuthorization(false);
-      markObsidianRuntimeDisconnected(
-        err.message || "A conexão com o Obsidian foi perdida. Reconecte para acessar o banco de conhecimento.",
-      );
+      obsidianHeartbeatFailures += 1;
+      const message = err?.message || "A conexão com o Obsidian não respondeu ao heartbeat.";
+      if (obsidianHeartbeatFailures >= OBSIDIAN_HEARTBEAT_FAILURE_THRESHOLD) {
+        await disconnectObsidianAfterHeartbeatFailure(message);
+      } else {
+        console.warn(
+          "Heartbeat do Obsidian indisponível temporariamente (" +
+          obsidianHeartbeatFailures +
+          "/" +
+          OBSIDIAN_HEARTBEAT_FAILURE_THRESHOLD +
+          "): " +
+          message,
+        );
+      }
     } finally {
       obsidianHeartbeatBusy = false;
     }
-  }, 20_000);
+  }, 30_000);
 }
 
 async function verifyObsidianConnection(

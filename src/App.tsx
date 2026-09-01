@@ -184,14 +184,19 @@ export default function App() {
   const updateAndSaveApiConfig = useCallback(
     (update: ObsidianApiConfig | ((previous: ObsidianApiConfig) => ObsidianApiConfig)) => {
       setApiConfig((previous) => {
-        const next = typeof update === "function" ? update(previous) : update;
+        const requested = typeof update === "function" ? update(previous) : update;
+        const runtimeConnected = api.isObsidianSessionVerified();
+        const next: ObsidianApiConfig = {
+          ...requested,
+          connectionStatus: runtimeConnected
+            ? "connected"
+            : requested.connectionStatus === "error"
+              ? "error"
+              : "disconnected",
+          errorMessage: runtimeConnected ? undefined : requested.errorMessage,
+        };
         window.setTimeout(() => {
           void storage.saveApiConfig(next);
-          const webCredentialsMissing =
-            !window.electronAPI && (!next.endpoint?.trim() || !next.apiKey?.trim());
-          if (next.connectionStatus !== "connected" || webCredentialsMissing) {
-            api.disconnectObsidianSession("A Base foi desconectada ou sua configuração deixou de ser válida.");
-          }
         }, 0);
         return next;
       });
@@ -316,7 +321,7 @@ export default function App() {
     try {
       let detectedVault = apiConfig.vaultName || "MarketingVault";
 
-      if (!apiConfig.endpoint.trim() || !apiConfig.apiKey.trim()) {
+      if (!apiConfig.endpoint.trim() || (!window.electronAPI && !apiConfig.apiKey.trim())) {
         throw new Error("Configure o endpoint e a chave do Obsidian Local REST API antes de sincronizar.");
       }
 
