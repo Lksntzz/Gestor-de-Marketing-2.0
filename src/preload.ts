@@ -1,5 +1,79 @@
 import { contextBridge, ipcRenderer } from "electron";
 
+const UPDATE_OVERLAY_ID = "nisti-desktop-update-overlay";
+
+function restoreRendererStateAfterUpdate(): void {
+  try {
+    const snapshot = ipcRenderer.sendSync("renderer-state:bootstrap");
+    const values = snapshot?.localStorage;
+    if (!values || typeof values !== "object" || Array.isArray(values)) return;
+
+    let restored = 0;
+    for (const [key, value] of Object.entries(values)) {
+      if (restored >= 5000) break;
+      if (typeof key !== "string" || typeof value !== "string") continue;
+      if (key.length > 512 || value.length > 5_000_000) continue;
+      window.localStorage.setItem(key, value);
+      restored += 1;
+    }
+  } catch {
+    // First run / development builds have no migration snapshot. Fail closed
+    // and let the application initialize with its ordinary defaults.
+  }
+}
+
+function ensureUpdateOverlay(): HTMLElement | null {
+  if (typeof document === "undefined") return null;
+  const existing = document.getElementById(UPDATE_OVERLAY_ID);
+  if (existing) return existing;
+
+  const overlay = document.createElement("div");
+  overlay.id = UPDATE_OVERLAY_ID;
+  overlay.setAttribute("role", "status");
+  overlay.setAttribute("aria-live", "polite");
+  overlay.style.cssText = [
+    "position:fixed",
+    "inset:0",
+    "z-index:2147483647",
+    "display:flex",
+    "align-items:center",
+    "justify-content:center",
+    "background:rgba(7,10,24,.96)",
+    "color:#fff",
+    "font-family:Segoe UI,Arial,sans-serif",
+  ].join(";");
+  overlay.innerHTML = `
+    <div style="width:min(520px,calc(100vw - 48px));padding:34px;border:1px solid rgba(255,255,255,.12);border-radius:18px;background:#10172a;box-shadow:0 24px 80px rgba(0,0,0,.4);text-align:center">
+      <div style="width:42px;height:42px;margin:0 auto 20px;border:4px solid rgba(255,255,255,.18);border-top-color:#ec4899;border-radius:50%;animation:nistiUpdateSpin .8s linear infinite"></div>
+      <div style="font-size:11px;font-weight:800;letter-spacing:.14em;text-transform:uppercase;color:#f472b6;margin-bottom:10px">Atualização do Nisti</div>
+      <h1 style="font-size:24px;line-height:1.25;margin:0 0 10px;font-weight:800">Instalando atualização…</h1>
+      <p style="font-size:14px;line-height:1.6;color:#cbd5e1;margin:0">Suas configurações e conexões estão sendo preservadas. O aplicativo fechará por alguns segundos e abrirá sozinho na nova versão.</p>
+      <div style="height:4px;background:rgba(255,255,255,.12);border-radius:999px;overflow:hidden;margin-top:24px"><div style="width:72%;height:100%;background:#ec4899;border-radius:999px;animation:nistiUpdateBar 1.2s ease-in-out infinite"></div></div>
+    </div>
+  `;
+  const style = document.createElement("style");
+  style.textContent = `
+    @keyframes nistiUpdateSpin { to { transform: rotate(360deg); } }
+    @keyframes nistiUpdateBar { 0% { transform: translateX(-120%); } 100% { transform: translateX(150%); } }
+  `;
+  overlay.appendChild(style);
+  document.documentElement.appendChild(overlay);
+  return overlay;
+}
+
+function hideUpdateOverlay(): void {
+  try {
+    document.getElementById(UPDATE_OVERLAY_ID)?.remove();
+  } catch {
+    // Renderer may already be shutting down for NSIS.
+  }
+}
+
+// Preload runs before the React bundle. Restoring here guarantees that the new
+// version sees the previous renderer state on its first render, even if the
+// desktop backend origin changed between versions.
+restoreRendererStateAfterUpdate();
+
 contextBridge.exposeInMainWorld("electronAPI", {
   isElectron: () => true,
 
@@ -52,7 +126,17 @@ contextBridge.exposeInMainWorld("electronAPI", {
   getSystemStatus: () => ipcRenderer.invoke("system:status"),
   getUpdateStatus: () => ipcRenderer.invoke("update:get-status"),
   checkForUpdates: () => ipcRenderer.invoke("update:check"),
-  installUpdate: () => ipcRenderer.invoke("update:install"),
+  installUpdate: async () => {
+    ensureUpdateOverlay();
+    try {
+      const result = await ipcRenderer.invoke("update:install");
+      if (!result?.success) hideUpdateOverlay();
+      return result;
+    } catch (error) {
+      hideUpdateOverlay();
+      throw error;
+    }
+  },
   onUpdateStatus: (callback: (state: any) => void) => {
     const listener = (_event: any, state: any) => callback(state);
     ipcRenderer.on("update:status", listener);
