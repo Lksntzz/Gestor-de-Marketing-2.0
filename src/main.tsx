@@ -32,6 +32,18 @@ const DEFAULT_API_CONFIG: ObsidianApiConfig = {
   allowSelfSignedCerts: true,
 };
 
+const OBSIDIAN_RECONNECT_MIN_DELAY_MS = 3_000;
+const OBSIDIAN_RECONNECT_MAX_DELAY_MS = 30_000;
+const OBSIDIAN_RECONNECT_CONNECTED_POLL_MS = 5_000;
+
+function reconnectDelayForAttempt(attempt: number): number {
+  if (attempt <= 0) return OBSIDIAN_RECONNECT_MIN_DELAY_MS;
+  return Math.min(
+    OBSIDIAN_RECONNECT_MIN_DELAY_MS * (2 ** Math.min(attempt, 4)),
+    OBSIDIAN_RECONNECT_MAX_DELAY_MS,
+  );
+}
+
 function clickSettingsButton() {
   const button = document.querySelector('button[title="Configurações"]') as HTMLButtonElement | null;
   button?.click();
@@ -50,13 +62,17 @@ function triggerVaultSync() {
  * Vault reads/writes remain fail-closed in the API, StorageManager and Electron
  * authorization boundary. Local-only work (for example task execution) must
  * remain usable while the knowledge runtime is disconnected.
+ *
+ * Desktop reconnect is intentionally continuous: a persisted endpoint/key must
+ * be revalidated automatically after restart, and opening Obsidian later must
+ * recover the session without requiring the user to click "Testar conexão".
  */
 function ObsidianRuntimeGate({ children }: { children: ReactNode }) {
   const isWeb = typeof window !== "undefined" && !window.electronAPI;
   const [connected, setConnected] = useState(() => isWeb || isObsidianRuntimeConnected());
   const [checking, setChecking] = useState(() => !isWeb);
   const [reason, setReason] = useState(
-    "Conecte o Obsidian Local REST API e selecione o Vault físico para liberar operações da Base."
+    "Conecte o Obsidian Local REST API para liberar operações da Base."
   );
 
   useEffect(() => {
@@ -66,55 +82,129 @@ function ObsidianRuntimeGate({ children }: { children: ReactNode }) {
       return;
     }
 
+    let disposed = false;
+    let reconnectTimer: number | null = null;
+    let reconnectAttempts = 0;
+    let reconnectBusy = false;
+    let initialProbeFinished = false;
+
+    const clearReconnectTimer = () => {
+      if (reconnectTimer !== null) {
+        window.clearTimeout(reconnectTimer);
+        reconnectTimer = null;
+      }
+    };
+
+    const scheduleReconnect = (delayMs: number) => {
+      if (disposed) return;
+      clearReconnectTimer();
+      reconnectTimer = window.setTimeout(() => {
+        reconnectTimer = null;
+        void reconnect();
+      }, delayMs);
+    };
+
+    const reconnect = async () => {
+      if (disposed || reconnectBusy) return;
+
+      if (isObsidianRuntimeConnected()) {
+        reconnectAttempts = 0;
+        setConnected(true);
+        setChecking(false);
+        scheduleReconnect(OBSIDIAN_RECONNECT_CONNECTED_POLL_MS);
+        return;
+      }
+
+      reconnectBusy = true;
+      if (!initialProbeFinished) setChecking(true);
+
+      try {
+        const config = await storage.loadApiConfig(DEFAULT_API_CONFIG);
+        ensureAIConnectionMetadataMigration(config);
+
+        // REST-first desktop mode does not require a selected physical Vault path
+        // to authenticate. The endpoint and the safely persisted API key are the
+        // authoritative prerequisites for reconnecting to Obsidian Local REST API.
+        const hasSavedConnection = Boolean(config.endpoint?.trim() && config.apiKey?.trim());
+        if (!hasSavedConnection) {
+          setConnected(false);
+          setReason("Configure o endpoint e a API Key do Obsidian para conectar a Base.");
+          reconnectAttempts = 0;
+          scheduleReconnect(OBSIDIAN_RECONNECT_MAX_DELAY_MS);
+          return;
+        }
+
+        const result = await api.probeObsidianConnection({
+          endpoint: config.endpoint,
+          apiKey: config.apiKey,
+        });
+
+        if (disposed) return;
+
+        if (result.success) {
+          reconnectAttempts = 0;
+          setConnected(true);
+          setReason("");
+          triggerVaultSync();
+          scheduleReconnect(OBSIDIAN_RECONNECT_CONNECTED_POLL_MS);
+          return;
+        }
+
+        reconnectAttempts += 1;
+        setConnected(false);
+        setReason(result.message || "Não foi possível validar o Obsidian. Tentaremos novamente automaticamente.");
+        scheduleReconnect(reconnectDelayForAttempt(reconnectAttempts));
+      } catch (err: any) {
+        if (disposed) return;
+        reconnectAttempts += 1;
+        setConnected(false);
+        setReason(
+          err?.message ||
+          "Obsidian indisponível no momento. O Nisti tentará reconectar automaticamente.",
+        );
+        scheduleReconnect(reconnectDelayForAttempt(reconnectAttempts));
+      } finally {
+        reconnectBusy = false;
+        initialProbeFinished = true;
+        if (!disposed) setChecking(false);
+      }
+    };
+
     const onConnected = () => {
+      reconnectAttempts = 0;
       setTimeout(() => {
+        if (disposed) return;
         setConnected(true);
         setChecking(false);
         setReason("");
         triggerVaultSync();
+        scheduleReconnect(OBSIDIAN_RECONNECT_CONNECTED_POLL_MS);
       }, 0);
     };
 
     const onDisconnected = (event: Event) => {
       const detail = (event as CustomEvent<{ reason?: string }>).detail;
+      reconnectAttempts = 0;
       setTimeout(() => {
+        if (disposed) return;
         setConnected(false);
         setChecking(false);
-        setReason(detail?.reason || "A conexão com o Obsidian foi perdida.");
+        setReason(
+          detail?.reason ||
+          "A conexão com o Obsidian foi perdida. Tentaremos reconectar automaticamente.",
+        );
+        scheduleReconnect(OBSIDIAN_RECONNECT_MIN_DELAY_MS);
       }, 0);
     };
 
     window.addEventListener(OBSIDIAN_CONNECTED_EVENT, onConnected);
     window.addEventListener(OBSIDIAN_DISCONNECTED_EVENT, onDisconnected as EventListener);
 
-    void (async () => {
-      try {
-        const config = await storage.loadApiConfig(DEFAULT_API_CONFIG);
-        ensureAIConnectionMetadataMigration(config);
-        const vaultPath = window.electronAPI ? await window.electronAPI.getVaultPath() : null;
-
-        if (config.endpoint?.trim() && config.apiKey?.trim() && (!window.electronAPI || vaultPath)) {
-          const result = await api.probeObsidianConnection({
-            endpoint: config.endpoint,
-            apiKey: config.apiKey,
-          });
-
-          if (!result.success) {
-            setReason(result.message || "Não foi possível validar o Obsidian.");
-            setConnected(false);
-          }
-        } else {
-          setConnected(false);
-        }
-      } catch (err: any) {
-        setReason(err?.message || "Não foi possível validar o Obsidian.");
-        setConnected(false);
-      } finally {
-        setChecking(false);
-      }
-    })();
+    void reconnect();
 
     return () => {
+      disposed = true;
+      clearReconnectTimer();
       window.removeEventListener(OBSIDIAN_CONNECTED_EVENT, onConnected);
       window.removeEventListener(OBSIDIAN_DISCONNECTED_EVENT, onDisconnected as EventListener);
     };
@@ -141,7 +231,7 @@ function ObsidianRuntimeGate({ children }: { children: ReactNode }) {
               </div>
               <p className="mt-1 text-[10px] leading-relaxed text-slate-400">
                 {checking
-                  ? "Verificando a REST API e o Vault físico. As áreas locais continuam disponíveis."
+                  ? "Verificando a REST API. As áreas locais continuam disponíveis."
                   : reason}
               </p>
 
