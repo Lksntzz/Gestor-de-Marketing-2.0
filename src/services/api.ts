@@ -28,6 +28,8 @@ import { normalizeAiTriageCandidate } from "../domain/smartKnowledgeStage2";
 let cachedSessionToken: string | null = null;
 let obsidianHeartbeat: ReturnType<typeof setInterval> | null = null;
 let obsidianHeartbeatBusy = false;
+let obsidianHeartbeatFailures = 0;
+const OBSIDIAN_HEARTBEAT_FAILURE_THRESHOLD = 3;
 const aiTriageAttemptCache = new Map<string, string>();
 let useDirectClientSideFetch = true;
 const storage = StorageManager.getInstance();
@@ -563,6 +565,13 @@ function stopObsidianHeartbeat(): void {
     clearInterval(obsidianHeartbeat);
     obsidianHeartbeat = null;
   }
+  obsidianHeartbeatFailures = 0;
+}
+
+async function disconnectObsidianAfterHeartbeatFailure(message: string): Promise<void> {
+  stopObsidianHeartbeat();
+  await setDesktopObsidianAuthorization(false);
+  markObsidianRuntimeDisconnected(message);
 }
 
 function startObsidianHeartbeat(config: { endpoint: string; apiKey: string }): void {
@@ -581,31 +590,51 @@ function startObsidianHeartbeat(config: { endpoint: string; apiKey: string }): v
     obsidianHeartbeatBusy = true;
     try {
       const { res, data } = await requestObsidianConnectionTest(liveConfig);
-      if (!res.ok || !data?.success) {
-        stopObsidianHeartbeat();
-        await setDesktopObsidianAuthorization(false);
-        markObsidianRuntimeDisconnected(
-          data?.message || "A conexão com o Obsidian foi perdida. Reconecte para acessar o banco de conhecimento.",
-        );
+      if (res.ok && data?.success) {
+        obsidianHeartbeatFailures = 0;
         return;
       }
 
-      try {
-        await triageNistiInbox(liveConfig);
-        await publishCurrentDesktopVaultSnapshot([...NISTI_KNOWLEDGE_FOLDERS], liveConfig);
-      } catch (automationError) {
-        console.warn("Obsidian connected, but automatic knowledge triage failed:", automationError);
+      const status = Number((res as Response)?.status || data?.status || 0);
+      const message = data?.message || "A conexão com o Obsidian não respondeu ao heartbeat.";
+      if (status === 429) {
+        console.warn("Obsidian heartbeat adiado por limitação temporária do backend local.");
+        return;
+      }
+
+      obsidianHeartbeatFailures += 1;
+      const definitiveAuthenticationFailure = status === 401 || status === 403;
+      if (definitiveAuthenticationFailure || obsidianHeartbeatFailures >= OBSIDIAN_HEARTBEAT_FAILURE_THRESHOLD) {
+        await disconnectObsidianAfterHeartbeatFailure(message);
+      } else {
+        console.warn(
+          "Heartbeat do Obsidian falhou temporariamente (" +
+          obsidianHeartbeatFailures +
+          "/" +
+          OBSIDIAN_HEARTBEAT_FAILURE_THRESHOLD +
+          "): " +
+          message,
+        );
       }
     } catch (err: any) {
-      stopObsidianHeartbeat();
-      await setDesktopObsidianAuthorization(false);
-      markObsidianRuntimeDisconnected(
-        err.message || "A conexão com o Obsidian foi perdida. Reconecte para acessar o banco de conhecimento.",
-      );
+      obsidianHeartbeatFailures += 1;
+      const message = err?.message || "A conexão com o Obsidian não respondeu ao heartbeat.";
+      if (obsidianHeartbeatFailures >= OBSIDIAN_HEARTBEAT_FAILURE_THRESHOLD) {
+        await disconnectObsidianAfterHeartbeatFailure(message);
+      } else {
+        console.warn(
+          "Heartbeat do Obsidian indisponível temporariamente (" +
+          obsidianHeartbeatFailures +
+          "/" +
+          OBSIDIAN_HEARTBEAT_FAILURE_THRESHOLD +
+          "): " +
+          message,
+        );
+      }
     } finally {
       obsidianHeartbeatBusy = false;
     }
-  }, 20_000);
+  }, 30_000);
 }
 
 async function verifyObsidianConnection(
@@ -626,47 +655,83 @@ async function verifyObsidianConnection(
     connectionStatus: "connected",
   };
 
+  let connectionData: any = {};
   try {
     const { res, data } = await requestObsidianConnectionTest(liveConfig);
+    connectionData = data || {};
     if (!res.ok || !data?.success) {
       const targetEndpoint = normalizeObsidianEndpoint(config.endpoint);
       const errorMsg = data?.message || "Conexão rejeitada.";
+      stopObsidianHeartbeat();
       await setDesktopObsidianAuthorization(false);
       markObsidianRuntimeDisconnected(errorMsg);
       return {
         success: false,
-        message: `Não foi possível conectar ao Obsidian local (${targetEndpoint}). Verifique se o Obsidian está aberto, o Local REST API está ativo e a API Key está correta. Detalhes: ${errorMsg}`,
+        message: "Não foi possível conectar ao Obsidian local (" + targetEndpoint + "). Verifique se o Obsidian está aberto, o Local REST API está ativo e a API Key está correta. Detalhes: " + errorMsg,
       };
     }
-
-    await setDesktopObsidianAuthorization(true);
-    markObsidianRuntimeConnected();
-
-    const structure = await ensureNistiRemoteStructure(liveConfig);
-    const triage = await triageNistiInbox(liveConfig);
-    const snapshot = await publishCurrentDesktopVaultSnapshot([...NISTI_KNOWLEDGE_FOLDERS], liveConfig);
-    startObsidianHeartbeat(liveConfig);
-
-    const detectedVault = String(data.vault || data.name || "Vault ativo");
-    const createdText = structure.createdFolders.length
-      ? ` ${structure.createdFolders.length} pastas foram criadas automaticamente.`
-      : " Estrutura Nisti já estava pronta.";
-    const triageText = triage.moved.length ? ` ${triage.moved.length} nova(s) nota(s) foram classificadas.` : "";
-    return {
-      success: true,
-      detectedVaultName: detectedVault,
-      localNotesFound: snapshot.notes,
-      localFoldersFound: NISTI_KNOWLEDGE_FOLDERS.length,
-      localFolders: [...NISTI_KNOWLEDGE_FOLDERS],
-      message: `Obsidian conectado. A pasta “${NISTI_VAULT_ROOT}” está pronta dentro do Vault ativo.${createdText}${triageText}`,
-    };
   } catch (err: any) {
     stopObsidianHeartbeat();
     await setDesktopObsidianAuthorization(false);
-    const message = err?.message || "Não foi possível preparar a Base de Conhecimento no Obsidian.";
+    const message = err?.message || "Não foi possível autenticar no Obsidian Local REST API.";
     markObsidianRuntimeDisconnected(message);
     return { success: false, message };
   }
+
+  // Authentication is the connection boundary. Subsequent Base preparation is
+  // operational synchronization and must never revoke a valid authenticated session.
+  await setDesktopObsidianAuthorization(true);
+  markObsidianRuntimeConnected();
+  startObsidianHeartbeat(liveConfig);
+
+  let createdFolders = 0;
+  let triageMoved = 0;
+  let snapshot = { notes: 0, folders: NISTI_KNOWLEDGE_FOLDERS.length };
+  const preparationWarnings: string[] = [];
+
+  try {
+    const structure = await ensureNistiRemoteStructure(liveConfig);
+    createdFolders = structure.createdFolders.length;
+  } catch (err: any) {
+    const message = err?.message || "estrutura automática indisponível";
+    preparationWarnings.push("estrutura: " + message);
+    console.warn("Obsidian authenticated, but Nisti structure preparation failed:", err);
+  }
+
+  try {
+    const triage = await triageNistiInbox(liveConfig);
+    triageMoved = triage.moved.length;
+  } catch (err: any) {
+    const message = err?.message || "triagem automática indisponível";
+    preparationWarnings.push("triagem: " + message);
+    console.warn("Obsidian authenticated, but Inbox triage failed:", err);
+  }
+
+  try {
+    snapshot = await publishCurrentDesktopVaultSnapshot([...NISTI_KNOWLEDGE_FOLDERS], liveConfig);
+  } catch (err: any) {
+    const message = err?.message || "sincronização inicial indisponível";
+    preparationWarnings.push("sincronização: " + message);
+    console.warn("Obsidian authenticated, but initial snapshot failed:", err);
+  }
+
+  const detectedVault = String(connectionData.vault || connectionData.name || "Vault ativo");
+  const createdText = createdFolders
+    ? " " + createdFolders + " pastas foram criadas automaticamente."
+    : "";
+  const triageText = triageMoved ? " " + triageMoved + " nova(s) nota(s) foram classificadas." : "";
+  const warningText = preparationWarnings.length
+    ? " Conexão autenticada; algumas etapas da Base precisam ser repetidas: " + preparationWarnings.join(" | ")
+    : " Estrutura e sincronização inicial concluídas.";
+
+  return {
+    success: true,
+    detectedVaultName: detectedVault,
+    localNotesFound: snapshot.notes,
+    localFoldersFound: NISTI_KNOWLEDGE_FOLDERS.length,
+    localFolders: [...NISTI_KNOWLEDGE_FOLDERS],
+    message: "Obsidian conectado e autenticado." + createdText + triageText + warningText,
+  };
 }
 
 async function requireVerifiedObsidian(config: ObsidianApiConfig): Promise<ObsidianConnectionResult> {

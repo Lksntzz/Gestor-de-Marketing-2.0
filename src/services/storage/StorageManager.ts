@@ -428,13 +428,11 @@ export class StorageManager implements IStorageService {
   // SECURE API CONFIG
   // ==========================================
   public async saveApiConfig(config: ObsidianApiConfig): Promise<void> {
-    const { apiKey, geminiApiKey, openaiApiKey, ...nonSecretConfig } = config;
+    const { apiKey, geminiApiKey, openaiApiKey } = config;
     const persistedConfig = {
-      ...nonSecretConfig,
+      ...this.sanitizeApiConfig(config),
       aiProvider: config.aiProvider || "gemini",
       aiModel: config.aiModel || "",
-      connectionStatus: "disconnected" as const,
-      errorMessage: undefined,
     };
 
     const isSentinel = (val?: string) => 
@@ -625,6 +623,8 @@ export class StorageManager implements IStorageService {
     delete sanitizedConfig.apiKey;
     delete sanitizedConfig.geminiApiKey;
     delete sanitizedConfig.openaiApiKey;
+    delete sanitizedConfig.connectionStatus;
+    delete sanitizedConfig.errorMessage;
     return sanitizedConfig;
   }
 

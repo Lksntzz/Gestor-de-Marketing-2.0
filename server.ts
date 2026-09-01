@@ -142,6 +142,9 @@ app.use((req, res, next) => {
 
 const rateLimitMap = new Map<string, { count: number; resetTime: number }>();
 app.use("/api/", (req, res, next) => {
+  const trustedDesktopSession = String(req.headers["x-app-session-token"] || "") === SERVER_SESSION_SECRET;
+  if (trustedDesktopSession) return next();
+
   const ip = req.ip || req.socket.remoteAddress || "unknown";
   const now = Date.now();
   const entry = rateLimitMap.get(ip);
