@@ -43,6 +43,7 @@ export interface BaseReadiness {
   existingPaths: string[];
   missingSectionIds: string[];
   pendingPaths: string[];
+  structurallyComplete: boolean;
   complete: boolean;
 }
 
@@ -173,6 +174,25 @@ export function createEmptyBaseOnboardingDraft(now = new Date()): BaseOnboarding
   };
 }
 
+export function isBaseAnswerReviewed(draft: BaseOnboardingDraft, questionId: string): boolean {
+  const stored = draft.answers[questionId];
+  if (!stored) return false;
+  const answer = answerFor(draft, questionId);
+  if (answer.status === "PENDENTE") return true;
+  return Boolean(answer.value);
+}
+
+export function countUnreviewedBaseAnswers(draft: BaseOnboardingDraft): number {
+  let count = 0;
+  for (const section of BASE_ONBOARDING_SECTIONS) {
+    if (draft.skippedSectionIds.includes(section.id)) continue;
+    for (const question of section.questions) {
+      if (!isBaseAnswerReviewed(draft, question.id)) count += 1;
+    }
+  }
+  return count;
+}
+
 export function aggregateEpistemicStatus(answers: BaseOnboardingAnswer[]): BaseEpistemicStatus {
   if (answers.length === 0 || answers.some((answer) => !answer.value.trim() || answer.status === "PENDENTE")) {
     return "PENDENTE";
@@ -200,12 +220,14 @@ export function assessBaseReadiness(notes: ObsidianNote[]): BaseReadiness {
     if (epistemic !== "CONFIRMADO") pendingPaths.push(path);
   }
 
+  const structurallyComplete = missingSectionIds.length === 0;
   return {
     expectedPaths,
     existingPaths,
     missingSectionIds,
     pendingPaths,
-    complete: missingSectionIds.length === 0 && pendingPaths.length === 0,
+    structurallyComplete,
+    complete: structurallyComplete && pendingPaths.length === 0,
   };
 }
 
