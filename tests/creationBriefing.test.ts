@@ -6,6 +6,7 @@ import {
   normalizeCreationBriefing,
   validateCreationBriefing,
 } from "../src/domain/creationBriefing";
+import { BASE_ONBOARDING_SECTIONS, canonicalBasePath } from "../src/domain/baseOnboarding";
 
 function note(path: string, epistemicStatus = "CONFIRMADO"): ObsidianNote {
   const title = path.split("/").pop()?.replace(/\.md$/i, "") || "Nota";
@@ -20,6 +21,10 @@ function note(path: string, epistemicStatus = "CONFIRMADO"): ObsidianNote {
     wikilinks: [],
     lastModified: "2026-08-31 18:00",
   };
+}
+
+function completeCanonicalBase(): ObsidianNote[] {
+  return BASE_ONBOARDING_SECTIONS.map((section) => note(canonicalBasePath(section)));
 }
 
 describe("creation briefing", () => {
@@ -57,28 +62,39 @@ describe("creation briefing", () => {
     expect(instructions).not.toContain("Engajamento");
   });
 
-  test("libera o briefing com conhecimento estratégico real e não com 00_Base fabricada", () => {
-    expect(creationBriefingBaseStatus([note("00_Base/Empresa.md")])).toEqual({
-      ready: false,
-      missingDocuments: 1,
-      pendingDocuments: 0,
-    });
-
-    expect(creationBriefingBaseStatus([
-      note("Nisti Marketing/01_Estrategia/Posicionamento.md"),
-      note("Nisti Marketing/02_Produtos/Catalogo.md"),
-    ])).toEqual({
+  test("libera o briefing somente quando a Base Inicial canônica está completa e confirmada", () => {
+    const complete = completeCanonicalBase();
+    expect(creationBriefingBaseStatus(complete)).toEqual({
       ready: true,
       missingDocuments: 0,
       pendingDocuments: 0,
     });
 
-    expect(creationBriefingBaseStatus([
-      note("Nisti Marketing/01_Estrategia/Posicionamento.md", "PENDENTE"),
-    ])).toEqual({
+    const missingOne = complete.slice(0, -1);
+    expect(creationBriefingBaseStatus(missingOne)).toEqual({
       ready: false,
       missingDocuments: 1,
+      pendingDocuments: 0,
+    });
+
+    const pendingOne = complete.map((item, index) =>
+      index === 0 ? { ...item, frontmatter: { ...item.frontmatter, epistemic_status: "PENDENTE" } } : item,
+    );
+    expect(creationBriefingBaseStatus(pendingOne)).toEqual({
+      ready: false,
+      missingDocuments: 0,
       pendingDocuments: 1,
+    });
+  });
+
+  test("não confunde fontes estratégicas externas com a Base Inicial canônica", () => {
+    expect(creationBriefingBaseStatus([
+      note("Nisti Marketing/01_Estrategia/Posicionamento.md"),
+      note("Nisti Marketing/02_Produtos/Catalogo.md"),
+    ])).toEqual({
+      ready: false,
+      missingDocuments: BASE_ONBOARDING_SECTIONS.length,
+      pendingDocuments: 0,
     });
   });
 });
