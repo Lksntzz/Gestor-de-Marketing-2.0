@@ -1,29 +1,55 @@
 import type { Frontmatter, MarketingTask } from "../types";
 import { normalizeFrontmatterTags, parseMarkdownDocument } from "./markdownFrontmatter";
 
+const INVALID_VAULT_PLACEHOLDERS = new Set([
+  "vault ativo",
+  "active vault",
+  "cofre ativo",
+]);
+
+export function sanitizeObsidianVaultName(vaultName?: string): string {
+  const clean = String(vaultName || "").trim();
+  if (!clean) return "";
+  return INVALID_VAULT_PLACEHOLDERS.has(clean.toLocaleLowerCase("pt-BR")) ? "" : clean;
+}
+
+function vaultQuery(vaultName?: string): string {
+  const cleanVault = sanitizeObsidianVaultName(vaultName);
+  return cleanVault ? `vault=${encodeURIComponent(cleanVault)}` : "";
+}
+
+function joinObsidianQuery(parts: string[]): string {
+  return parts.filter(Boolean).join("&");
+}
+
 export function buildObsidianOpenUri(vaultName: string, filePath?: string): string {
-  const cleanVault = encodeURIComponent(vaultName || "MarketingVault");
   const cleanPath = encodeURIComponent((filePath || "").replace(/\.md$/i, ""));
-  return `obsidian://open?vault=${cleanVault}&file=${cleanPath}`;
+  const query = joinObsidianQuery([vaultQuery(vaultName), cleanPath ? `file=${cleanPath}` : ""]);
+  return `obsidian://open${query ? `?${query}` : ""}`;
 }
 
 export function buildObsidianNewNoteUri(vaultName: string, filePath?: string, content?: string): string {
-  const cleanVault = encodeURIComponent(vaultName || "MarketingVault");
   const cleanName = encodeURIComponent((filePath || "").replace(/\.md$/i, ""));
   const cleanContent = encodeURIComponent(content || "");
-  return `obsidian://new?vault=${cleanVault}&name=${cleanName}&content=${cleanContent}`;
+  const query = joinObsidianQuery([
+    vaultQuery(vaultName),
+    cleanName ? `name=${cleanName}` : "",
+    cleanContent ? `content=${cleanContent}` : "",
+  ]);
+  return `obsidian://new${query ? `?${query}` : ""}`;
 }
 
 export function buildObsidianAdvancedUri(
   vaultName: string,
   params: { filepath?: string; commandid?: string; daily?: boolean },
 ): string {
-  const cleanVault = encodeURIComponent(vaultName || "MarketingVault");
-  let uri = `obsidian://advanced-uri?vault=${cleanVault}`;
-  if (params.filepath) uri += `&filepath=${encodeURIComponent(params.filepath)}`;
-  if (params.commandid) uri += `&commandid=${encodeURIComponent(params.commandid)}`;
-  if (params.daily) uri += "&daily=true";
-  return uri;
+  const query = joinObsidianQuery([
+    vaultQuery(vaultName),
+    params.filepath ? `filepath=${encodeURIComponent(params.filepath)}` : "",
+    params.commandid ? `commandid=${encodeURIComponent(params.commandid)}` : "",
+    params.daily ? "daily=true" : "",
+  ]);
+  return `obsidian://advanced-uri${query ? `?${query}` : ""}`;
 }
 
 export function parseMarkdownNote(
