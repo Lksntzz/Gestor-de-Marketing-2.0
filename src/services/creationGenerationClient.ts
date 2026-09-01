@@ -2,6 +2,12 @@ import type { ObsidianApiConfig, ObsidianNote } from "../types";
 import { preferredPlanningSourcePaths } from "../domain/smartKnowledgeStage2";
 import { knowledgeContextService, type KnowledgeContextSource } from "./knowledge/KnowledgeContextService";
 import { StorageManager } from "./storage/StorageManager";
+import {
+  CREATION_AI_MAX_ATTEMPTS,
+  creationAIErrorMessage,
+  creationAIRetryDelayMs,
+  isRetryableCreationAIErrorCode,
+} from "./ai/creationRequestRetry";
 
 const storage = StorageManager.getInstance();
 let cachedSessionToken: string | null = null;
@@ -43,6 +49,13 @@ export interface CreationScriptRequest {
   engineMode?: string;
   knowledgeNotes: ObsidianNote[];
 }
+
+type CreationResponseMeta = {
+  wasFallback?: boolean;
+  usedModel?: string;
+  warning?: string;
+  errorCode?: string;
+};
 
 async function sessionHeaders(): Promise<Record<string, string>> {
   if (!cachedSessionToken) {
@@ -102,30 +115,62 @@ function requireGroundedKnowledge(
   );
 }
 
-function rejectSyntheticFallback<T extends { wasFallback?: boolean; usedModel?: string }>(data: T): T {
-  if (data?.wasFallback) {
-    throw new Error(
-      "O provedor de IA não respondeu com uma geração válida. O Nisti descartou o fallback sintético para não apresentar conteúdo inventado como resultado fundamentado.",
-    );
-  }
-  return data;
-}
+const wait = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 
-async function postCreation<T extends { wasFallback?: boolean; usedModel?: string }>(
+async function postCreation<T extends CreationResponseMeta>(
   endpoint: string,
   body: Record<string, unknown>,
 ): Promise<T> {
   const headers = await aiHeaders();
-  const response = await fetch(endpoint, {
-    method: "POST",
-    headers,
-    body: JSON.stringify(body),
-  });
-  const data = await response.json().catch(() => ({}));
-  if (!response.ok) {
-    throw new Error(String(data?.error || `Falha HTTP ${response.status} na geração criativa.`));
+  let lastMessage = "O provedor de IA não respondeu com uma geração válida.";
+
+  for (let attempt = 1; attempt <= CREATION_AI_MAX_ATTEMPTS; attempt += 1) {
+    try {
+      const response = await fetch(endpoint, {
+        method: "POST",
+        headers,
+        body: JSON.stringify(body),
+      });
+      const data = await response.json().catch(() => ({}));
+
+      if (!response.ok) {
+        const code = String(data?.code || "UNKNOWN").toUpperCase();
+        lastMessage = creationAIErrorMessage({
+          error: data?.error,
+          errorCode: code,
+          status: response.status,
+        });
+        if (attempt < CREATION_AI_MAX_ATTEMPTS && isRetryableCreationAIErrorCode(code)) {
+          await wait(creationAIRetryDelayMs(attempt));
+          continue;
+        }
+        throw new Error(lastMessage);
+      }
+
+      if (data?.wasFallback) {
+        const code = String(data?.errorCode || "UNKNOWN").toUpperCase();
+        lastMessage = creationAIErrorMessage({
+          warning: data?.warning,
+          errorCode: code,
+        });
+        if (attempt < CREATION_AI_MAX_ATTEMPTS && isRetryableCreationAIErrorCode(code)) {
+          await wait(creationAIRetryDelayMs(attempt));
+          continue;
+        }
+        throw new Error(lastMessage);
+      }
+
+      return data as T;
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error || "");
+      if (message === lastMessage) throw error;
+      lastMessage = message || "Falha de rede ao chamar o provedor de IA.";
+      if (attempt >= CREATION_AI_MAX_ATTEMPTS) throw new Error(lastMessage);
+      await wait(creationAIRetryDelayMs(attempt));
+    }
   }
-  return rejectSyntheticFallback(data as T);
+
+  throw new Error(lastMessage);
 }
 
 export const creationGenerationClient = {
