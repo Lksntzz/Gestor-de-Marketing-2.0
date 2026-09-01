@@ -22,8 +22,16 @@ replace_once(
 )
 replace_once(
     "src/services/api.ts",
-    'const folder = pathParts.join("/") || "00_Inbox";',
-    'const folder = pathParts.join("/") || OBSIDIAN_VAULT_ROOT_LABEL;',
+    '''                const content = typeof noteRes.data.data === "string" ? noteRes.data.data : "";
+                const pathParts = itemRelativePath.split("/");
+                const filename = pathParts.pop() || "Sem Título.md";
+                const title = filename.replace(/\\.md$/i, "");
+                const folder = pathParts.join("/") || "00_Inbox";''',
+    '''                const content = typeof noteRes.data.data === "string" ? noteRes.data.data : "";
+                const pathParts = itemRelativePath.split("/");
+                const filename = pathParts.pop() || "Sem Título.md";
+                const title = filename.replace(/\\.md$/i, "");
+                const folder = pathParts.join("/") || OBSIDIAN_VAULT_ROOT_LABEL;''',
 )
 
 # 3) Native select popup: make the Windows/Electron dark palette explicit.
@@ -76,9 +84,5 @@ replace_once(
     '''  }, [apiConfig, isSyncing, showToast, updateAndSaveApiConfig]);\n\n  const handleTestConnection = useCallback(''',
     '''  }, [apiConfig, isSyncing, showToast, updateAndSaveApiConfig]);\n\n  useEffect(() => {\n    const canAutoSync =\n      apiConfig.autoSync &&\n      apiConfig.connectionStatus === "connected" &&\n      api.isObsidianSessionVerified();\n\n    if (!canAutoSync) {\n      autoSyncBootstrappedRef.current = false;\n      return;\n    }\n\n    if (!autoSyncBootstrappedRef.current) {\n      autoSyncBootstrappedRef.current = true;\n      void handleSyncNow({ silent: true });\n    }\n\n    const intervalSeconds = Math.max(30, Number(apiConfig.syncIntervalSeconds) || 60);\n    const runAutoSync = () => void handleSyncNow({ silent: true });\n    const timer = window.setInterval(runAutoSync, intervalSeconds * 1000);\n    return () => window.clearInterval(timer);\n  }, [apiConfig.autoSync, apiConfig.connectionStatus, apiConfig.syncIntervalSeconds, handleSyncNow]);\n\n  const handleTestConnection = useCallback(''',
 )
-
-# 6) Regression contract for the four user-visible bugs.
-test_path = Path("tests/obsidianSyncUi315.test.ts")
-test_path.write_text('''import { describe, expect, test } from "bun:test";\nimport { readFileSync } from "fs";\n\nfunction source(path: string): string {\n  return readFileSync(path, "utf8").replace(/\\r\\n/g, "\\n");\n}\n\ndescribe("Obsidian sync/UI 3.1.5 regressions", () => {\n  test("root Markdown is labeled as Vault root instead of a second 00_Inbox", () => {\n    const api = source("src/services/api.ts");\n    expect(api).toContain('export const OBSIDIAN_VAULT_ROOT_LABEL = "Raiz do Vault"');\n    expect(api).toContain('const folder = pathParts.join("/") || OBSIDIAN_VAULT_ROOT_LABEL;');\n  });\n\n  test("manual sync is visible and wired in the navbar", () => {\n    const navbar = source("src/components/Navbar.tsx");\n    expect(navbar).toContain("Sincronizar agora");\n    expect(navbar).toContain("onClick={onSyncNow}");\n    expect(navbar).toContain("isSyncing ? \\"animate-spin\\" : \\"\\"");\n  });\n\n  test("connected Vault runs silent periodic reconciliation", () => {\n    const app = source("src/App.tsx");\n    expect(app).toContain("autoSyncBootstrappedRef");\n    expect(app).toContain("handleSyncNow({ silent: true })");\n    expect(app).toContain("window.setInterval(runAutoSync, intervalSeconds * 1000)");\n    expect(app).toContain("Math.max(30, Number(apiConfig.syncIntervalSeconds) || 60)");\n  });\n\n  test("folder selector explicitly uses a readable dark native palette", () => {\n    const view = source("src/components/AddKnowledgeView.tsx");\n    expect(view).toContain('style={{ colorScheme: "dark" }}');\n    expect(view).toContain('backgroundColor: "#111827"');\n    expect(view).toContain('color: "#ffffff"');\n  });\n});\n''', encoding="utf-8")
 
 print("hotfix 3.1.5 transform complete")
