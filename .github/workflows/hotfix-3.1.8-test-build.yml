@@ -1,0 +1,68 @@
+name: Hotfix 3.1.8 Test Installer
+
+on:
+  push:
+    branches:
+      - "hotfix/3.1.8-epistemic-onboarding"
+    paths:
+      - ".github/workflows/hotfix-3.1.8-test-build.yml"
+      - "package.json"
+      - "src/**"
+      - "electron-bootstrap.ts"
+      - "server.ts"
+      - "tests/**"
+      - "tests-node/**"
+
+permissions:
+  contents: read
+
+jobs:
+  build-test-installer:
+    runs-on: windows-latest
+    timeout-minutes: 35
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: 1.2.23
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Install Dependencies
+        run: bun install --frozen-lockfile
+
+      - name: Verify Application
+        run: bun run verify
+
+      - name: Build Windows NSIS Test Installer
+        env:
+          CSC_IDENTITY_AUTO_DISCOVERY: "false"
+        run: bunx electron-builder@26.0.12 --win nsis --x64 --publish never
+
+      - name: Verify Test Installer
+        shell: pwsh
+        run: |
+          $setup = Get-Item "dist-electron/Nisti-Marketing-Setup-3.1.8.exe"
+          $blockmap = Get-Item "dist-electron/Nisti-Marketing-Setup-3.1.8.exe.blockmap"
+          $latest = Get-Item "dist-electron/latest.yml"
+          foreach ($file in @($setup, $blockmap, $latest)) {
+            $hash = (Get-FileHash $file.FullName -Algorithm SHA256).Hash
+            Write-Host ("{0} | {1} bytes | SHA256 {2}" -f $file.Name, $file.Length, $hash)
+          }
+
+      - name: Upload Temporary Test Installer
+        uses: actions/upload-artifact@v4
+        with:
+          name: nisti-marketing-3.1.8-test
+          path: |
+            dist-electron/Nisti-Marketing-Setup-3.1.8.exe
+            dist-electron/Nisti-Marketing-Setup-3.1.8.exe.blockmap
+            dist-electron/latest.yml
+          retention-days: 1
+          if-no-files-found: error
