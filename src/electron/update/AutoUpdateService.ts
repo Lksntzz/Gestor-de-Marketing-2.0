@@ -1,23 +1,29 @@
+import * as fs from "fs/promises";
+import * as path from "path";
 import type { AppUpdater, UpdateInfo, ProgressInfo } from "electron-updater";
 
-function getElectronApp(): any {
+const UPDATE_RENDERER_STATE_FILE = "nisti_update_renderer_state.enc";
+const MAX_RENDERER_STATE_BYTES = 8 * 1024 * 1024;
+
+function getElectronModule(): any {
   try {
     // eslint-disable-next-line @typescript-eslint/no-require-imports
-    const electron = typeof require !== "undefined" ? require("electron") : null;
-    return electron?.app;
+    return typeof require !== "undefined" ? require("electron") : null;
   } catch {
-    return undefined;
+    return null;
   }
 }
 
+function getElectronApp(): any {
+  return getElectronModule()?.app;
+}
+
 function getElectronBrowserWindow(): any {
-  try {
-    // eslint-disable-next-line @typescript-eslint/no-require-imports
-    const electron = typeof require !== "undefined" ? require("electron") : null;
-    return electron?.BrowserWindow;
-  } catch {
-    return undefined;
-  }
+  return getElectronModule()?.BrowserWindow;
+}
+
+function getElectronSafeStorage(): any {
+  return getElectronModule()?.safeStorage;
 }
 
 function getDefaultAutoUpdater(): AppUpdater | null {
@@ -235,6 +241,48 @@ export class AutoUpdateService {
     }
   }
 
+  private async snapshotRendererStateForUpdate(): Promise<void> {
+    const electronApp = getElectronApp();
+    const BrowserWindow = getElectronBrowserWindow();
+    const secureStorage = getElectronSafeStorage();
+    if (!electronApp || !BrowserWindow || !secureStorage?.isEncryptionAvailable?.()) return;
+
+    const windows = BrowserWindow.getAllWindows?.() || [];
+    const appWindow = windows.find((win: any) => {
+      if (!win || win.isDestroyed?.()) return false;
+      const url = String(win.webContents?.getURL?.() || "");
+      return /^http:\/\/127\.0\.0\.1:\d+\/?/.test(url);
+    });
+    if (!appWindow) return;
+
+    const snapshot = await appWindow.webContents.executeJavaScript(`(() => {
+      const values = {};
+      for (let index = 0; index < window.localStorage.length; index += 1) {
+        const key = window.localStorage.key(index);
+        if (!key) continue;
+        const value = window.localStorage.getItem(key);
+        if (typeof value === "string") values[key] = value;
+      }
+      return {
+        schemaVersion: 1,
+        capturedAt: new Date().toISOString(),
+        sourceOrigin: window.location.origin,
+        localStorage: values,
+      };
+    })()`, true);
+
+    const serialized = JSON.stringify(snapshot);
+    const size = Buffer.byteLength(serialized, "utf8");
+    if (size <= 0 || size > MAX_RENDERER_STATE_BYTES) {
+      throw new Error("O estado local do aplicativo excede o limite seguro para migração da atualização.");
+    }
+
+    const encrypted = secureStorage.encryptString(serialized).toString("base64");
+    const filePath = path.join(electronApp.getPath("userData"), UPDATE_RENDERER_STATE_FILE);
+    await fs.mkdir(path.dirname(filePath), { recursive: true });
+    await fs.writeFile(filePath, encrypted, { encoding: "utf8", mode: 0o600 });
+  }
+
   public getState(): UpdateState {
     return { ...this.state };
   }
@@ -280,6 +328,12 @@ export class AutoUpdateService {
     }
 
     try {
+      // Preserve renderer state before NSIS closes the current process. The
+      // snapshot is encrypted with Electron safeStorage and consumed only once
+      // by the next desktop startup, allowing updates to change renderer origin
+      // without losing settings or connection metadata.
+      await this.snapshotRendererStateForUpdate();
+
       if (this.cleanupHandler) {
         await Promise.resolve(this.cleanupHandler());
       }
@@ -295,7 +349,7 @@ export class AutoUpdateService {
     } catch (err: any) {
       return {
         success: false,
-        error: this.sanitizeErrorMessage(err?.message || "Falha ao instalar atualização."),
+        error: this.sanitizeErrorMessage(err?.message || "Falha ao preservar o estado e instalar a atualização."),
       };
     }
   }
