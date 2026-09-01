@@ -32,6 +32,7 @@ let obsidianHeartbeatFailures = 0;
 const OBSIDIAN_HEARTBEAT_FAILURE_THRESHOLD = 3;
 const aiTriageAttemptCache = new Map<string, string>();
 let useDirectClientSideFetch = true;
+const OBSIDIAN_VAULT_IGNORED_SEGMENTS = new Set([".obsidian", ".trash", ".git", ".hg", ".svn", "node_modules"]);
 const storage = StorageManager.getInstance();
 
 export function normalizeObsidianEndpoint(endpoint?: string): string {
@@ -233,7 +234,10 @@ async function requestObsidianConnectionTest(config: { endpoint: string; apiKey:
   return { res, data };
 }
 
-export async function syncWebObsidianNotes(config: ObsidianApiConfig): Promise<ObsidianNote[]> {
+export async function syncWebObsidianNotes(
+  config: ObsidianApiConfig,
+  roots: string[] = [""],
+): Promise<ObsidianNote[]> {
   const notesMap = new Map<string, ObsidianNote>();
   const visited = new Set<string>();
 
@@ -304,6 +308,11 @@ export async function syncWebObsidianNotes(config: ObsidianApiConfig): Promise<O
 
           // Normalização adicional de redundância de barras (ex: "folder//file.md" -> "folder/file.md")
           itemRelativePath = itemRelativePath.replace(/\/+/g, "/");
+
+          const pathSegments = itemRelativePath.split("/").filter(Boolean);
+          if (pathSegments.some((segment) => OBSIDIAN_VAULT_IGNORED_SEGMENTS.has(segment.toLowerCase()))) {
+            continue;
+          }
 
           const isMarkdown = itemRelativePath.toLowerCase().endsWith(".md");
           let isFolder = itemRelativePath.endsWith("/") ||
@@ -380,7 +389,10 @@ export async function syncWebObsidianNotes(config: ObsidianApiConfig): Promise<O
     }
   }
 
-  await crawl(NISTI_VAULT_ROOT);
+  const scanRoots = roots.length > 0 ? roots : [""];
+  for (const root of scanRoots) {
+    await crawl(root);
+  }
   const resultNotes = Array.from(notesMap.values());
   console.log(`[Obsidian Crawl] Sincronização concluída. Total de notas encontradas: ${resultNotes.length}`);
   return resultNotes;
@@ -490,7 +502,7 @@ async function classifyAmbiguousKnowledgeWithAI(
 
 async function triageNistiInbox(config: ObsidianApiConfig): Promise<InboxTriageResult> {
   const result: InboxTriageResult = { moved: [], pending: [], failed: [] };
-  const notes = await syncWebObsidianNotes(config);
+  const notes = await syncWebObsidianNotes(config, [NISTI_INBOX_FOLDER]);
   const inboxPrefix = `${NISTI_INBOX_FOLDER}/`.toLowerCase();
   const inboxNotes = notes.filter((note) => {
     const folder = String(note.folder || "").replace(/\\/g, "/").toLowerCase();
