@@ -3,9 +3,11 @@ import { createRoot } from "react-dom/client";
 import { FolderLock, Settings, ShieldCheck } from "lucide-react";
 import App from "./App.tsx";
 import "./index.css";
+import { BaseInitialGate } from "./components/BaseInitialGate";
 import { api } from "./services/api";
 import { ensureAIConnectionMetadataMigration } from "./services/ai/AIConnectionMetadataStore";
 import { installLegacyTaskImportGuard } from "./services/legacyTaskImportGuard";
+import { installVerifiedObsidianWriteGuard } from "./services/verifiedObsidianWriteGuard";
 import {
   OBSIDIAN_CONNECTED_EVENT,
   OBSIDIAN_DISCONNECTED_EVENT,
@@ -15,6 +17,7 @@ import { StorageManager } from "./services/storage/StorageManager";
 import type { ObsidianApiConfig } from "./types";
 
 installLegacyTaskImportGuard(api);
+installVerifiedObsidianWriteGuard(api);
 
 const storage = StorageManager.getInstance();
 const DEFAULT_API_CONFIG: ObsidianApiConfig = {
@@ -286,7 +289,9 @@ if (typeof window !== "undefined") {
 createRoot(document.getElementById("root")!).render(
   <StrictMode>
     <ObsidianRuntimeGate>
-      <App />
+      <BaseInitialGate>
+        <App />
+      </BaseInitialGate>
     </ObsidianRuntimeGate>
   </StrictMode>
 );
