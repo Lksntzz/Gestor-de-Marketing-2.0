@@ -24,11 +24,13 @@ describe("creation generation client", () => {
     expect(source).not.toContain("body: JSON.stringify(payload)");
   });
 
-  test("geração criativa ignora o engine legado e descarta fallback sintético", async () => {
+  test("geração criativa ignora engine legado, rejeita fallback e preserva causa real", async () => {
     const source = await read("src/services/creationGenerationClient.ts");
     expect(source).toContain("Generative creation always uses the configured AI provider");
     expect(source).toContain("if (data?.wasFallback)");
-    expect(source).toContain("descartou o fallback sintético");
+    expect(source).toContain("data?.errorCode");
+    expect(source).toContain("creationAIErrorMessage");
+    expect(source).toContain("CREATION_AI_MAX_ATTEMPTS");
     expect(source).not.toContain("engineMode: payload.engineMode");
   });
 
