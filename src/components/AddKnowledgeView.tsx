@@ -596,8 +596,16 @@ export const AddKnowledgeView: React.FC<AddKnowledgeViewProps> = ({
                     <select value={proposal.folder} onChange={(event) => {
                       const folder = event.target.value;
                       setProposal((current) => current ? { ...current, folder, status: folder === NISTI_INBOX_FOLDER ? "NOVO" : "EM REVISÃO" } : current);
-                    }} className="w-full bg-transparent text-text-primary text-xs outline-none">
-                      {vaultFolders.map((folder) => <option key={folder} value={folder}>{folder}</option>)}
+                    }} className="w-full bg-transparent text-text-primary text-xs outline-none" style={{ colorScheme: "dark" }}>
+                      {vaultFolders.map((folder) => (
+                        <option
+                          key={folder}
+                          value={folder}
+                          style={{ backgroundColor: "#111827", color: "#ffffff" }}
+                        >
+                          {folder}
+                        </option>
+                      ))}
                     </select>
                   </div>
                 </label>

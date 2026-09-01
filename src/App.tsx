@@ -163,6 +163,7 @@ export default function App() {
     text: string;
   } | null>(null);
 
+  const autoSyncBootstrappedRef = useRef(false);
   const firedReminderKeysRef = useRef<Set<string>>(
     new Set(
       storage.loadAppState<string[]>(
@@ -314,7 +315,7 @@ export default function App() {
     return Array.from(folders).sort((left, right) => left.localeCompare(right, "pt-BR"));
   }, [notes]);
 
-  const handleSyncNow = useCallback(async () => {
+  const handleSyncNow = useCallback(async (options: { silent?: boolean } = {}) => {
     if (isSyncing) return;
     setIsSyncing(true);
 
@@ -343,20 +344,48 @@ export default function App() {
         lastSyncTime: syncedAt,
         vaultName: detectedVault,
       }));
-      await storage.logAudit({
-        action: "VAULT_SYNCED",
-        entityType: "VAULT",
-        entityId: detectedVault,
-        details: `${synchronizedNotes.length} fonte(s) reconciliada(s) com o Vault ativo via Local REST API em ${syncedAt}.`,
-      });
-      showToast("success", "Base atualizada", `${synchronizedNotes.length} fonte(s) disponíveis para o fluxo de marketing.`);
+      if (!options.silent) {
+        await storage.logAudit({
+          action: "VAULT_SYNCED",
+          entityType: "VAULT",
+          entityId: detectedVault,
+          details: `${synchronizedNotes.length} fonte(s) reconciliada(s) com o Vault ativo via Local REST API em ${syncedAt}.`,
+        });
+        showToast("success", "Base atualizada", `${synchronizedNotes.length} fonte(s) disponíveis para o fluxo de marketing.`);
+      }
     } catch (error: any) {
-      showToast("warning", "Falha ao atualizar a Base", error?.message || "Não foi possível ler o Vault.");
-      setIsSettingsOpen(true);
+      if (!options.silent) {
+        showToast("warning", "Falha ao atualizar a Base", error?.message || "Não foi possível ler o Vault.");
+        setIsSettingsOpen(true);
+      } else {
+        console.warn("Sincronização automática do Obsidian falhou sem derrubar a sessão.", error);
+      }
     } finally {
       setIsSyncing(false);
     }
   }, [apiConfig, isSyncing, showToast, updateAndSaveApiConfig]);
+
+  useEffect(() => {
+    const canAutoSync =
+      apiConfig.autoSync &&
+      apiConfig.connectionStatus === "connected" &&
+      api.isObsidianSessionVerified();
+
+    if (!canAutoSync) {
+      autoSyncBootstrappedRef.current = false;
+      return;
+    }
+
+    if (!autoSyncBootstrappedRef.current) {
+      autoSyncBootstrappedRef.current = true;
+      void handleSyncNow({ silent: true });
+    }
+
+    const intervalSeconds = Math.max(30, Number(apiConfig.syncIntervalSeconds) || 60);
+    const runAutoSync = () => void handleSyncNow({ silent: true });
+    const timer = window.setInterval(runAutoSync, intervalSeconds * 1000);
+    return () => window.clearInterval(timer);
+  }, [apiConfig.autoSync, apiConfig.connectionStatus, apiConfig.syncIntervalSeconds, handleSyncNow]);
 
   const handleTestConnection = useCallback(
     async (config: ObsidianApiConfig) => {
