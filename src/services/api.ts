@@ -157,8 +157,11 @@ async function getAIRequestHeaders(aiOverride?: {
 async function requestObsidianConnectionTest(config: { endpoint: string; apiKey: string }) {
   const normalizedEndpoint = normalizeObsidianEndpoint(config.endpoint);
 
-  // 1. Try direct browser fetch first!
-  try {
+  // 1. Browser mode can call Obsidian directly after the user accepts the local certificate.
+  // Desktop intentionally routes through the trusted local backend so the renderer never
+  // needs the decrypted API key from secure storage.
+  if (!window.electronAPI) {
+    try {
     const parsedUrl = new URL(normalizedEndpoint);
     const controller = new AbortController();
     const timeoutId = setTimeout(() => controller.abort(), 6000);
@@ -195,8 +198,9 @@ async function requestObsidianConnectionTest(config: { endpoint: string; apiKey:
       res: directRes,
       data: { success: false, message: `Obsidian respondeu com status HTTP ${directRes.status}. Verifique o token/chave de autenticação.`, ...data },
     };
-  } catch (err) {
-    console.warn("Direct browser-to-Obsidian connection failed.", err);
+    } catch (err) {
+      console.warn("Direct browser-to-Obsidian connection failed.", err);
+    }
   }
 
   // 2. In Web mode with loopback (127.0.0.1 / localhost), Cloud backend cannot reach local PC
@@ -695,7 +699,7 @@ async function obsidianProxyRequest(
   const normalizedPath = path.startsWith("/") ? path : `/${path}`;
 
   // 1. In Web mode or when direct client-side fetch is active, try directly from the browser!
-  if (!window.electronAPI || useDirectClientSideFetch) {
+  if (!window.electronAPI) {
     try {
       const parsedUrl = new URL(normalizedEndpoint);
       const fullUrl = `${parsedUrl.protocol}//${parsedUrl.host}${normalizedPath}`;
