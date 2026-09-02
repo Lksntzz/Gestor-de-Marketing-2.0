@@ -32,7 +32,7 @@ const VERIFIED_SNAPSHOT_DEBOUNCE_MS = 180;
 const ALLOWED_BINARY_MIME = /^(application\/pdf|image\/(png|jpeg|webp)|audio\/(mpeg|mp3|wav|x-wav|mp4|aac|ogg|webm))$/i;
 
 let cachedSessionToken = "";
-let verifiedSnapshotTimer: ReturnType<typeof setTimeout> | null = null;
+let verifiedSnapshotTimer: number | null = null;
 let verifiedSnapshotRefreshInFlight = false;
 let verifiedSnapshotRefreshQueued = false;
 
