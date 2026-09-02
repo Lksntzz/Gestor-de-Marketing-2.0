@@ -43,7 +43,7 @@ describe("verified Obsidian write guard 3.1.7", () => {
         return jsonResponse({ success: false, status: 404, message: "not found" }, 404);
       }
       if (body.method === "PUT") {
-        expect(body.path).toBe("/vault/Nisti%20Marketing/00_Inbox/Teste%20escrita%20Nisti.md");
+        expect(body.path).toBe("/vault/00_Inbox/Teste%20escrita%20Nisti.md");
         return jsonResponse({ success: true, status: 204, data: "" });
       }
       return jsonResponse({
@@ -61,6 +61,7 @@ describe("verified Obsidian write guard 3.1.7", () => {
     );
 
     expect(result.success).toBe(true);
+    expect(result.path).toBe("00_Inbox/Teste escrita Nisti.md");
     expect(proxyMethods).toEqual(["GET", "PUT", "GET"]);
   });
 
