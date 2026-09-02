@@ -39,13 +39,24 @@ describe("hotfix 3.1.12 — autoridade única de caminhos do Vault", () => {
 });
 
 describe("hotfix 3.1.12 — confirmação e atualização imediata do Cofre", () => {
-  test("a guarda REST usa caminho canônico, releitura e refresh do snapshot", async () => {
+  test("a guarda REST usa caminho canônico, releitura e refresh coalescido do snapshot", async () => {
     const source = await readFile(new URL("../src/services/verifiedObsidianWriteGuard.ts", import.meta.url), "utf8");
     expect(source).toContain("canonicalVaultPath(filePath)");
     expect(source).not.toContain("qualifyNistiKnowledgePath(filePath)");
     expect(source).toContain('proxyRequest(config, "GET", targetPath)');
     expect(source).toContain('proxyRequest(config, "PUT", targetPath, payloadMarkdown)');
+    expect(source).toContain("VERIFIED_SNAPSHOT_DEBOUNCE_MS");
+    expect(source).toContain("scheduleVerifiedSnapshotRefresh(api)");
     expect(source).toContain("await api.syncObsidianSnapshot()");
+  });
+
+  test("assets binários REST também usam caminho canônico e releitura", async () => {
+    const source = await readFile(new URL("../src/services/verifiedObsidianWriteGuard.ts", import.meta.url), "utf8");
+    expect(source).toContain("writeVerifiedObsidianBinaryAsset");
+    expect(source).toContain("deleteVerifiedObsidianPath");
+    expect(source).toContain("__nistiBinaryBase64");
+    expect(source).toContain("api.pushBinaryAssetToObsidian = async");
+    expect(source).toContain("api.deleteObsidianPath = async");
   });
 
   test("commit desktop publica snapshot coalescido e o renderer reconcilia o Cofre", async () => {
