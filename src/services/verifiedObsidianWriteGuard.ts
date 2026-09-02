@@ -11,6 +11,15 @@ interface ObsidianWriteApi {
     markdownContent: string,
     frontmatter?: Record<string, unknown>,
   ) => Promise<any>;
+  pushBinaryAssetToObsidian?: (
+    config: ObsidianApiConfig,
+    filePath: string,
+    dataUrl: string,
+  ) => Promise<any>;
+  deleteObsidianPath?: (
+    config: ObsidianApiConfig,
+    filePath: string,
+  ) => Promise<boolean>;
   syncObsidianSnapshot?: () => Promise<any>;
 }
 
@@ -19,7 +28,13 @@ interface ProxyResult {
   data: any;
 }
 
+const VERIFIED_SNAPSHOT_DEBOUNCE_MS = 180;
+const ALLOWED_BINARY_MIME = /^(application\/pdf|image\/(png|jpeg|webp)|audio\/(mpeg|mp3|wav|x-wav|mp4|aac|ogg|webm))$/i;
+
 let cachedSessionToken = "";
+let verifiedSnapshotTimer: ReturnType<typeof setTimeout> | null = null;
+let verifiedSnapshotRefreshInFlight = false;
+let verifiedSnapshotRefreshQueued = false;
 
 function normalizeEndpoint(endpoint?: string): string {
   let clean = String(endpoint || "").trim();
@@ -43,9 +58,9 @@ async function getSessionToken(): Promise<string> {
 
 async function proxyRequest(
   config: ObsidianApiConfig,
-  method: "GET" | "PUT",
+  method: "GET" | "PUT" | "DELETE",
   path: string,
-  body?: string,
+  body?: unknown,
 ): Promise<ProxyResult> {
   const token = await getSessionToken();
   const response = await fetch("/api/obsidian/proxy", {
@@ -60,7 +75,7 @@ async function proxyRequest(
       method,
       path,
       body,
-      headers: body !== undefined ? { "Content-Type": "text/markdown; charset=utf-8" } : {},
+      headers: typeof body === "string" ? { "Content-Type": "text/markdown; charset=utf-8" } : {},
     }),
   });
   const data = await response.json().catch(() => ({
@@ -92,6 +107,36 @@ function normalizeMarkdown(value: string): string {
 
 function markdownBody(value: string): string {
   return normalizeMarkdown(parseMarkdownDocument(value).body);
+}
+
+function scheduleVerifiedSnapshotRefresh(api: ObsidianWriteApi): void {
+  if (!api.syncObsidianSnapshot || typeof window === "undefined") return;
+  if (verifiedSnapshotTimer) window.clearTimeout(verifiedSnapshotTimer);
+  verifiedSnapshotTimer = window.setTimeout(() => {
+    verifiedSnapshotTimer = null;
+    void refreshVerifiedSnapshot(api);
+  }, VERIFIED_SNAPSHOT_DEBOUNCE_MS);
+}
+
+async function refreshVerifiedSnapshot(api: ObsidianWriteApi): Promise<void> {
+  if (!api.syncObsidianSnapshot) return;
+  if (verifiedSnapshotRefreshInFlight) {
+    verifiedSnapshotRefreshQueued = true;
+    return;
+  }
+
+  verifiedSnapshotRefreshInFlight = true;
+  try {
+    await api.syncObsidianSnapshot();
+  } catch (refreshError) {
+    console.warn("A gravação foi confirmada no Vault, mas o snapshot imediato não pôde ser atualizado.", refreshError);
+  } finally {
+    verifiedSnapshotRefreshInFlight = false;
+    if (verifiedSnapshotRefreshQueued) {
+      verifiedSnapshotRefreshQueued = false;
+      scheduleVerifiedSnapshotRefresh(api);
+    }
+  }
 }
 
 export async function writeVerifiedObsidianNote(
@@ -163,23 +208,96 @@ export async function writeVerifiedObsidianNote(
   };
 }
 
+export async function writeVerifiedObsidianBinaryAsset(
+  config: ObsidianApiConfig,
+  filePath: string,
+  dataUrl: string,
+): Promise<{ success: boolean; message: string; path?: string; status?: number }> {
+  const match = String(dataUrl || "").match(/^data:([^;]+);base64,(.+)$/);
+  if (!match) throw new Error("O arquivo binário não está em um Data URL válido.");
+  if (!ALLOWED_BINARY_MIME.test(match[1])) {
+    throw new Error("Tipo binário não autorizado para persistência no Vault.");
+  }
+
+  const qualifiedPath = canonicalVaultPath(filePath);
+  const targetPath = `/vault/${encodeVaultRelativePath(qualifiedPath)}`;
+  const before = await proxyRequest(config, "GET", targetPath);
+  const beforeStatus = proxyStatus(before);
+  if (proxySucceeded(before)) {
+    return {
+      success: false,
+      path: qualifiedPath,
+      status: beforeStatus,
+      message: `Já existe um asset em ${qualifiedPath}. A gravação foi bloqueada para evitar sobrescrita.`,
+    };
+  }
+  if (beforeStatus !== 404) {
+    return {
+      success: false,
+      path: qualifiedPath,
+      status: beforeStatus,
+      message: before.data?.message || before.data?.error || "Não foi possível confirmar que o caminho do asset está livre.",
+    };
+  }
+
+  const write = await proxyRequest(config, "PUT", targetPath, {
+    __nistiBinaryBase64: match[2],
+    mimeType: match[1],
+  });
+  if (!proxySucceeded(write)) {
+    return {
+      success: false,
+      path: qualifiedPath,
+      status: proxyStatus(write),
+      message: write.data?.message || write.data?.error || "O Obsidian não confirmou a gravação do arquivo original.",
+    };
+  }
+
+  const after = await proxyRequest(config, "GET", targetPath);
+  if (!proxySucceeded(after)) {
+    return {
+      success: false,
+      path: qualifiedPath,
+      status: proxyStatus(after),
+      message: "O Obsidian aceitou o asset, mas ele não pôde ser relido no mesmo Vault autenticado.",
+    };
+  }
+
+  return {
+    success: true,
+    path: qualifiedPath,
+    status: proxyStatus(after),
+    message: `Asset confirmado por releitura do Obsidian em ${qualifiedPath}.`,
+  };
+}
+
+export async function deleteVerifiedObsidianPath(
+  config: ObsidianApiConfig,
+  filePath: string,
+): Promise<boolean> {
+  const qualifiedPath = canonicalVaultPath(filePath);
+  const remove = await proxyRequest(
+    config,
+    "DELETE",
+    `/vault/${encodeVaultRelativePath(qualifiedPath)}`,
+  );
+  return proxySucceeded(remove);
+}
+
 export function installVerifiedObsidianWriteGuard(api: ObsidianWriteApi): void {
-  const original = api.pushNoteToObsidian.bind(api);
+  const originalNoteWrite = api.pushNoteToObsidian.bind(api);
+  const originalAssetWrite = api.pushBinaryAssetToObsidian?.bind(api);
+  const originalDelete = api.deleteObsidianPath?.bind(api);
+
   api.pushNoteToObsidian = async (config, filePath, markdownContent, frontmatter) => {
     // Browser mode keeps the existing direct-client behavior. The Windows desktop
     // uses REST-first exclusively so a stale physical Vault path cannot receive a write.
     if (typeof window === "undefined" || !window.electronAPI) {
-      return original(config, filePath, markdownContent, frontmatter);
+      return originalNoteWrite(config, filePath, markdownContent, frontmatter);
     }
     try {
       const result = await writeVerifiedObsidianNote(config, filePath, markdownContent, frontmatter);
-      if (result.success && api.syncObsidianSnapshot) {
-        try {
-          await api.syncObsidianSnapshot();
-        } catch (refreshError) {
-          console.warn("A nota foi confirmada no Vault, mas o snapshot imediato não pôde ser atualizado.", refreshError);
-        }
-      }
+      if (result.success) scheduleVerifiedSnapshotRefresh(api);
       return result;
     } catch (error: any) {
       return {
@@ -188,4 +306,24 @@ export function installVerifiedObsidianWriteGuard(api: ObsidianWriteApi): void {
       };
     }
   };
+
+  if (originalAssetWrite) {
+    api.pushBinaryAssetToObsidian = async (config, filePath, dataUrl) => {
+      if (typeof window === "undefined" || !window.electronAPI) {
+        return originalAssetWrite(config, filePath, dataUrl);
+      }
+      return await writeVerifiedObsidianBinaryAsset(config, filePath, dataUrl);
+    };
+  }
+
+  if (originalDelete) {
+    api.deleteObsidianPath = async (config, filePath) => {
+      if (typeof window === "undefined" || !window.electronAPI) {
+        return originalDelete(config, filePath);
+      }
+      const removed = await deleteVerifiedObsidianPath(config, filePath);
+      if (removed) scheduleVerifiedSnapshotRefresh(api);
+      return removed;
+    };
+  }
 }
