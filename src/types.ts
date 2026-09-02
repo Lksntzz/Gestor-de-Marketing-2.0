@@ -398,6 +398,7 @@ declare global {
         failIfExists?: boolean;
         asset?: { fileName: string; dataUrl: string };
       }) => KnowledgeCommitResult;
+      onVaultSnapshot: (callback: (snapshot: { notes: ObsidianNote[]; folders: string[] }) => void) => () => void;
       writeNote: {
         (folder: string, title: string, content: string, frontmatter?: any): ElectronWriteResult;
         (legacyVaultPath: string, folder: string, title: string, content: string, frontmatter?: any): ElectronWriteResult;
