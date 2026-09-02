@@ -1,8 +1,20 @@
-import type { ObsidianApiConfig } from "../types";
+import type { ObsidianApiConfig, ObsidianNote } from "../types";
 import { parseMarkdownDocument } from "../utils/markdownFrontmatter";
 import { serializeMarkdownNote } from "../utils/obsidianUri";
 import { canonicalVaultPath } from "./creativeVaultPersistence";
-import { encodeVaultRelativePath } from "./obsidianKnowledgeAutomation";
+import {
+  NISTI_RELATIVE_FOLDERS,
+  encodeVaultRelativePath,
+} from "./obsidianKnowledgeAutomation";
+import {
+  MANAGED_OBSIDIAN_SCAN_ROOTS,
+  sanitizeManagedObsidianRoots,
+} from "./obsidianManagedScope";
+import {
+  markObsidianRuntimeConnected,
+  markObsidianRuntimeDisconnected,
+  publishObsidianSnapshot,
+} from "./obsidianRuntimeState";
 
 interface ObsidianWriteApi {
   pushNoteToObsidian: (
@@ -20,7 +32,13 @@ interface ObsidianWriteApi {
     config: ObsidianApiConfig,
     filePath: string,
   ) => Promise<boolean>;
+  syncWebObsidianNotes?: (
+    config: ObsidianApiConfig,
+    roots?: string[],
+  ) => Promise<ObsidianNote[]>;
   syncObsidianSnapshot?: () => Promise<any>;
+  probeObsidianConnection?: (config: { endpoint: string; apiKey: string }) => Promise<any>;
+  testObsidianConnection?: (config: { endpoint: string; apiKey: string }) => Promise<any>;
 }
 
 interface ProxyResult {
@@ -29,12 +47,18 @@ interface ProxyResult {
 }
 
 const VERIFIED_SNAPSHOT_DEBOUNCE_MS = 180;
+const SAFE_HEARTBEAT_INTERVAL_MS = 30_000;
+const SAFE_HEARTBEAT_FAILURE_THRESHOLD = 3;
 const ALLOWED_BINARY_MIME = /^(application\/pdf|image\/(png|jpeg|webp)|audio\/(mpeg|mp3|wav|x-wav|mp4|aac|ogg|webm))$/i;
 
 let cachedSessionToken = "";
 let verifiedSnapshotTimer: number | null = null;
 let verifiedSnapshotRefreshInFlight = false;
 let verifiedSnapshotRefreshQueued = false;
+let safeHeartbeatTimer: number | null = null;
+let safeHeartbeatBusy = false;
+let safeHeartbeatFailures = 0;
+let lastVerifiedConfig: ObsidianApiConfig | null = null;
 
 function normalizeEndpoint(endpoint?: string): string {
   let clean = String(endpoint || "").trim();
@@ -48,12 +72,136 @@ function normalizeEndpoint(endpoint?: string): string {
 async function getSessionToken(): Promise<string> {
   if (cachedSessionToken) return cachedSessionToken;
   const response = await fetch("/api/auth/session", { cache: "no-store" });
-  if (!response.ok) throw new Error("Não foi possível abrir a sessão local segura para gravar no Obsidian.");
+  if (!response.ok) throw new Error("Não foi possível abrir a sessão local segura do Nisti.");
   const data = await response.json().catch(() => ({}));
   const token = String(data?.token || "").trim();
   if (!token) throw new Error("A sessão local segura não retornou um token válido.");
   cachedSessionToken = token;
   return token;
+}
+
+async function setDesktopAuthorization(connected: boolean): Promise<void> {
+  if (typeof window === "undefined" || !window.electronAPI?.setObsidianConnectionState) return;
+  try {
+    await window.electronAPI.setObsidianConnectionState(connected);
+  } catch (error) {
+    console.warn("Não foi possível atualizar a autorização local do Obsidian.", error);
+  }
+}
+
+async function requestReadOnlyConnectionTest(config: { endpoint: string; apiKey: string }): Promise<any> {
+  const endpoint = normalizeEndpoint(config.endpoint);
+  const apiKey = String(config.apiKey || "").trim();
+  if (!endpoint || !apiKey) {
+    return { success: false, message: "Informe o endpoint e a API Key do Obsidian Local REST API." };
+  }
+
+  const token = await getSessionToken();
+  const response = await fetch("/api/obsidian/test-connection", {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      "x-app-session-token": token,
+    },
+    body: JSON.stringify({ endpoint, apiKey }),
+  });
+  const data = await response.json().catch(() => ({}));
+  if (!response.ok || !data?.success) {
+    return {
+      success: false,
+      status: Number(data?.status || response.status || 0),
+      message: data?.message || data?.error || "Não foi possível autenticar no Obsidian Local REST API.",
+    };
+  }
+
+  return {
+    success: true,
+    status: Number(data?.status || response.status || 200),
+    detectedVaultName: String(data?.vault || data?.name || "Vault ativo"),
+    message: "Obsidian conectado e autenticado. Nenhum arquivo foi criado, alterado ou movido durante o teste.",
+  };
+}
+
+function stopSafeHeartbeat(): void {
+  if (safeHeartbeatTimer !== null && typeof window !== "undefined") {
+    window.clearInterval(safeHeartbeatTimer);
+  }
+  safeHeartbeatTimer = null;
+  safeHeartbeatBusy = false;
+  safeHeartbeatFailures = 0;
+}
+
+function startSafeHeartbeat(config: ObsidianApiConfig): void {
+  if (typeof window === "undefined" || !window.electronAPI) return;
+  stopSafeHeartbeat();
+  safeHeartbeatTimer = window.setInterval(async () => {
+    if (safeHeartbeatBusy) return;
+    safeHeartbeatBusy = true;
+    try {
+      const result = await requestReadOnlyConnectionTest(config);
+      if (result.success) {
+        safeHeartbeatFailures = 0;
+        return;
+      }
+      safeHeartbeatFailures += 1;
+      if (safeHeartbeatFailures >= SAFE_HEARTBEAT_FAILURE_THRESHOLD) {
+        stopSafeHeartbeat();
+        await setDesktopAuthorization(false);
+        markObsidianRuntimeDisconnected(result.message || "A conexão com o Obsidian foi perdida.");
+      }
+    } catch (error: any) {
+      safeHeartbeatFailures += 1;
+      if (safeHeartbeatFailures >= SAFE_HEARTBEAT_FAILURE_THRESHOLD) {
+        stopSafeHeartbeat();
+        await setDesktopAuthorization(false);
+        markObsidianRuntimeDisconnected(error?.message || "A conexão com o Obsidian foi perdida.");
+      }
+    } finally {
+      safeHeartbeatBusy = false;
+    }
+  }, SAFE_HEARTBEAT_INTERVAL_MS);
+}
+
+async function verifyConnectionReadOnly(
+  api: ObsidianWriteApi,
+  config: { endpoint: string; apiKey: string },
+): Promise<any> {
+  try {
+    const result = await requestReadOnlyConnectionTest(config);
+    if (!result.success) {
+      stopSafeHeartbeat();
+      await setDesktopAuthorization(false);
+      markObsidianRuntimeDisconnected(result.message || "Obsidian desconectado.");
+      return result;
+    }
+
+    lastVerifiedConfig = {
+      endpoint: normalizeEndpoint(config.endpoint),
+      apiKey: String(config.apiKey || "").trim(),
+      vaultName: result.detectedVaultName || "Vault ativo",
+      useHttps: normalizeEndpoint(config.endpoint).startsWith("https://"),
+      autoSync: true,
+      syncIntervalSeconds: 60,
+      connectionStatus: "connected",
+      allowSelfSignedCerts: true,
+    } as ObsidianApiConfig;
+
+    await setDesktopAuthorization(true);
+    markObsidianRuntimeConnected();
+    startSafeHeartbeat(lastVerifiedConfig);
+
+    return {
+      ...result,
+      localFolders: [...NISTI_RELATIVE_FOLDERS],
+      localFoldersFound: NISTI_RELATIVE_FOLDERS.length,
+    };
+  } catch (error: any) {
+    stopSafeHeartbeat();
+    await setDesktopAuthorization(false);
+    const message = error?.message || "Não foi possível autenticar no Obsidian Local REST API.";
+    markObsidianRuntimeDisconnected(message);
+    return { success: false, message };
+  }
 }
 
 async function proxyRequest(
@@ -109,6 +257,19 @@ function markdownBody(value: string): string {
   return normalizeMarkdown(parseMarkdownDocument(value).body);
 }
 
+async function syncManagedSnapshot(api: ObsidianWriteApi): Promise<{ notes: number; folders: number }> {
+  if (!api.syncWebObsidianNotes) {
+    throw new Error("Sincronização REST do Obsidian indisponível.");
+  }
+  if (!lastVerifiedConfig) {
+    throw new Error("A sessão do Obsidian ainda não foi validada para sincronização.");
+  }
+
+  const notes = await api.syncWebObsidianNotes(lastVerifiedConfig, MANAGED_OBSIDIAN_SCAN_ROOTS);
+  publishObsidianSnapshot(notes, [...NISTI_RELATIVE_FOLDERS]);
+  return { notes: notes.length, folders: NISTI_RELATIVE_FOLDERS.length };
+}
+
 function scheduleVerifiedSnapshotRefresh(api: ObsidianWriteApi): void {
   if (!api.syncObsidianSnapshot || typeof window === "undefined") return;
   if (verifiedSnapshotTimer) window.clearTimeout(verifiedSnapshotTimer);
@@ -145,6 +306,7 @@ export async function writeVerifiedObsidianNote(
   markdownContent: string,
   frontmatter?: Record<string, unknown>,
 ): Promise<{ success: boolean; message: string; path?: string; status?: number }> {
+  lastVerifiedConfig = { ...config, endpoint: normalizeEndpoint(config.endpoint) };
   const qualifiedPath = canonicalVaultPath(filePath);
   const targetPath = `/vault/${encodeVaultRelativePath(qualifiedPath)}`;
   const payloadMarkdown = markdownContent.trimStart().startsWith("---")
@@ -213,6 +375,7 @@ export async function writeVerifiedObsidianBinaryAsset(
   filePath: string,
   dataUrl: string,
 ): Promise<{ success: boolean; message: string; path?: string; status?: number }> {
+  lastVerifiedConfig = { ...config, endpoint: normalizeEndpoint(config.endpoint) };
   const match = String(dataUrl || "").match(/^data:([^;]+);base64,(.+)$/);
   if (!match) throw new Error("O arquivo binário não está em um Data URL válido.");
   if (!ALLOWED_BINARY_MIME.test(match[1])) {
@@ -275,6 +438,7 @@ export async function deleteVerifiedObsidianPath(
   config: ObsidianApiConfig,
   filePath: string,
 ): Promise<boolean> {
+  lastVerifiedConfig = { ...config, endpoint: normalizeEndpoint(config.endpoint) };
   const qualifiedPath = canonicalVaultPath(filePath);
   const remove = await proxyRequest(
     config,
@@ -288,10 +452,49 @@ export function installVerifiedObsidianWriteGuard(api: ObsidianWriteApi): void {
   const originalNoteWrite = api.pushNoteToObsidian.bind(api);
   const originalAssetWrite = api.pushBinaryAssetToObsidian?.bind(api);
   const originalDelete = api.deleteObsidianPath?.bind(api);
+  const originalSyncWeb = api.syncWebObsidianNotes?.bind(api);
+  const originalSyncSnapshot = api.syncObsidianSnapshot?.bind(api);
+  const originalProbe = api.probeObsidianConnection?.bind(api);
+  const originalTest = api.testObsidianConnection?.bind(api);
+
+  if (originalSyncWeb) {
+    api.syncWebObsidianNotes = async (config, roots) => {
+      if (typeof window === "undefined" || !window.electronAPI) {
+        return originalSyncWeb(config, roots);
+      }
+      lastVerifiedConfig = { ...config, endpoint: normalizeEndpoint(config.endpoint) };
+      return originalSyncWeb(config, sanitizeManagedObsidianRoots(roots));
+    };
+  }
+
+  if (originalSyncSnapshot) {
+    api.syncObsidianSnapshot = async () => {
+      if (typeof window === "undefined" || !window.electronAPI) {
+        return originalSyncSnapshot();
+      }
+      return await syncManagedSnapshot(api);
+    };
+  }
+
+  if (originalProbe) {
+    api.probeObsidianConnection = async (config) => {
+      if (typeof window === "undefined" || !window.electronAPI) {
+        return originalProbe(config);
+      }
+      return await verifyConnectionReadOnly(api, config);
+    };
+  }
+
+  if (originalTest) {
+    api.testObsidianConnection = async (config) => {
+      if (typeof window === "undefined" || !window.electronAPI) {
+        return originalTest(config);
+      }
+      return await verifyConnectionReadOnly(api, config);
+    };
+  }
 
   api.pushNoteToObsidian = async (config, filePath, markdownContent, frontmatter) => {
-    // Browser mode keeps the existing direct-client behavior. The Windows desktop
-    // uses REST-first exclusively so a stale physical Vault path cannot receive a write.
     if (typeof window === "undefined" || !window.electronAPI) {
       return originalNoteWrite(config, filePath, markdownContent, frontmatter);
     }
