@@ -78,10 +78,9 @@ describe("hotfix 3.1.11 — persistência de Copywriting", () => {
     expect(source).not.toContain("02_Conteudo/Copies");
   });
 
-  test("versão de pacote e runtime estão alinhadas em 3.1.11", async () => {
+  test("versão de pacote e runtime permanecem alinhadas após hotfixes subsequentes", async () => {
     const pkg = JSON.parse(await readFile(new URL("../package.json", import.meta.url), "utf8"));
     const reliability = await readFile(new URL("../src/utils/reliability.ts", import.meta.url), "utf8");
-    expect(pkg.version).toBe("3.1.11");
-    expect(reliability).toContain('APP_VERSION = "3.1.11"');
+    expect(reliability).toContain(`APP_VERSION = "${pkg.version}"`);
   });
 });
