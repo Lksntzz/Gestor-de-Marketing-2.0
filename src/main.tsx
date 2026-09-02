@@ -12,6 +12,7 @@ import {
   OBSIDIAN_CONNECTED_EVENT,
   OBSIDIAN_DISCONNECTED_EVENT,
   isObsidianRuntimeConnected,
+  publishObsidianSnapshot,
 } from "./services/obsidianRuntimeState";
 import { StorageManager } from "./services/storage/StorageManager";
 import type { ObsidianApiConfig } from "./types";
@@ -211,6 +212,17 @@ function ObsidianRuntimeGate({ children }: { children: ReactNode }) {
       window.removeEventListener(OBSIDIAN_CONNECTED_EVENT, onConnected);
       window.removeEventListener(OBSIDIAN_DISCONNECTED_EVENT, onDisconnected as EventListener);
     };
+  }, [isWeb]);
+
+  useEffect(() => {
+    if (isWeb || !window.electronAPI?.onVaultSnapshot) return;
+    return window.electronAPI.onVaultSnapshot((snapshot) => {
+      if (!Array.isArray(snapshot?.notes)) return;
+      publishObsidianSnapshot(
+        snapshot.notes,
+        Array.isArray(snapshot.folders) ? snapshot.folders : [],
+      );
+    });
   }, [isWeb]);
 
   return (
