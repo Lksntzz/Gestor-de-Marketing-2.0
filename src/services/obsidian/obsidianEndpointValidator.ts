@@ -50,27 +50,21 @@ export function parseLoopbackEndpoint(endpoint: string): URL {
     throw new Error("URL do endpoint Obsidian inválida.");
   }
 
-  // 1. Validação de Protocolo
   if (parsedUrl.protocol !== "http:" && parsedUrl.protocol !== "https:") {
     throw new Error("Protocolo do Obsidian inválido. Apenas HTTP e HTTPS são permitidos.");
   }
 
-  // 2. Não permitir credenciais embutidas na URL
   if (parsedUrl.username || parsedUrl.password) {
     throw new Error("Credenciais embutidas na URL do Obsidian não são permitidas.");
   }
 
   const hostname = parsedUrl.hostname.toLowerCase();
-
-  // 3. Validação Estrita de Host (apenas 127.0.0.1, localhost, ::1)
-  // Rejeita explicitamente 0.0.0.0, local.obsidian.md e subdomínios .localhost
   if (!ALLOWED_LOOPBACK_HOSTS.has(hostname)) {
     throw new Error(
       `SSRF Bloqueado: O host '${hostname}' não é permitido. Apenas o Obsidian Local REST API em loopback estrito (127.0.0.1 ou localhost) é autorizado.`
     );
   }
 
-  // 4. Validação de Porta (Strict Allowlist para o plugin Obsidian Local REST API)
   const portStr = parsedUrl.port || (parsedUrl.protocol === "https:" ? "443" : "80");
   const portNum = parseInt(portStr, 10);
 
@@ -81,20 +75,51 @@ export function parseLoopbackEndpoint(endpoint: string): URL {
   return parsedUrl;
 }
 
+function decodePathSegment(segment: string): string {
+  let current = segment;
+  for (let attempt = 0; attempt < 3; attempt += 1) {
+    let decoded: string;
+    try {
+      decoded = decodeURIComponent(current);
+    } catch {
+      throw new Error("Codificação inválida detectada no caminho do Obsidian.");
+    }
+    if (decoded === current) break;
+    current = decoded;
+  }
+  return current;
+}
+
 /**
- * Valida e sanitiza o caminho do endpoint no Obsidian REST API,
- * prevenindo Path Traversal e limitando às rotas oficiais do plugin.
+ * Valida e sanitiza o caminho do endpoint no Obsidian REST API.
+ *
+ * O guard anterior rejeitava qualquer sequência "..", inclusive nomes de arquivo
+ * legítimos como "versao..final.md". Aqui a proteção é feita por segmento real de
+ * caminho, bloqueando traversal codificado/duplamente codificado sem gerar falso positivo.
  */
 export function validateObsidianProxyPath(targetPath: string): string {
   const raw = String(targetPath || "/").trim();
-  
-  if (raw.includes("..") || raw.includes("\\") || raw.includes("%2e%2e") || raw.includes("%2E%2E")) {
+
+  if (raw.includes("\\") || raw.includes("\0")) {
     throw new Error("Path traversal detectado no caminho do Obsidian.");
   }
 
   const normalized = raw.startsWith("/") ? raw : `/${raw}`;
+  const rawSegments = normalized.split("/");
+  for (const segment of rawSegments) {
+    if (!segment) continue;
+    const decoded = decodePathSegment(segment);
+    if (
+      decoded === "." ||
+      decoded === ".." ||
+      decoded.includes("/") ||
+      decoded.includes("\\") ||
+      decoded.includes("\0")
+    ) {
+      throw new Error("Path traversal detectado no caminho do Obsidian.");
+    }
+  }
 
-  // Permitir raiz (status check), /vault, /active, /open, /search, /commands, /periodic
   const isAllowedRoute =
     normalized === "/" ||
     normalized.startsWith("/vault") ||
@@ -143,7 +168,6 @@ export function sanitizeObsidianForwardHeaders(
     }
   }
 
-  // Authorization e Bearer token do servidor SEMPRE sobrescrevem qualquer tentativa de injeção
   safeHeaders["Authorization"] = `Bearer ${apiKey.trim()}`;
 
   return safeHeaders;
