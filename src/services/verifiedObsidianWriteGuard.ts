@@ -1,10 +1,8 @@
 import type { ObsidianApiConfig } from "../types";
 import { parseMarkdownDocument } from "../utils/markdownFrontmatter";
 import { serializeMarkdownNote } from "../utils/obsidianUri";
-import {
-  encodeVaultRelativePath,
-  qualifyNistiKnowledgePath,
-} from "./obsidianKnowledgeAutomation";
+import { canonicalVaultPath } from "./creativeVaultPersistence";
+import { encodeVaultRelativePath } from "./obsidianKnowledgeAutomation";
 
 interface ObsidianWriteApi {
   pushNoteToObsidian: (
@@ -13,6 +11,7 @@ interface ObsidianWriteApi {
     markdownContent: string,
     frontmatter?: Record<string, unknown>,
   ) => Promise<any>;
+  syncObsidianSnapshot?: () => Promise<any>;
 }
 
 interface ProxyResult {
@@ -101,7 +100,7 @@ export async function writeVerifiedObsidianNote(
   markdownContent: string,
   frontmatter?: Record<string, unknown>,
 ): Promise<{ success: boolean; message: string; path?: string; status?: number }> {
-  const qualifiedPath = qualifyNistiKnowledgePath(filePath);
+  const qualifiedPath = canonicalVaultPath(filePath);
   const targetPath = `/vault/${encodeVaultRelativePath(qualifiedPath)}`;
   const payloadMarkdown = markdownContent.trimStart().startsWith("---")
     ? markdownContent
@@ -173,7 +172,15 @@ export function installVerifiedObsidianWriteGuard(api: ObsidianWriteApi): void {
       return original(config, filePath, markdownContent, frontmatter);
     }
     try {
-      return await writeVerifiedObsidianNote(config, filePath, markdownContent, frontmatter);
+      const result = await writeVerifiedObsidianNote(config, filePath, markdownContent, frontmatter);
+      if (result.success && api.syncObsidianSnapshot) {
+        try {
+          await api.syncObsidianSnapshot();
+        } catch (refreshError) {
+          console.warn("A nota foi confirmada no Vault, mas o snapshot imediato não pôde ser atualizado.", refreshError);
+        }
+      }
+      return result;
     } catch (error: any) {
       return {
         success: false,
