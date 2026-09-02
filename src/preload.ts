@@ -6,6 +6,62 @@ import {
 } from "./services/creativeVaultPersistence";
 
 const UPDATE_OVERLAY_ID = "nisti-desktop-update-overlay";
+const VAULT_SNAPSHOT_DEBOUNCE_MS = 180;
+
+interface VaultSnapshotPayload {
+  notes: any[];
+  folders: string[];
+}
+
+const vaultSnapshotListeners = new Set<(snapshot: VaultSnapshotPayload) => void>();
+let vaultSnapshotTimer: ReturnType<typeof setTimeout> | null = null;
+let vaultSnapshotRefreshInFlight = false;
+let vaultSnapshotRefreshQueued = false;
+
+function emitVaultSnapshot(snapshot: VaultSnapshotPayload): void {
+  for (const listener of Array.from(vaultSnapshotListeners)) {
+    try {
+      listener(snapshot);
+    } catch (error) {
+      console.warn("Vault snapshot listener failed:", error);
+    }
+  }
+}
+
+async function refreshVaultSnapshotForRenderer(): Promise<void> {
+  if (vaultSnapshotRefreshInFlight) {
+    vaultSnapshotRefreshQueued = true;
+    return;
+  }
+
+  vaultSnapshotRefreshInFlight = true;
+  try {
+    const [notes, folders] = await Promise.all([
+      ipcRenderer.invoke("notes:read-all"),
+      ipcRenderer.invoke("vault:list-folders"),
+    ]);
+    emitVaultSnapshot({
+      notes: Array.isArray(notes) ? notes : [],
+      folders: Array.isArray(folders) ? folders : [],
+    });
+  } catch (error) {
+    console.warn("Knowledge was committed, but the local Vault snapshot refresh failed:", error);
+  } finally {
+    vaultSnapshotRefreshInFlight = false;
+    if (vaultSnapshotRefreshQueued) {
+      vaultSnapshotRefreshQueued = false;
+      scheduleVaultSnapshotRefresh();
+    }
+  }
+}
+
+function scheduleVaultSnapshotRefresh(): void {
+  if (vaultSnapshotTimer) clearTimeout(vaultSnapshotTimer);
+  vaultSnapshotTimer = setTimeout(() => {
+    vaultSnapshotTimer = null;
+    void refreshVaultSnapshotForRenderer();
+  }, VAULT_SNAPSHOT_DEBOUNCE_MS);
+}
 
 function restoreRendererStateAfterUpdate(): void {
   try {
@@ -80,7 +136,10 @@ async function commitKnowledgeSafely(payload: any): Promise<any> {
 
   for (let index = 0; index < candidates.length; index += 1) {
     lastResult = await ipcRenderer.invoke("knowledge:commit", candidates[index]);
-    if (lastResult?.success) return lastResult;
+    if (lastResult?.success) {
+      scheduleVaultSnapshotRefresh();
+      return lastResult;
+    }
 
     const canRetryInParent = index === 0
       && candidates.length > 1
@@ -113,6 +172,12 @@ contextBridge.exposeInMainWorld("electronAPI", {
   readNotes: () => ipcRenderer.invoke("notes:read-all"),
   queryKnowledge: (query: string, preferredPaths?: string[]) => ipcRenderer.invoke("knowledge:query", query, preferredPaths),
   commitKnowledge: (payload: any) => commitKnowledgeSafely(payload),
+  onVaultSnapshot: (callback: (snapshot: VaultSnapshotPayload) => void) => {
+    vaultSnapshotListeners.add(callback);
+    return () => {
+      vaultSnapshotListeners.delete(callback);
+    };
+  },
   writeNote: (...args: any[]) => {
     // Compatibility for pre-v0.1.5 callers that still pass vaultPath first.
     // The renderer-provided root is deliberately discarded and never reaches IPC.
